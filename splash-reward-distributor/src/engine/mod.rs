@@ -1,7 +1,11 @@
+pub mod executor;
+mod queue;
+mod task;
+
+use crate::engine::executor::{BatchExecutor, Control};
+use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
+use crate::engine::task::{Task, TaskId};
 use crate::events::OnChainEvent;
-use crate::executor::{BatchExecutor, Control};
-use crate::queue::{QueueCmd, StrikeTime, TaskQueue};
-use crate::task::{Task, TaskId};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
 use std::future::Future;
@@ -9,32 +13,32 @@ use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub struct Scheduler<U, Q, E> {
+pub struct Engine<U, Q, E> {
     event_stream: U,
     queue: Q,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>>>>>,
 }
 
-impl<U, Q, E> Scheduler<U, Q, E> {
+impl<U, Q, E> Engine<U, Q, E> {
     fn block_on(&mut self, task: impl Future<Output = ControlFlow<(), ()>> + 'static) {
         self.current_task = Some(Box::pin(task));
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E> Future for Scheduler<U, Q, E>
+impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
     GaugeId: Copy + Unpin + 'static,
     StateId: Copy + Into<TaskId> + Unpin + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
-            Item = (
-                BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-                TransactionHandle,
-            ),
-        > + Unpin,
+        Item = (
+            BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
+            TransactionHandle,
+        ),
+    > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + 'static,
-    E: Clone + BatchExecutor<TaskId, Task<GaugeId, StateId>, ()> + Unpin + 'static,
+    E: Clone + BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()> + Unpin + 'static,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -116,25 +120,33 @@ where
 async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, ()>,
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>,
 {
-    let mut done_tasks = vec![];
+    let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
     loop {
         if let Some(task) = stream.next().await {
-            if let Ok(control) = executor.execute(task).await {
-                match control {
-                    Control::Next => continue,
-                    Control::Done(tasks) => {
-                        done_tasks = tasks;
-                    }
+            match executor.feed(task).await {
+                Control::Drop(tid) => {
+                    invalid_tasks.push(tid);
+                    continue;
                 }
+                Control::Next => {
+                    continue;
+                }
+                Control::Done => {}
             }
         }
         break;
     }
-    queue
-        .batch_execute(done_tasks.into_iter().map(QueueCmd::Done).collect())
-        .await;
+    if let Ok(res) = executor.execute().await {
+        let commands = res
+            .executed_tasks
+            .into_iter()
+            .map(QueueCmd::Done)
+            .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
+        queue.batch_execute(commands.collect()).await;
+    }
     ControlFlow::Continue(())
 }
+

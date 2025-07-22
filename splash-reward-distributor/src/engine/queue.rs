@@ -231,7 +231,7 @@ fn downgrade_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64)
 
 #[cfg(test)]
 mod tests {
-    use crate::queue::{QueueCmd, RocksDB, StrikeTime, TaskQueue};
+    use crate::engine::queue::{QueueCmd, RocksDB, StrikeTime, TaskQueue};
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
     use splash_testing::db_path::DBPath;
