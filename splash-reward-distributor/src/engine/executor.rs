@@ -216,12 +216,8 @@ where
             Some(ref mut flow) => flow,
         };
         match (flow, task) {
-            (Flow::Harvesting(hf), Task::Harvesting(ht)) => {
-                hf.feed(task_id, ht).await
-            }
-            (Flow::Buffering(bf), Task::GaugeBuffering(bt)) => {
-                bf.feed(task_id, bt).await
-            }
+            (Flow::Harvesting(hf), Task::Harvesting(ht)) => hf.feed(task_id, ht).await,
+            (Flow::Buffering(bf), Task::GaugeBuffering(bt)) => bf.feed(task_id, bt).await,
             _ => Control::Next,
         }
     }
@@ -230,14 +226,20 @@ where
         match self.flow.take() {
             None => Err(()),
             Some(flow) => {
-                let ExecutionResult { executed_tasks, output } = match flow {
+                let ExecutionResult {
+                    executed_tasks,
+                    output,
+                } = match flow {
                     Flow::Harvesting(mut hf) => hf.execute().await?,
                     Flow::Buffering(mut bf) => bf.execute().await?,
                 };
                 match self.tx_submit.submit_tx(output).await {
                     Ok(_) => {
                         //todo!("DEX-892 index transaction io as unconfirmed changes to entities' states")
-                        Ok(ExecutionResult { executed_tasks, output: () })
+                        Ok(ExecutionResult {
+                            executed_tasks,
+                            output: (),
+                        })
                     }
                     Err(_) => {
                         //todo!("DEX-892 invalidate 'spent' states in the index")
