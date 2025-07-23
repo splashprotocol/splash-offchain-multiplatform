@@ -7,7 +7,7 @@ use spectrum_cardano_lib::{
     types::TryFromPData,
     OutputRef,
 };
-use spectrum_offchain::domain::{EntitySnapshot, Has, Stable};
+use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 
@@ -21,26 +21,6 @@ pub struct HarvestOrder<OrderId> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrderCredential(Credential);
-
-impl<OrderId> Stable for HarvestOrder<OrderId> {
-    type StableId = Ed25519KeyHash;
-
-    fn stable_id(&self) -> Self::StableId {
-        self.account
-    }
-
-    fn is_quasi_permanent(&self) -> bool {
-        false
-    }
-}
-
-impl<OrderId> EntitySnapshot for HarvestOrder<OrderId> {
-    type Version = Ed25519KeyHash;
-
-    fn version(&self) -> Self::Version {
-        self.account
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrderDatum {

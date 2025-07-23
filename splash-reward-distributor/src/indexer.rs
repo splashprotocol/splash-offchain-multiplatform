@@ -5,6 +5,7 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_crypto::Ed25519KeyHash;
 use rocksdb::TransactionDB;
 use serde::{de::DeserializeOwned, Serialize};
+use spectrum_offchain::domain::Stable;
 use spectrum_offchain::domain::{
     event::{AnyMod, Confirmed, Predicted, Traced},
     EntitySnapshot,
@@ -15,30 +16,39 @@ use crate::onchain::{
 };
 
 #[async_trait::async_trait]
-pub trait OnChainIndex<GaugeId, StateId, Bearer>
-where
-    GaugeId: Copy + Eq + Hash + Send + Sync + Display,
-    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
-{
-    async fn read_harvest_order(
-        &self,
-        id: Ed25519KeyHash,
-    ) -> Option<AnyMod<Bundled<HarvestOrder<StateId>, Bearer>>>;
-    async fn read_buffer_wallet(&self) -> Option<AnyMod<Bundled<BufferWallet<StateId>, Bearer>>>;
-    async fn read_gauge(&self, id: GaugeId) -> Option<AnyMod<Bundled<Gauge<GaugeId, StateId>, Bearer>>>;
-    async fn read_auth_manager(&self) -> Option<AnyMod<Bundled<AuthManager<GaugeId, StateId>, Bearer>>>;
+pub trait OnChainIndex<Bearer> {
+    async fn read<T>(&self) -> Option<AnyMod<Bundled<T, Bearer>>>
+    where
+        T: unique_ids::UniqueId + EntitySnapshot + Send;
 
     async fn write_predicted<T>(&self, entity: Traced<Predicted<Bundled<T, Bearer>>>)
     where
         T: unique_ids::UniqueId + EntitySnapshot + Send;
+
     async fn write_confirmed<T>(&self, entity: Traced<Confirmed<Bundled<T, Bearer>>>)
     where
         T: unique_ids::UniqueId + EntitySnapshot + Send;
 
-    /// Deletes latest version(StateId) of the entity and returns the previous version if it exists.
-    async fn remove<T>(&self, stable_id: T::StableId) -> Option<StateId>
+    /// Deletes latest version of the entity and returns the previous version if it exists.
+    async fn remove<T>(&self, version: T::Version) -> Option<T::Version>
     where
         T: unique_ids::UniqueId + EntitySnapshot + Send;
+}
+
+pub enum Mod<T> {
+    Confirmed(T),
+    Predicted(T),
+}
+
+#[async_trait::async_trait]
+pub trait HarvestOrderIndex<StateId, Bearer>
+where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+{
+    async fn read_harvest_order(&self, id: StateId) -> Option<Mod<Bundled<HarvestOrder<StateId>, Bearer>>>;
+    async fn write_predicted_harvest_order(&self, order: Predicted<Bundled<HarvestOrder<StateId>, Bearer>>);
+    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
+    async fn remove<T>(&self, id: StateId) -> Option<StateId>;
 }
 
 pub struct IndexerDB {
@@ -46,25 +56,14 @@ pub struct IndexerDB {
 }
 
 #[async_trait::async_trait]
-impl<GaugeId, StateId, Bearer> OnChainIndex<GaugeId, StateId, Bearer> for IndexerDB
+impl<Bearer> OnChainIndex<Bearer> for IndexerDB
 where
-    GaugeId: Copy + Eq + Hash + Send + Sync + Display + 'static,
-    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
     Bearer: Send + 'static,
 {
-    async fn read_harvest_order(
-        &self,
-        id: Ed25519KeyHash,
-    ) -> Option<AnyMod<Bundled<HarvestOrder<StateId>, Bearer>>> {
-        todo!()
-    }
-    async fn read_buffer_wallet(&self) -> Option<AnyMod<Bundled<BufferWallet<StateId>, Bearer>>> {
-        todo!()
-    }
-    async fn read_gauge(&self, id: GaugeId) -> Option<AnyMod<Bundled<Gauge<GaugeId, StateId>, Bearer>>> {
-        todo!()
-    }
-    async fn read_auth_manager(&self) -> Option<AnyMod<Bundled<AuthManager<GaugeId, StateId>, Bearer>>> {
+    async fn read<T>(&self) -> Option<AnyMod<Bundled<T, Bearer>>>
+    where
+        T: unique_ids::UniqueId + EntitySnapshot + Send,
+    {
         todo!()
     }
 
@@ -83,11 +82,56 @@ where
         todo!()
     }
     /// Deletes latest version(StateId) of the entity and returns the previous version if it exists.
-    async fn remove<T>(&self, stable_id: T::StableId) -> Option<StateId>
+    async fn remove<T>(&self, version: T::Version) -> Option<T::Version>
     where
         T: unique_ids::UniqueId + EntitySnapshot + Send,
     {
         todo!()
+    }
+}
+
+#[async_trait::async_trait]
+impl<StateId, Bearer> HarvestOrderIndex<StateId, Bearer> for IndexerDB
+where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    Bearer: Send + 'static,
+{
+    async fn read_harvest_order(&self, id: StateId) -> Option<Mod<Bundled<HarvestOrder<StateId>, Bearer>>> {
+        todo!()
+    }
+
+    async fn write_predicted_harvest_order(&self, order: Predicted<Bundled<HarvestOrder<StateId>, Bearer>>) {
+        todo!()
+    }
+
+    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
+        todo!()
+    }
+
+    async fn remove<T>(&self, id: StateId) -> Option<StateId> {
+        todo!()
+    }
+}
+
+pub struct HarvestOrderWrap<StateId>(HarvestOrder<StateId>);
+
+impl<StateId> Stable for HarvestOrderWrap<StateId> {
+    type StableId = Ed25519KeyHash;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.0.account
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        false
+    }
+}
+
+impl<StateId> EntitySnapshot for HarvestOrderWrap<StateId> {
+    type Version = Ed25519KeyHash;
+
+    fn version(&self) -> Self::Version {
+        self.0.account
     }
 }
 
@@ -98,7 +142,7 @@ mod unique_ids {
     }
 }
 
-impl<StateId> unique_ids::UniqueId for HarvestOrder<StateId> {
+impl<StateId> unique_ids::UniqueId for HarvestOrderWrap<StateId> {
     const ID: u8 = EntityId::HarvestOrder as u8;
 }
 
