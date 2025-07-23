@@ -17,7 +17,7 @@ use crate::onchain::{
 
 #[async_trait::async_trait]
 pub trait OnChainIndex<Bearer> {
-    async fn read<T>(&self) -> Option<AnyMod<Bundled<T, Bearer>>>
+    async fn read<T>(&self, id: T::StableId) -> Option<AnyMod<Bundled<T, Bearer>>>
     where
         T: unique_ids::UniqueId + EntitySnapshot + Send;
 
@@ -60,7 +60,7 @@ impl<Bearer> OnChainIndex<Bearer> for IndexerDB
 where
     Bearer: Send + 'static,
 {
-    async fn read<T>(&self) -> Option<AnyMod<Bundled<T, Bearer>>>
+    async fn read<T>(&self, id: T::StableId) -> Option<AnyMod<Bundled<T, Bearer>>>
     where
         T: unique_ids::UniqueId + EntitySnapshot + Send,
     {
