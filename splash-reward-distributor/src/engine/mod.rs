@@ -1,3 +1,4 @@
+mod batch;
 pub mod executor;
 mod queue;
 mod task;
@@ -32,11 +33,11 @@ where
     StateId: Copy + Into<TaskId> + Unpin + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
-        Item = (
-            BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-            TransactionHandle,
-        ),
-    > + Unpin,
+            Item = (
+                BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
+                TransactionHandle,
+            ),
+        > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + 'static,
     E: Clone + BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()> + Unpin + 'static,
 {
@@ -125,8 +126,8 @@ where
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
     loop {
-        if let Some(task) = stream.next().await {
-            match executor.feed(task).await {
+        if let Some((task_id, task)) = stream.next().await {
+            match executor.feed(task_id, task).await {
                 Control::Drop(tid) => {
                     invalid_tasks.push(tid);
                     continue;
@@ -134,7 +135,7 @@ where
                 Control::Next => {
                     continue;
                 }
-                Control::Done => {}
+                Control::Stop => {}
             }
         }
         break;
@@ -149,4 +150,3 @@ where
     }
     ControlFlow::Continue(())
 }
-

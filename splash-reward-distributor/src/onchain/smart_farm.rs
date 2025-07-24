@@ -22,6 +22,7 @@ use crate::events::EntityUpdated;
 pub struct Gauge<GaugeId, StateId> {
     pub id: GaugeId,
     pub state_id: StateId,
+    pub balance: u64,
 }
 
 impl<GaugeId, StateId> Stable for Gauge<GaugeId, StateId>
@@ -93,5 +94,6 @@ where
     Some(Gauge {
         id: smart_farm.farm_id,
         state_id: output_ref,
+        balance: todo!(),
     })
 }

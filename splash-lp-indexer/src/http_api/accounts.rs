@@ -3,7 +3,15 @@ use actix_web::dev::{AppService, HttpServiceFactory};
 use actix_web::{guard, web, HttpResponse, Responder};
 use cml_chain::certs::Credential;
 use cml_core::serialization::FromBytes;
+use cml_core::Slot;
+use serde::Serialize;
 use std::marker::PhantomData;
+
+#[derive(Clone, Serialize)]
+pub struct LockAccountResponse {
+    pub locked_at: Slot,
+    pub total_share: u64,
+}
 
 pub struct AccountsApi<Accounts>(pub PhantomData<Accounts>);
 

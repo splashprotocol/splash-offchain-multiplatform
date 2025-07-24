@@ -24,8 +24,8 @@ pub enum QueueCmd<TaskId, Task> {
 #[async_trait]
 pub trait TaskQueue<TaskId, Task> {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>);
-    fn pending_stream(self) -> impl Stream<Item = Task> + Unpin;
-    fn done_stream(self) -> impl Stream<Item = Task> + Unpin;
+    fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin;
+    fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin;
 }
 
 #[derive(Clone)]
@@ -103,7 +103,7 @@ impl RocksDB {
 #[async_trait]
 impl<TaskId, Task> TaskQueue<TaskId, Task> for RocksDB
 where
-    TaskId: Copy + AsRef<[u8]> + Send + 'static,
+    TaskId: Copy + TryFrom<Box<[u8]>> + AsRef<[u8]> + Send + 'static,
     Task: Serialize + DeserializeOwned + Send + 'static,
 {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>) {
@@ -129,7 +129,7 @@ where
         .unwrap();
     }
 
-    fn pending_stream(self) -> impl Stream<Item = Task> + Unpin {
+    fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin {
         let (mut snd, recv) = mpsc::channel(100);
         spawn_blocking(move || {
             let tables = self.tables();
@@ -144,8 +144,9 @@ where
                         let task_id = &key[8..];
                         if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
                             if let Ok(None) = tx.get_cf(tables.done, task_id) {
+                                let task_id = key.try_into().ok().unwrap();
                                 let task = rmp_serde::from_slice(&task_bytes).unwrap();
-                                if let Err(_) = block_on(snd.send(task)) {
+                                if let Err(_) = block_on(snd.send((task_id, task))) {
                                     break;
                                 }
                                 continue;
@@ -159,7 +160,7 @@ where
         recv
     }
 
-    fn done_stream(self) -> impl Stream<Item = Task> + Unpin {
+    fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin {
         let (mut snd, recv) = mpsc::channel(100);
         spawn_blocking(move || {
             let tables = self.tables();
@@ -167,8 +168,9 @@ where
             let mut done_tasks = tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
             while let Some(Ok((task_id, _))) = done_tasks.next() {
                 if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, &task_id) {
+                    let task_id = task_id.try_into().ok().unwrap();
                     let task = rmp_serde::from_slice(&task_bytes).unwrap();
-                    if let Err(_) = block_on(snd.send(task)) {
+                    if let Err(_) = block_on(snd.send((task_id, task))) {
                         break;
                     }
                     continue;
@@ -235,10 +237,23 @@ mod tests {
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
     use splash_testing::db_path::DBPath;
+    use std::array::TryFromSliceError;
     use std::time::Duration;
     use tokio::time::timeout;
 
-    pub type TaskId = [u8; 32];
+    #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+    pub struct TaskId([u8; 32]);
+    impl AsRef<[u8]> for TaskId {
+        fn as_ref(&self) -> &[u8] {
+            self.0.as_ref()
+        }
+    }
+    impl TryFrom<Box<[u8]>> for TaskId {
+        type Error = ();
+        fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+            <[u8; 32]>::try_from(value.as_ref()).map(Self).map_err(|_| ())
+        }
+    }
     #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
     pub struct Task(TaskId);
 
@@ -246,7 +261,7 @@ mod tests {
     async fn execute_schedule() {
         let path = DBPath::new("_test_execute_schedule");
         let db = RocksDB::new(&path);
-        let tid0 = [0u8; 32];
+        let tid0 = TaskId([0u8; 32]);
         let t0 = Task(tid0);
         db.clone()
             .batch_execute(vec![
@@ -256,18 +271,21 @@ mod tests {
             .await;
         let ordered_tasks = timeout(
             Duration::from_millis(100),
-            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<Task>>(),
+            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<(TaskId, Task)>>(),
         )
         .await
         .unwrap();
-        assert_eq!(ordered_tasks, vec![t0]);
+        assert_eq!(
+            ordered_tasks.into_iter().map(|(_, t)| t).collect::<Vec<_>>(),
+            vec![t0]
+        );
     }
 
     #[tokio::test]
     async fn stream_pending_tasks() {
         let path = DBPath::new("_test_stream_pending_tasks");
         let db = RocksDB::new(&path);
-        let (tid0, tid1, tid2) = ([0u8; 32], [1u8; 32], [2u8; 32]);
+        let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
         let (t0, t1, t2) = (Task(tid0), Task(tid1), Task(tid2));
         db.clone()
             .batch_execute(vec![
@@ -289,18 +307,21 @@ mod tests {
             .await;
         let ordered_tasks = timeout(
             Duration::from_millis(100),
-            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<Task>>(),
+            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<(TaskId, Task)>>(),
         )
         .await
         .unwrap();
-        assert_eq!(ordered_tasks, vec![t0, t2]);
+        assert_eq!(
+            ordered_tasks.into_iter().map(|(_, t)| t).collect::<Vec<_>>(),
+            vec![t0, t2]
+        );
     }
 
     #[tokio::test]
     async fn delete_pending_task() {
         let path = DBPath::new("_test_delete_pending_task");
         let db = RocksDB::new(&path);
-        let (tid0, tid1, tid2) = ([0u8; 32], [1u8; 32], [2u8; 32]);
+        let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
         let (t0, t1, t2) = (Task(tid0), Task(tid1), Task(tid2));
         db.clone()
             .batch_execute(vec![
@@ -325,18 +346,21 @@ mod tests {
             .await;
         let ordered_tasks = timeout(
             Duration::from_millis(100),
-            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<Task>>(),
+            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<(TaskId, Task)>>(),
         )
         .await
         .unwrap();
-        assert_eq!(ordered_tasks, vec![t0]);
+        assert_eq!(
+            ordered_tasks.into_iter().map(|(_, t)| t).collect::<Vec<_>>(),
+            vec![t0]
+        );
     }
 
     #[tokio::test]
     async fn mark_task_done() {
         let path = DBPath::new("_test_mark_task_done");
         let db = RocksDB::new(&path);
-        let (tid0, tid1, tid2) = ([0u8; 32], [1u8; 32], [2u8; 32]);
+        let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
         let (t0, t1, t2) = (Task(tid0), Task(tid1), Task(tid2));
         db.clone()
             .batch_execute(vec![
@@ -361,27 +385,36 @@ mod tests {
             .await;
         let ordered_pending_tasks = timeout(
             Duration::from_millis(100),
-            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db.clone()).collect::<Vec<Task>>(),
+            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db.clone()).collect::<Vec<(TaskId, Task)>>(),
         )
         .await
         .unwrap();
-        assert_eq!(ordered_pending_tasks, vec![t0]);
+        assert_eq!(
+            ordered_pending_tasks
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect::<Vec<_>>(),
+            vec![t0]
+        );
         let ordered_done_tasks = timeout(
             Duration::from_millis(100),
-            <RocksDB as TaskQueue<TaskId, Task>>::done_stream(db).collect::<Vec<Task>>(),
+            <RocksDB as TaskQueue<TaskId, Task>>::done_stream(db).collect::<Vec<(TaskId, Task)>>(),
         )
         .await
         .unwrap();
-        assert_eq!(ordered_done_tasks, vec![t2]);
+        assert_eq!(
+            ordered_done_tasks.into_iter().map(|(_, t)| t).collect::<Vec<_>>(),
+            vec![t2]
+        );
     }
 
     #[tokio::test]
     async fn update_task() {
         let path = DBPath::new("_test_update_task");
         let db = RocksDB::new(&path);
-        let (tid0, tid1) = ([0u8; 32], [1u8; 32]);
+        let (tid0, tid1) = (TaskId([0u8; 32]), TaskId([1u8; 32]));
         let (t0, t1) = (Task(tid0), Task(tid1));
-        let t1_upd = Task([3u8; 32]);
+        let t1_upd = Task(TaskId([3u8; 32]));
         db.clone()
             .batch_execute(vec![
                 QueueCmd::AdvanceClocks(1),
@@ -399,10 +432,16 @@ mod tests {
             .await;
         let ordered_pending_tasks = timeout(
             Duration::from_millis(100),
-            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db.clone()).collect::<Vec<Task>>(),
+            <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db.clone()).collect::<Vec<(TaskId, Task)>>(),
         )
         .await
         .unwrap();
-        assert_eq!(ordered_pending_tasks, vec![t0, t1_upd]);
+        assert_eq!(
+            ordered_pending_tasks
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect::<Vec<_>>(),
+            vec![t0, t1_upd]
+        );
     }
 }

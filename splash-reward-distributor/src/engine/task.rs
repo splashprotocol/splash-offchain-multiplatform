@@ -13,7 +13,7 @@ impl<GaugeId, OrderId> Task<GaugeId, OrderId> {
     }
 
     pub fn new_harvesting(order: OrderId) -> Self {
-        Self::Harvesting(Harvesting { order })
+        Self::Harvesting(Harvesting { order_id: order })
     }
 }
 
@@ -24,5 +24,5 @@ pub struct GaugeBuffering<GaugeId> {
 
 #[derive(Copy, Clone)]
 pub struct Harvesting<OrderId> {
-    pub order: OrderId,
+    pub order_id: OrderId,
 }

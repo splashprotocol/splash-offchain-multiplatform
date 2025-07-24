@@ -5,6 +5,7 @@ mod index;
 mod indexer;
 mod onchain;
 mod pipeline;
+mod positions;
 
 use crate::config::AppConfig;
 use async_primitives::beacon::Beacon;
