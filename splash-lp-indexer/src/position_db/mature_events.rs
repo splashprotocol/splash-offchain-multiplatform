@@ -1,7 +1,8 @@
 use crate::account::{AccountInPool, SuspendedPositionEvents};
 use crate::feed::event::ExportAccountEvent;
 use crate::onchain::event::{
-    AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PoolEvent, PositionEvent,
+    AccountEvent, AccountPoolHarvested, FarmEvent, MultiAccountHarvested, OnChainEvent, PoolEvent,
+    PositionEvent,
 };
 use crate::position_db::accounts::Accounts;
 use crate::position_db::pool_frames::PoolFrames;
@@ -237,7 +238,7 @@ fn aggregate_events(events: Vec<OnChainEvent>) -> HashMap<PoolId, PoolFrame> {
 
 #[derive(Debug)]
 struct AccountFrame {
-    harvest_events: VecDeque<Harvest>,
+    harvest_events: VecDeque<AccountPoolHarvested>,
     suspended_position_events: Vec<SuspendedPositionEvents>,
     suspended_position_events_keys: Vec<Vec<u8>>,
     upstream_position_events: Vec<PositionEvent>,

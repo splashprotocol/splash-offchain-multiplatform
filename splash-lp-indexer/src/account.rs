@@ -1,5 +1,5 @@
 use crate::constants::EVENT_LOCK_TTL_SLOTS;
-use crate::onchain::event::{Harvest, PositionEvent};
+use crate::onchain::event::{AccountPoolHarvested, PositionEvent};
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
 
@@ -63,7 +63,11 @@ impl AccountInPool {
     }
 
     // Process harvest event if harvest succeeded.
-    pub fn harvest(mut self, delayed_events: Vec<SuspendedPositionEvents>, harvest: Harvest) -> Self {
+    pub fn harvest(
+        mut self,
+        delayed_events: Vec<SuspendedPositionEvents>,
+        harvest: AccountPoolHarvested,
+    ) -> Self {
         if let Some(ref mut activated_at) = self.activated_at {
             *activated_at = harvest.harvested_till;
         };

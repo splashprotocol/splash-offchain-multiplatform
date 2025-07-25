@@ -1,4 +1,5 @@
 mod config;
+mod emission;
 mod engine;
 mod events;
 mod index;

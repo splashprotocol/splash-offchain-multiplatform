@@ -28,7 +28,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
-    MultipleHarvest(MultipleAccountsHarvest),
+    MultipleHarvest(MultiAccountHarvested),
     FarmCreated(FarmCreated),
     PollFactory(PollFactoryEvents),
     PoolCreated(PoolCreated),
@@ -68,8 +68,7 @@ where
             .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
             .or_else(|| PollFactoryEvents::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactory))
             .or_else(|| {
-                MultipleAccountsHarvest::try_from_ledger(repr, ctx)
-                    .map(StatelessOnChainEvent::MultipleHarvest)
+                MultiAccountHarvested::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::MultipleHarvest)
             })
             .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated))
     }
@@ -95,7 +94,7 @@ impl OnChainEvent {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum AccountEvent {
     Position(PositionEvent),
-    Harvest(Harvest),
+    Harvest(AccountPoolHarvested),
 }
 
 impl AccountEvent {
@@ -295,13 +294,13 @@ impl Display for Redeem {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Harvest {
+pub struct AccountPoolHarvested {
     pub pool_id: PoolId,
     pub account: Credential,
     pub harvested_till: cml_chain::Slot,
 }
 
-impl Display for Harvest {
+impl Display for AccountPoolHarvested {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let account = hex::encode(self.account.to_raw_bytes());
         write!(
@@ -312,36 +311,19 @@ impl Display for Harvest {
     }
 }
 
+/// Harvest has been executed on-chain.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct MultipleAccountsHarvest {
+pub struct MultiAccountHarvested {
     pub accounts: Vec<Credential>,
     pub harvested_till: Slot,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultipleAccountsHarvest
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultiAccountHarvested
 where
     Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        repr.outputs.iter().find_map(|output| {
-            let correct_lovelace_value = output.value().coin as u64
-                >= (repr.signers.len() as u64
-                    * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
-            if test_address(output.address(), ctx) && correct_lovelace_value {
-                let accounts = repr
-                    .signers
-                    .clone()
-                    .into_iter()
-                    .map(Credential::new_pub_key)
-                    .collect();
-                Some(MultipleAccountsHarvest {
-                    accounts,
-                    harvested_till: Slot(repr.slot),
-                })
-            } else {
-                None
-            }
-        })
+        todo!("DEX-888")
     }
 }
 

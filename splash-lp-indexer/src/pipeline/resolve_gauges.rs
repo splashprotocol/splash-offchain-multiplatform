@@ -1,5 +1,5 @@
 use crate::onchain::event::{
-    AccountEvent, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, Harvest, OnChainEvent,
+    AccountEvent, AccountPoolHarvested, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, OnChainEvent,
     PollFactoryEvents, PoolEvent, StatelessOnChainEvent,
 };
 use crate::position_db::accounts::Accounts;
@@ -125,11 +125,13 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
                 for account in multiple_harvest.accounts {
                     let account_pools = events_log.get_account_pools(account.clone()).await;
                     for pool_id in account_pools {
-                        translated_events.push(OnChainEvent::Account(AccountEvent::Harvest(Harvest {
-                            pool_id,
-                            account: account.clone(),
-                            harvested_till: multiple_harvest.harvested_till.0,
-                        })))
+                        translated_events.push(OnChainEvent::Account(AccountEvent::Harvest(
+                            AccountPoolHarvested {
+                                pool_id,
+                                account: account.clone(),
+                                harvested_till: multiple_harvest.harvested_till.0,
+                            },
+                        )))
                     }
                 }
             }

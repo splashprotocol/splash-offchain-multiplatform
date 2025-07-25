@@ -1,12 +1,15 @@
-use std::fmt::Display;
+use crate::emission::Emission;
 use crate::engine::batch::{BufferingBatch, HarvestBatch};
 use crate::engine::task::{Harvesting, Task, TaskId};
 use crate::index::HarvestingIndex;
+use crate::positions::{AccountState, LockAccountRejection, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
+use bloom_offchain::execution_engine::bundled::Bundled;
 use log::{error, warn};
 use spectrum_offchain::network::Network;
+use splash_dao_offchain::entities::onchain::inflation_box::emission_rate;
+use std::fmt::Display;
 use std::marker::PhantomData;
-use crate::positions::{AccountLocked, LockAccountRejection, Positions};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control<TaskId> {
@@ -30,21 +33,24 @@ pub trait BatchExecutor<TaskId, Task, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
 }
 
-pub struct HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex> {
+pub struct HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
+    emission: Emission,
     batch: Option<HarvestBatch<StateId, Bearer>>,
 }
 
 #[async_trait]
-impl<StateId, Bearer, Tx, PositionIndex, OnChainIndex> BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>
-    for HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex>
+impl<StateId, Bearer, Tx, PositionIndex, OnChainIndex, Emiss>
+    BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>
+    for HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emiss>
 where
     StateId: Send + Sync + Display + 'static,
     Bearer: Send,
     Tx: Send,
     PositionIndex: Positions<StateId> + Send,
     OnChainIndex: HarvestingIndex<StateId, Bearer> + Send,
+    Emiss: Emission + Send,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<StateId>) -> Control<TaskId> {
         let order = if let Some(order) = self.onchain_index.get_order(task.order_id).await {
@@ -52,16 +58,53 @@ where
         } else {
             return Control::Drop(task_id);
         };
-        if let Some(ref mut batch) = self.batch {
-            if let Err(_) = batch.try_add_order(order) {
-                return Control::Stop;
-            }
+        let batch = if let Some(ref mut batch) = self.batch {
+            batch
         } else {
             if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
-                let _ = self.batch.insert(HarvestBatch::new(bw, order));
+                self.batch.insert(HarvestBatch::new(bw))
             } else {
                 error!("No buffer wallet found");
                 return Control::Stop;
+            }
+        };
+        let Bundled(req, _) = &order;
+        match self.position_index.query_account(&req.account).await {
+            Ok(AccountState {
+                activated_at,
+                queried_at,
+                total_share_bps,
+            }) => {
+                let emission = self.emission.total_emission_between(activated_at, queried_at);
+                let payout = bps_to_abs(total_share_bps, emission);
+                if batch.can_accept(payout) {
+                    if let Err(LockedByAnotherReq(concurrent_req)) =
+                        self.position_index.lock_account(&req.id, &req.account).await
+                    {
+                        warn!(
+                            "Account {} is already locked by another request {}, dropping request {}",
+                            hex::encode(req.account.to_raw_bytes()),
+                            concurrent_req,
+                            req.id
+                        );
+                        return Control::Drop(task_id);
+                    }
+                    batch.add_order(order, payout);
+                } else {
+                    warn!(
+                        "Buffer wallet is running out of funds, cannot process request {}",
+                        req.id
+                    );
+                    return Control::Stop;
+                }
+            }
+            Err(_not_found) => {
+                warn!(
+                    "Account {} not found, dropping request {}",
+                    hex::encode(req.account.to_raw_bytes()),
+                    req.id
+                );
+                return Control::Drop(task_id);
             }
         }
         Control::Next
@@ -69,21 +112,15 @@ where
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
         if let Some(batch) = self.batch.take() {
-            for req in batch.orders() {
-                match self.position_index.lock_account(&req.id, &req.account).await {
-                    Ok(locked) => {
-                        // compute abs SPLASH share
-                    }
-                    Err(err) => {
-                        warn!("Account {} already locked by another request {}", hex::encode(req.account.to_raw_bytes()), req.id);
-                    }
-                }
-            }
             todo!()
         } else {
             Err(())
         }
     }
+}
+
+fn bps_to_abs(bps: u64, x: u64) -> u64 {
+    (bps * x) / 10_000
 }
 
 pub struct BufferingFlow<StateId, GaugeId, Bearer, OnChainIndex> {
