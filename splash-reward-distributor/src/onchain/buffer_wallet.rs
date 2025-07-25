@@ -21,11 +21,22 @@ use splash_dao_offchain::{
 use crate::{events::EntityUpdated, onchain::RewardProtocolValidator};
 
 #[derive(
-    Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize, derive_more::Display, Hash,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    From,
+    Serialize,
+    Deserialize,
+    derive_more::Display,
+    Hash,
+    Debug,
 )]
 pub struct BufferWalletId;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BufferWallet<StateId> {
     pub state_id: StateId,
     pub balance: u64,

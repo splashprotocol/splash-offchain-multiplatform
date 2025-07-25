@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use cml_chain::transaction::TransactionOutput;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{tx_view::TxViewPartiallyResolved, OutputRef};
 use spectrum_offchain::{
     domain::{EntitySnapshot, Has, Stable},
@@ -18,7 +18,7 @@ use splash_dao_offchain::{
 
 use crate::events::EntityUpdated;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Gauge<GaugeId, StateId> {
     pub id: GaugeId,
     pub state_id: StateId,

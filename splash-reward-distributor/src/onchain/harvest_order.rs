@@ -1,5 +1,6 @@
 use cml_chain::{certs::Credential, transaction::TransactionOutput};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
     transaction::TransactionOutputExtension,
@@ -13,7 +14,7 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 
 use crate::config::HarvestLimits;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     pub account: Ed25519KeyHash,
