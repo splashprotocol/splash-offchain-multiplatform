@@ -765,7 +765,7 @@ const BASE_TAKE_TO_MAKE_RATIO: Ratio<usize> = Ratio::new_raw(1, 2);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into, serde::Deserialize)]
 pub struct BaseStepBudget(u64);
 
-/// An exception indicating the recipe turned out to be too expensive for available budget.
+/// An exception indicating the recipe turned out to be too expensive for the available budget.
 pub struct DowngradeNeeded;
 
 /// Takers that require deeper execution than current recipe provides.

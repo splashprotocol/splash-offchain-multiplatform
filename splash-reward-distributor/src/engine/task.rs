@@ -1,5 +1,13 @@
+use std::fmt::Display;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct TaskId([u8; 32]);
+
+impl Display for TaskId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
 
 #[derive(Copy, Clone)]
 pub enum Task<GaugeId, OrderId> {
@@ -9,7 +17,7 @@ pub enum Task<GaugeId, OrderId> {
 
 impl<GaugeId, OrderId> Task<GaugeId, OrderId> {
     pub fn new_gauge_buffering(gauge: GaugeId) -> Self {
-        Self::GaugeBuffering(GaugeBuffering { gauge })
+        Self::GaugeBuffering(GaugeBuffering { gauge_id: gauge })
     }
 
     pub fn new_harvesting(order: OrderId) -> Self {
@@ -19,7 +27,7 @@ impl<GaugeId, OrderId> Task<GaugeId, OrderId> {
 
 #[derive(Copy, Clone)]
 pub struct GaugeBuffering<GaugeId> {
-    pub gauge: GaugeId,
+    pub gauge_id: GaugeId,
 }
 
 #[derive(Copy, Clone)]

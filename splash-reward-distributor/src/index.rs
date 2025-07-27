@@ -6,13 +6,17 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 
 #[async_trait]
-pub trait HarvestingIndex<StateId, Bearer> {
+pub trait BufferWalletIndex<StateId, Bearer> {
     async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>>;
+}
+
+#[async_trait]
+pub trait OrderIndex<StateId, Bearer> {
     async fn get_order(&self, id: StateId) -> Option<Bundled<HarvestOrder<StateId>, Bearer>>;
 }
 
 #[async_trait]
-pub trait GaugeBufferingIndex<GaugeId, StateId, Bearer> {
+pub trait GaugeIndex<GaugeId, StateId, Bearer> {
     async fn get_gauge(&self, id: GaugeId) -> Option<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
     async fn get_auth_manager(&self) -> Option<Bundled<AuthManager<GaugeId, StateId>, Bearer>>;
 }

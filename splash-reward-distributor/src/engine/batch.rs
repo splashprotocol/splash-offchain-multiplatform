@@ -38,3 +38,20 @@ pub struct BufferingBatch<GaugeId, StateId, Bearer> {
     pub gauges: Vec<Bundled<Gauge<GaugeId, StateId>, Bearer>>,
     pub buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
 }
+
+impl<GaugeId, StateId, Bearer> BufferingBatch<GaugeId, StateId, Bearer> {
+    pub fn new(buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>) -> Self {
+        Self {
+            buffer_wallet,
+            gauges: vec![],
+        }
+    }
+
+    pub fn gauges(&self) -> Vec<&Gauge<GaugeId, StateId>> {
+        self.gauges.iter().map(|Bundled(t, _)| t).collect()
+    }
+
+    pub fn add_gauge(&mut self, gauge: Bundled<Gauge<GaugeId, StateId>, Bearer>) {
+        self.gauges.push(gauge);
+    }
+}

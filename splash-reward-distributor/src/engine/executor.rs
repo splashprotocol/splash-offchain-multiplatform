@@ -1,13 +1,12 @@
 use crate::emission::Emission;
 use crate::engine::batch::{BufferingBatch, HarvestBatch};
-use crate::engine::task::{Harvesting, Task, TaskId};
-use crate::index::HarvestingIndex;
-use crate::positions::{AccountState, LockAccountRejection, LockedByAnotherReq, Positions};
+use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
+use crate::index::{BufferWalletIndex, GaugeIndex, OrderIndex};
+use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use log::{error, warn};
 use spectrum_offchain::network::Network;
-use splash_dao_offchain::entities::onchain::inflation_box::emission_rate;
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -33,7 +32,7 @@ pub trait BatchExecutor<TaskId, Task, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
 }
 
-pub struct HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission> {
+pub struct HarvestingFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     emission: Emission,
@@ -43,13 +42,13 @@ pub struct HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission> {
 #[async_trait]
 impl<StateId, Bearer, Tx, PositionIndex, OnChainIndex, Emiss>
     BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>
-    for HarvestFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emiss>
+    for HarvestingFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emiss>
 where
     StateId: Send + Sync + Display + 'static,
     Bearer: Send,
     Tx: Send,
     PositionIndex: Positions<StateId> + Send,
-    OnChainIndex: HarvestingIndex<StateId, Bearer> + Send,
+    OnChainIndex: BufferWalletIndex<StateId, Bearer> + OrderIndex<StateId, Bearer> + Send,
     Emiss: Emission + Send,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<StateId>) -> Control<TaskId> {
@@ -76,7 +75,7 @@ where
                 total_share_bps,
             }) => {
                 let emission = self.emission.total_emission_between(activated_at, queried_at);
-                let payout = bps_to_abs(total_share_bps, emission);
+                let payout = reward_amount(total_share_bps, emission);
                 if batch.can_accept(payout) {
                     if let Err(LockedByAnotherReq(concurrent_req)) =
                         self.position_index.lock_account(&req.id, &req.account).await
@@ -112,34 +111,50 @@ where
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
         if let Some(batch) = self.batch.take() {
-            todo!()
+            todo!("Build tx")
         } else {
             Err(())
         }
     }
 }
 
-fn bps_to_abs(bps: u64, x: u64) -> u64 {
-    (bps * x) / 10_000
+fn reward_amount(share_bps: u64, interval_emission: u64) -> u64 {
+    (share_bps * interval_emission) / 10_000
 }
 
-pub struct BufferingFlow<StateId, GaugeId, Bearer, OnChainIndex> {
+pub struct BufferingFlow<GaugeId, StateId, Bearer, OnChainIndex> {
     onchain_index: OnChainIndex,
-    batch: BufferingBatch<StateId, GaugeId, Bearer>,
+    batch: Option<BufferingBatch<GaugeId, StateId, Bearer>>,
 }
 
 #[async_trait]
-impl<StateId, GaugeId, Bearer, Tx, OnChainIndex> BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>
-    for BufferingFlow<StateId, GaugeId, Bearer, OnChainIndex>
+impl<GaugeId, StateId, Bearer, Tx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, Tx, ()>
+    for BufferingFlow<GaugeId, StateId, Bearer, OnChainIndex>
 where
+    GaugeId: Display + Copy + Send + 'static,
     StateId: Send + 'static,
-    GaugeId: Send + 'static,
     Bearer: Send,
     Tx: Send,
-    OnChainIndex: Send,
+    OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer> + BufferWalletIndex<StateId, Bearer> + Send,
 {
-    async fn feed(&mut self, task_id: TaskId, task: Harvesting<StateId>) -> Control<TaskId> {
-        todo!()
+    async fn feed(&mut self, task_id: TaskId, task: GaugeBuffering<GaugeId>) -> Control<TaskId> {
+        let batch = if let Some(ref mut batch) = self.batch {
+            batch
+        } else {
+            if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
+                self.batch.insert(BufferingBatch::new(bw))
+            } else {
+                error!("No buffer wallet found");
+                return Control::Stop;
+            }
+        };
+        if let Some(gauge) = self.onchain_index.get_gauge(task.gauge_id).await {
+            batch.add_gauge(gauge);
+        } else {
+            warn!("Gauge {} not found, dropping task {}", task.gauge_id, task_id);
+            return Control::Drop(task_id);
+        }
+        Control::Next
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
@@ -147,27 +162,35 @@ where
     }
 }
 
-pub struct Executor<Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit> {
+pub enum Flow<GaugeId, StateId, Bearer, OnChainIndex, PositionIndex, Emission> {
+    Harvesting(HarvestingFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission>),
+    Buffering(BufferingFlow<GaugeId, StateId, Bearer, OnChainIndex>),
+}
+
+pub struct Executor<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     tx_submit: TxSubmit,
+    flow: Option<Flow<GaugeId, StateId, Bearer, OnChainIndex, PositionIndex, Emission>>,
     pd: PhantomData<(Tx, TxErr)>,
 }
 
 #[async_trait]
-impl<GaugeId, OrderId, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit>
-    BatchExecutor<TaskId, Task<GaugeId, OrderId>, (), ()>
-    for Executor<Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit>
+impl<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission>
+    BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>
+    for Executor<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission>
 where
     GaugeId: Send + 'static,
-    OrderId: Send + 'static,
+    StateId: Send + 'static,
+    Bearer: Send,
     Tx: Send,
     TxErr: Send,
     PositionIndex: Send,
     OnChainIndex: Send,
     TxSubmit: Network<Tx, TxErr> + Send,
+    Emission: Send,
 {
-    async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, OrderId>) -> Control<TaskId> {
+    async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
         todo!()
     }
 
