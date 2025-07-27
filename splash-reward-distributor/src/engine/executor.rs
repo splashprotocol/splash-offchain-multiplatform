@@ -32,17 +32,18 @@ pub trait BatchExecutor<TaskId, Task, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
 }
 
-pub struct HarvestingFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission> {
+pub struct HarvestingFlow<StateId, Bearer, Tx, PositionIndex, OnChainIndex, Emission> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     emission: Emission,
     batch: Option<HarvestBatch<StateId, Bearer>>,
+    pd: PhantomData<Tx>,
 }
 
 #[async_trait]
 impl<StateId, Bearer, Tx, PositionIndex, OnChainIndex, Emiss>
     BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>
-    for HarvestingFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emiss>
+    for HarvestingFlow<StateId, Bearer, Tx, PositionIndex, OnChainIndex, Emiss>
 where
     StateId: Send + Sync + Display + 'static,
     Bearer: Send,
@@ -111,7 +112,7 @@ where
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
         if let Some(batch) = self.batch.take() {
-            todo!("Build tx")
+            todo!("DEX-890")
         } else {
             Err(())
         }
@@ -122,14 +123,15 @@ fn reward_amount(share_bps: u64, interval_emission: u64) -> u64 {
     (share_bps * interval_emission) / 10_000
 }
 
-pub struct BufferingFlow<GaugeId, StateId, Bearer, OnChainIndex> {
+pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, OnChainIndex> {
     onchain_index: OnChainIndex,
     batch: Option<BufferingBatch<GaugeId, StateId, Bearer>>,
+    pd: PhantomData<Tx>,
 }
 
 #[async_trait]
 impl<GaugeId, StateId, Bearer, Tx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, Tx, ()>
-    for BufferingFlow<GaugeId, StateId, Bearer, OnChainIndex>
+    for BufferingFlow<GaugeId, StateId, Bearer, Tx, OnChainIndex>
 where
     GaugeId: Display + Copy + Send + 'static,
     StateId: Send + 'static,
@@ -158,43 +160,91 @@ where
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
-        todo!()
+        todo!("DEX-891")
     }
 }
 
-pub enum Flow<GaugeId, StateId, Bearer, OnChainIndex, PositionIndex, Emission> {
-    Harvesting(HarvestingFlow<StateId, Bearer, PositionIndex, OnChainIndex, Emission>),
-    Buffering(BufferingFlow<GaugeId, StateId, Bearer, OnChainIndex>),
+pub enum Flow<GaugeId, StateId, Bearer, Tx, OnChainIndex, PositionIndex, Emission> {
+    Harvesting(HarvestingFlow<StateId, Bearer, Tx, PositionIndex, OnChainIndex, Emission>),
+    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, OnChainIndex>),
 }
 
 pub struct Executor<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     tx_submit: TxSubmit,
-    flow: Option<Flow<GaugeId, StateId, Bearer, OnChainIndex, PositionIndex, Emission>>,
+    emission: Emission,
+    flow: Option<Flow<GaugeId, StateId, Bearer, Tx, OnChainIndex, PositionIndex, Emission>>,
     pd: PhantomData<(Tx, TxErr)>,
 }
 
 #[async_trait]
-impl<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission>
+impl<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emiss>
     BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>
-    for Executor<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission>
+    for Executor<GaugeId, StateId, Bearer, Tx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emiss>
 where
-    GaugeId: Send + 'static,
-    StateId: Send + 'static,
+    GaugeId: Copy + Send + Display + 'static,
+    StateId: Send + Sync + Display + 'static,
     Bearer: Send,
     Tx: Send,
     TxErr: Send,
-    PositionIndex: Send,
-    OnChainIndex: Send,
-    TxSubmit: Network<Tx, TxErr> + Send,
-    Emission: Send,
+    PositionIndex: Positions<StateId> + Clone + Send,
+    OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
+        + OrderIndex<StateId, Bearer>
+        + BufferWalletIndex<StateId, Bearer>
+        + Clone
+        + Send,
+    TxSubmit: Clone + Network<Tx, TxErr> + Send,
+    Emiss: Emission + Clone + Send,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
-        todo!()
+        let flow = match self.flow {
+            None => match task {
+                Task::GaugeBuffering(_) => self.flow.insert(Flow::Buffering(BufferingFlow {
+                    onchain_index: self.onchain_index.clone(),
+                    batch: None,
+                    pd: PhantomData,
+                })),
+                Task::Harvesting(_) => self.flow.insert(Flow::Harvesting(HarvestingFlow {
+                    position_index: self.position_index.clone(),
+                    onchain_index: self.onchain_index.clone(),
+                    emission: self.emission.clone(),
+                    batch: None,
+                    pd: PhantomData,
+                })),
+            },
+            Some(ref mut flow) => flow,
+        };
+        match (flow, task) {
+            (Flow::Harvesting(hf), Task::Harvesting(ht)) => {
+                hf.feed(task_id, ht).await
+            }
+            (Flow::Buffering(bf), Task::GaugeBuffering(bt)) => {
+                bf.feed(task_id, bt).await
+            }
+            _ => Control::Next,
+        }
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, ()>, ()> {
-        todo!()
+        match self.flow.take() {
+            None => Err(()),
+            Some(flow) => {
+                let ExecutionResult { executed_tasks, output } = match flow {
+                    Flow::Harvesting(mut hf) => hf.execute().await?,
+                    Flow::Buffering(mut bf) => bf.execute().await?,
+                };
+                match self.tx_submit.submit_tx(output).await {
+                    Ok(_) => {
+                        //todo!("DEX-892 index transaction io as unconfirmed changes to entities' states")
+                        Ok(ExecutionResult { executed_tasks, output: () })
+                    }
+                    Err(_) => {
+                        //todo!("DEX-892 invalidate 'spent' states in the index")
+                        Err(())
+                    }
+                }
+            }
+        }
     }
 }
