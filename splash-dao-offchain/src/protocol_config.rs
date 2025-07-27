@@ -1,6 +1,7 @@
 use cml_chain::address::Address;
 use cml_chain::assets::AssetName;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
+use cml_chain::transaction::NativeScript;
 use cml_chain::PolicyId;
 use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use spectrum_cardano_lib::collateral::Collateral;
@@ -142,6 +143,9 @@ pub struct GTAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct GTBuiltPolicy(pub IssuedAsset);
+
+#[derive(Debug, Clone)]
+pub struct BufferWalletScript(pub NativeScript);
 
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
@@ -538,6 +542,12 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>> for Pro
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.redeem_ve_order)
+    }
+}
+
+impl Has<BufferWalletScript> for ProtocolConfig {
+    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
+        BufferWalletScript(self.deployed_validators.buffer_wallet.clone())
     }
 }
 

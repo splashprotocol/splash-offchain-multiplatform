@@ -1,4 +1,3 @@
-use crate::config::HarvestLimits;
 use crate::pipeline::log_events::log_onchain_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
@@ -20,8 +19,11 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use spectrum_offchain_cardano::event_pipeline::read_events::read_events;
-use splash_dao_offchain::deployment::ProtocolValidator;
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
+use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
+use splash_dao_offchain::protocol_config::{
+    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+};
+use splash_reward_distributor::config::HarvestLimits;
 use std::collections::HashSet;
 
 pub mod log_events;
@@ -54,13 +56,16 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<PoolValidation>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<PoolValidation>
+        + Has<BufferWalletScript>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
         + Has<HarvestLimits>,
 {
     log_onchain_events(

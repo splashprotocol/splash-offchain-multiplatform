@@ -27,7 +27,7 @@ use cml_chain::{
     certs::StakeCredential,
     crypto::utils::make_vkey_witness,
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
-    transaction::{DatumOption, Transaction, TransactionInput, TransactionOutput},
+    transaction::{DatumOption, NativeScript, Transaction, TransactionInput, TransactionOutput},
     utils::BigInteger,
     Coin, PolicyId, Serialize, Value,
 };
@@ -395,6 +395,15 @@ async fn deploy<'a>(
                 }
             }
         };
+
+        // Buffer wallet validator is a 2-of-n multisig native script
+        let authorised_pubkeys = dao_parameters
+            .authorized_executors
+            .iter()
+            .map(|key_hash| NativeScript::new_script_pubkey(*key_hash))
+            .collect();
+        let buffer_wallet = NativeScript::new_script_n_of_k(2, authorised_pubkeys);
+
         // --------
         let dsd = DaoScriptData::global();
         let d = DeployedValidators {
@@ -500,6 +509,7 @@ async fn deploy<'a>(
                 cost: (&dsd.redeem_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
+            buffer_wallet,
         };
 
         deployment_progress.deployed_validators = Some(d);

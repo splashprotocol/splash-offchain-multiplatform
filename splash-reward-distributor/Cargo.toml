@@ -5,6 +5,13 @@ edition = "2021"
 rust-version = "1.80.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "splash_reward_distributor"  # Name for `extern crate my_project;`
+path = "src/lib.rs"  # Default, can be omitted if unchanged
+
+# Binary target (main.rs)
+[[bin]]
+name = "splash-reward-distributor" 
 
 [dependencies]
 actix-web = "4.9.0"

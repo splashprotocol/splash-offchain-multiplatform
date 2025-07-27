@@ -31,5 +31,6 @@
   "eventsExportTopic": "events_export",
   "harvestLimits": {
     "minimalLovelacePerSingleHarvest": 1000000
-  }
+  },
+  "splashPolicyIdHex": "352127c4aa7c1c12adf687262380d8f80d3b7e4e10da5d61dc7a81c8"
 }

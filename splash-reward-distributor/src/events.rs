@@ -1,7 +1,6 @@
-use crate::onchain::buffer_wallet::{BufferWallet, BufferWalletAuthToken};
+use crate::onchain::buffer_wallet::BufferWallet;
 use crate::onchain::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
 use crate::onchain::smart_farm::Gauge;
-use crate::onchain::RewardProtocolValidator;
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
 use cml_chain::transaction::TransactionOutput;
 use cml_core::Slot;
@@ -10,7 +9,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use splash_dao_offchain::protocol_config::SplashPolicy;
+use splash_dao_offchain::protocol_config::{BufferWalletScript, SplashPolicy};
 use splash_dao_offchain::{
     deployment::ProtocolValidator as DaoProtocolValidator,
     entities::onchain::smart_farm::FarmId,
@@ -31,19 +30,17 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
 }
 
-pub struct OnChainEvents<GaugeId, StateId, Bearer>(Vec<OnChainEvent<GaugeId, StateId, Bearer>>);
+pub struct OnChainEvents<GaugeId, StateId, Bearer>(pub Vec<OnChainEvent<GaugeId, StateId, Bearer>>);
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvents<FarmId, OutputRef, TransactionOutput>
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
-        + Has<TimedOutputRef>
         + Has<HarvestLimits>
-        + Has<BufferWalletAuthToken>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ RewardProtocolValidator::BufferWallet as u8 }>>
+        + Has<BufferWalletScript>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
 {

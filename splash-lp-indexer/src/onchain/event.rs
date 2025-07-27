@@ -1,4 +1,3 @@
-use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
@@ -16,11 +15,15 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use splash_dao_offchain::deployment::ProtocolValidator;
+use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
+use splash_dao_offchain::protocol_config::{
+    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
+use splash_reward_distributor::config::HarvestLimits;
+use splash_reward_distributor::events::OnChainEvents;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
@@ -53,13 +56,16 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<BufferWalletScript>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
         + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -320,9 +326,23 @@ pub struct MultiAccountHarvested {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultiAccountHarvested
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> + Has<HarvestLimits>,
+    Cx: Has<PermManagerAuthPolicy>
+        + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
+        + Has<PermManagerAuthPolicy>
+        + Has<HarvestLimits>
+        + Has<BufferWalletScript>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        let events = OnChainEvents::try_from_ledger(repr, ctx)?;
+        for event in events.0 {
+            if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
+                //
+            }
+        }
         todo!("DEX-888")
     }
 }
@@ -337,7 +357,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let farms_in_inputs: HashSet<_> =
@@ -376,7 +396,7 @@ pub enum PollFactoryEvents {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryEvents
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
+    Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let factory_in_inputs: HashSet<_> =

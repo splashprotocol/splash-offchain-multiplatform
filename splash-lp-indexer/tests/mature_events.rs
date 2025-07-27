@@ -6,7 +6,7 @@ mod tests {
     use cml_chain::certs::Credential;
     use cml_chain::transaction::Transaction;
     use cml_core::serialization::Deserialize;
-    use cml_crypto::Ed25519KeyHash;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash};
     use either::Right;
     use futures::FutureExt;
     use spectrum_offchain_cardano::data::PoolId;
@@ -90,6 +90,7 @@ mod tests {
             dao_tokens,
             pool_validation: validation_rules.pool,
             harvest_limits: config.harvest_limits,
+            splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
         };
 
         let db_path = DBPath::new("position_db");
