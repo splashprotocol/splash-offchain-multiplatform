@@ -25,7 +25,6 @@ use splash_dao_offchain::protocol_config::{
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_reward_distributor::config::HarvestLimits;
 use splash_reward_distributor::events::OnChainEvents;
-use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
