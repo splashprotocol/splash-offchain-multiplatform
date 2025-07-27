@@ -1,9 +1,17 @@
+use std::fmt::Display;
+use std::hash::Hash;
+
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::ScriptHash;
+use derive_more::From;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension, tx_view::TxViewPartiallyResolved, AssetName, OutputRef,
 };
-use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
+use spectrum_offchain::{
+    domain::{EntitySnapshot, Has, Stable},
+    ledger::TryFromLedger,
+};
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
@@ -12,10 +20,49 @@ use splash_dao_offchain::{
 
 use crate::{events::EntityUpdated, onchain::RewardProtocolValidator};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    From,
+    Serialize,
+    Deserialize,
+    derive_more::Display,
+    Hash,
+    Debug,
+)]
+pub struct BufferWalletId;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BufferWallet<StateId> {
     pub state_id: StateId,
     pub balance: u64,
+}
+
+impl<StateId> Stable for BufferWallet<StateId> {
+    type StableId = BufferWalletId;
+
+    fn stable_id(&self) -> Self::StableId {
+        BufferWalletId
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
+}
+
+impl<StateId> EntitySnapshot for BufferWallet<StateId>
+where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
+{
+    type Version = StateId;
+
+    fn version(&self) -> Self::Version {
+        self.state_id
+    }
 }
 
 #[derive(Debug, Clone)]

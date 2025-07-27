@@ -1,5 +1,6 @@
 use cml_chain::{certs::Credential, transaction::TransactionOutput};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
     transaction::TransactionOutputExtension,
@@ -13,11 +14,14 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 
 use crate::config::HarvestLimits;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
-    pub account: Credential,
+    pub account: Ed25519KeyHash,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HarvestOrderCredential(Credential);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrderDatum {
@@ -88,10 +92,9 @@ where
     if test_address(output.address(), ctx) && lovelaces >= harvest_limit {
         let datum = output.datum()?;
         let HarvestOrderDatum { refund_key, .. } = datum.into_pd().map(HarvestOrderDatum::try_from_pd)??;
-        let account = Credential::new_pub_key(refund_key);
         let harvest_order = HarvestOrder {
             id: output_ref,
-            account,
+            account: refund_key,
         };
         return Some(harvest_order);
     }

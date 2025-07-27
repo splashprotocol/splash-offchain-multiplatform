@@ -1,6 +1,14 @@
+use std::fmt::Display;
+use std::hash::Hash;
+
 use cml_chain::transaction::TransactionOutput;
+use derive_more::From;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{tx_view::TxViewPartiallyResolved, OutputRef};
-use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
+use spectrum_offchain::{
+    domain::{EntitySnapshot, Has, Stable},
+    ledger::TryFromLedger,
+};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::{
     deployment::ProtocolValidator as DaoProtocolValidator,
@@ -11,10 +19,38 @@ use splash_dao_offchain::{
 
 use crate::events::EntityUpdated;
 
+#[derive(
+    Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize, derive_more::Display, Hash,
+)]
+pub struct AuthManagerId;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthManager<GaugeId, StateId> {
     state_id: StateId,
     suspended_gauges: Vec<GaugeId>,
+}
+
+impl<GaugeId, StateId> Stable for AuthManager<GaugeId, StateId> {
+    type StableId = AuthManagerId;
+
+    fn stable_id(&self) -> Self::StableId {
+        AuthManagerId
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
+}
+
+impl<GaugeId, StateId> EntitySnapshot for AuthManager<GaugeId, StateId>
+where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
+{
+    type Version = StateId;
+
+    fn version(&self) -> Self::Version {
+        self.state_id
+    }
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>
