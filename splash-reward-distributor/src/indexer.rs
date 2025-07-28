@@ -592,6 +592,7 @@ mod tests {
         Gauge {
             id: rng.next_u32(),
             state_id: rng.next_u32(),
+            balance: 1000,
         }
     }
 

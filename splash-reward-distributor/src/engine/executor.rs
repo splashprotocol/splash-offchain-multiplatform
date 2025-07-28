@@ -5,6 +5,8 @@ use crate::index::{BufferWalletIndex, GaugeIndex, OrderIndex};
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use cml_chain::certs::Credential;
+use cml_crypto::RawBytesEncoding;
 use log::{error, warn};
 use spectrum_offchain::network::Network;
 use std::fmt::Display;
@@ -69,7 +71,11 @@ where
             }
         };
         let Bundled(req, _) = &order;
-        match self.position_index.query_account(&req.account).await {
+        match self
+            .position_index
+            .query_account(&Credential::new_pub_key(req.account))
+            .await
+        {
             Ok(AccountState {
                 activated_at,
                 queried_at,
@@ -78,8 +84,10 @@ where
                 let emission = self.emission.total_emission_between(activated_at, queried_at);
                 let payout = reward_amount(total_share_bps, emission);
                 if batch.can_accept(payout) {
-                    if let Err(LockedByAnotherReq(concurrent_req)) =
-                        self.position_index.lock_account(&req.id, &req.account).await
+                    if let Err(LockedByAnotherReq(concurrent_req)) = self
+                        .position_index
+                        .lock_account(&req.id, &Credential::new_pub_key(req.account))
+                        .await
                     {
                         warn!(
                             "Account {} is already locked by another request {}, dropping request {}",

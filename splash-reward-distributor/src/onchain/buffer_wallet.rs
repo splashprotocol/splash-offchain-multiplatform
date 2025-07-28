@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::hash::Hash;
 
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::{certs::StakeCredential, transaction::TransactionOutput};
 use cml_crypto::ScriptHash;
 use derive_more::From;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
