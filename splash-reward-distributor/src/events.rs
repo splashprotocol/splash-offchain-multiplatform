@@ -3,6 +3,7 @@ use crate::onchain::harvest_order::{get_consumed_harvest_orders, try_new_harvest
 use crate::onchain::smart_farm::Gauge;
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
 use cml_chain::transaction::TransactionOutput;
+use cml_core::Slot;
 use cml_crypto::Ed25519KeyHash;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
 use spectrum_cardano_lib::OutputRef;
