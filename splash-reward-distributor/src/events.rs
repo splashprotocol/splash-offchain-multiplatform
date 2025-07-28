@@ -4,6 +4,7 @@ use crate::onchain::smart_farm::Gauge;
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
 use cml_chain::transaction::TransactionOutput;
 use cml_core::Slot;
+use cml_crypto::Ed25519KeyHash;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
@@ -24,7 +25,7 @@ pub struct SettledEvent<GaugeId, StateId, Bearer>(OnChainEvent<GaugeId, StateId,
 pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     NewHarvestRequest(HarvestOrder<StateId>),
     HarvestRequestCancelled(StateId),
-    Harvested(StateId),
+    Harvested(HarvestOrder<StateId>),
     BufferWalletUpdated(EntityUpdated<BufferWallet<StateId>, StateId, Bearer>),
     GaugeUpdated(EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>),
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
@@ -67,8 +68,8 @@ where
             }
         } else {
             // Harvest order is refunded in this TX iff BufferWallet isn't present.
-            for output_ref in consumed_harvest_orders {
-                events.push(OnChainEvent::HarvestRequestCancelled(output_ref));
+            for order in consumed_harvest_orders {
+                events.push(OnChainEvent::HarvestRequestCancelled(order.id));
             }
         }
 

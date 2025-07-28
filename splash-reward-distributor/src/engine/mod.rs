@@ -9,6 +9,7 @@ use crate::engine::task::{Task, TaskId};
 use crate::events::OnChainEvent;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
+use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
@@ -90,7 +91,7 @@ where
                 OnChainEvent::HarvestRequestCancelled(harvest_id) => {
                     Some(QueueCmd::Cancel(harvest_id.into()))
                 }
-                OnChainEvent::Harvested(harvest_id) => Some(QueueCmd::Done(harvest_id.into())),
+                OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Done(harvest_order.id.into())),
                 _ => None,
             })
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
@@ -101,13 +102,17 @@ where
             .into_iter()
             .filter_map(|event| match event {
                 OnChainEvent::NewHarvestRequest(harvest) => Some(QueueCmd::Cancel(harvest.id.into())),
-                OnChainEvent::HarvestRequestCancelled(harvest_id) | OnChainEvent::Harvested(harvest_id) => {
-                    Some(QueueCmd::Schedule(
-                        harvest_id.into(),
-                        Task::new_harvesting(harvest_id),
-                        StrikeTime::Ready,
-                    ))
-                }
+                OnChainEvent::HarvestRequestCancelled(harvest_id) => Some(QueueCmd::Schedule(
+                    harvest_id.into(),
+                    Task::new_harvesting(harvest_id),
+                    StrikeTime::Ready,
+                )),
+
+                OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Schedule(
+                    harvest_order.id.into(),
+                    Task::new_harvesting(harvest_order.id),
+                    StrikeTime::Ready,
+                )),
                 _ => None,
             })
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])

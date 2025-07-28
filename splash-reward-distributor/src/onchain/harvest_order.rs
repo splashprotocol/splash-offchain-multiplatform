@@ -63,7 +63,10 @@ where
 }
 
 /// Returns the OutputRefs of all known harvest orders that have been consumed.
-pub(crate) fn get_consumed_harvest_orders<C>(repr: &TxViewPartiallyResolved, ctx: &C) -> Vec<OutputRef>
+pub(crate) fn get_consumed_harvest_orders<C>(
+    repr: &TxViewPartiallyResolved,
+    ctx: &C,
+) -> Vec<HarvestOrder<OutputRef>>
 where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
@@ -72,7 +75,7 @@ where
         .filter_map(|(tx_input, output)| {
             if let Some(output) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
-                return try_extract_harvest_order(output, output_ref, ctx).map(|order| order.id);
+                return try_extract_harvest_order(output, output_ref, ctx);
             }
             None
         })

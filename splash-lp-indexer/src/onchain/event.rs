@@ -338,12 +338,27 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let events = OnChainEvents::try_from_ledger(repr, ctx)?;
-        for event in events.0 {
-            if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
-                //
-            }
+
+        let accounts: Vec<_> = events
+            .0
+            .iter()
+            .filter_map(|event| {
+                if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
+                    Some(Credential::new_pub_key(h.account))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !accounts.is_empty() {
+            Some(Self {
+                accounts,
+                harvested_till: Slot(repr.slot),
+            })
+        } else {
+            None
         }
-        todo!("DEX-888")
     }
 }
 
