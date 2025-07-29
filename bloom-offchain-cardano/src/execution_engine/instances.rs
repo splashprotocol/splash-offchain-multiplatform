@@ -266,6 +266,18 @@ where
                     ExecutionEff::Updated(consumed_bundle, Bundled(AdhocOrder(next, fee), candidate)),
                 )
             }
+            // Technically, we can't "terminate" the order — it will be partially filled.
+            // However, the execution engine will no longer be able to process it.
+            Next::Term(terminal_take) if terminal_take.remaining_input > 0 => {
+                if let Some(data) = candidate.data_mut() {
+                    instant::unsafe_update_datum(
+                        data,
+                        terminal_take.remaining_input,
+                        terminal_take.remaining_fee,
+                    );
+                }
+                (candidate, ExecutionEff::Eliminated(consumed_bundle))
+            }
             Next::Term(_) => {
                 candidate.null_datum();
                 candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
@@ -722,5 +734,246 @@ where
         state.tx_blueprint.add_io(input, produced_out);
         state.tx_blueprint.add_ref_input(reference_utxo);
         (state, effect, context)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::execution_engine::execution_state::ExecutionState;
+    use crate::execution_engine::instances::Magnet;
+    use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
+    use crate::orders::limit::LimitOrderValidation;
+    use bloom_offchain::execution_engine::batch_exec::BatchExec;
+    use bloom_offchain::execution_engine::bundled::Bundled;
+    use bloom_offchain::execution_engine::execution_effect::ExecutionEff::{Eliminated, Updated};
+    use bloom_offchain::execution_engine::liquidity_book::core::Next::Term;
+    use bloom_offchain::execution_engine::liquidity_book::core::{TerminalTake, Trans};
+    use bounded_integer::BoundedU64;
+    use cml_chain::address::Address;
+    use cml_chain::assets::AssetBundle;
+    use cml_chain::builders::tx_builder::TransactionUnspentOutput;
+    use cml_chain::transaction::{ConwayFormatTxOut, TransactionInput, TransactionOutput};
+    use cml_chain::Value;
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use spectrum_cardano_lib::address::AddressExtension;
+    use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::output::FinalizedTxOut;
+    use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
+    use spectrum_offchain::data::small_vec::SmallVec;
+    use spectrum_offchain::domain::Has;
+    use spectrum_offchain::ledger::TryFromLedger;
+    use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::deployment::ProtocolValidator::{InstantOrderV1, InstantOrderWitnessV1};
+    use spectrum_offchain_cardano::deployment::{
+        DeployedScriptInfo, DeployedValidator, DeployedValidators, ProtocolScriptHashes,
+    };
+    use spectrum_offchain_cardano::handler_context::{
+        AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
+        ProducedIdentifiers,
+    };
+    use type_equalities::IsEqual;
+
+    fn mock_unspent_output() -> TransactionUnspentOutput {
+        const TX: &str = "b72f29953347030c5051bdba801d2c5dfdebc9574dfb28e139d0ef131033aee6";
+        const MOCK_ADDRESS: &str = "addr1z8d70g7c58vznyye9guwagdza74x36f3uff0eyk2zwpcpx6c96rgsm7p0hmwrj8e28qny5yxwya63e8gjj8s2ugfglhsxedx9j";
+
+        let mock_input = TransactionInput {
+            transaction_id: TransactionHash::from_hex(TX).unwrap(),
+            index: 0,
+            encodings: None,
+        };
+
+        let mock_output = TransactionOutput::ConwayFormatTxOut(ConwayFormatTxOut {
+            address: Address::from_bech32(MOCK_ADDRESS).unwrap(),
+            amount: Value::new(1000000, AssetBundle::new()),
+            datum_option: None,
+            script_reference: None,
+            encodings: None,
+        });
+
+        TransactionUnspentOutput {
+            input: mock_input,
+            output: mock_output,
+        }
+    }
+
+    struct Context {
+        oref: OutputRef,
+        instant_order: DeployedScriptInfo<{ InstantOrderV1 as u8 }>,
+        instant_order_witness: DeployedScriptInfo<{ InstantOrderWitnessV1 as u8 }>,
+        cred: OperatorCred,
+        consumed_inputs: ConsumedInputs,
+        consumed_identifiers: ConsumedIdentifiers<Token>,
+        produced_identifiers: ProducedIdentifiers<Token>,
+    }
+
+    impl Has<OutputRef> for Context {
+        fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
+            self.oref
+        }
+    }
+
+    impl Has<ConsumedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ConsumedIdentifiers<Token>>>(&self) -> ConsumedIdentifiers<Token> {
+            self.consumed_identifiers
+        }
+    }
+
+    impl Has<ProducedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ProducedIdentifiers<Token>>>(&self) -> ProducedIdentifiers<Token> {
+            self.produced_identifiers
+        }
+    }
+
+    impl Has<LimitOrderValidation> for Context {
+        fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
+            LimitOrderValidation {
+                min_cost_per_ex_step: 0,
+                min_fee_lovelace: 0,
+            }
+        }
+    }
+
+    impl Has<ConsumedInputs> for Context {
+        fn select<U: IsEqual<ConsumedInputs>>(&self) -> ConsumedInputs {
+            self.consumed_inputs
+        }
+    }
+    impl Has<AdhocFeeStructure> for Context {
+        fn select<U: IsEqual<AdhocFeeStructure>>(&self) -> AdhocFeeStructure {
+            AdhocFeeStructure {
+                relative_fee_percent: BoundedU64::new_saturating(1),
+            }
+        }
+    }
+
+    impl Has<OperatorCred> for Context {
+        fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
+            self.cred
+        }
+    }
+
+    impl Has<AddedPaymentDestinations> for Context {
+        fn select<U: IsEqual<AddedPaymentDestinations>>(&self) -> AddedPaymentDestinations {
+            AddedPaymentDestinations(SmallVec::default())
+        }
+    }
+
+    impl Has<AllowedAdditionalPaymentDestinations> for Context {
+        fn select<U: IsEqual<AllowedAdditionalPaymentDestinations>>(
+            &self,
+        ) -> AllowedAdditionalPaymentDestinations {
+            AllowedAdditionalPaymentDestinations(SmallVec::default())
+        }
+    }
+
+    impl Has<NetworkId> for Context {
+        fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+            NetworkId::MAINNET
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ InstantOrderV1 as u8 }> {
+            self.instant_order
+        }
+    }
+
+    impl Has<DeployedValidator<{ InstantOrderV1 as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedValidator<{ InstantOrderV1 as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ InstantOrderV1 as u8 }> {
+            DeployedValidator {
+                reference_utxo: mock_unspent_output(),
+                hash: self.instant_order.script_hash,
+                cost: ExUnits { mem: 0, steps: 0 },
+                marginal_cost: ExUnits { mem: 0, steps: 0 },
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ InstantOrderWitnessV1 as u8 }> {
+            DeployedValidator {
+                reference_utxo: mock_unspent_output(),
+                hash: self.instant_order_witness.script_hash,
+                cost: ExUnits { mem: 0, steps: 0 },
+                marginal_cost: ExUnits { mem: 0, steps: 0 },
+            }
+        }
+    }
+
+    const ORDER_UTXO: &str = "a3005839119e94e848482ffb2befe7fe6c2f5171c99086b53b3f73f535ff61ca09be93af8ccecb87697fc27774959f4926a2b9aac1919ded5a3fbd572f011a3bc27640028201d81858f2d8798c4101d87982d87981581cdc3bd3401f6feaf5835fc725e672479b98c84d1711fddf83e6a60d67d87981d87981d87981581cbe93af8ccecb87697fc27774959f4926a2b9aac1919ded5a3fbd572fd8798240401a3b9aca001a000927c0d87982581c5d9d3e29ada3edff54196ad1263dc65c4684ad196550813c79631be544574f5254d8798200011a0007a120581cedbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e47761b0000019840459084581cdc3bd3401f6feaf5835fc725e672479b98c84d1711fddf83e6a60d67581c5c28b78fa0773d9d766f218716ef7fc21a1251fb9837260246544bb7";
+
+    #[test]
+    fn partially_filled_instant_order_should_be_correctly_terminated() {
+        const TX: &str = "b72f29953347030c5051bdba801d2c5dfdebc9574dfb28e139d0ef131033aee6";
+        const IX: u64 = 0;
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
+        const TX_BC: &str = "fdc2094bcd39d5b9f2ae9ac4eda4c35a943eab60f71b8f319181f0fe09ca6c78";
+        const IX_BC: u64 = 4;
+        let oref_bc = OutputRef::new(TransactionHash::from_hex(TX_BC).unwrap(), IX_BC);
+        let raw_deployment = std::fs::read_to_string("/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let deployment: DeployedValidators =
+            serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+        let scripts = ProtocolScriptHashes::from(&deployment);
+        let ctx = Context {
+            oref,
+            instant_order: scripts.instant_order,
+            instant_order_witness: scripts.instant_order_witness,
+            cred: OperatorCred(
+                Ed25519KeyHash::from_hex("edbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e4776").unwrap(),
+            ),
+            consumed_inputs: SmallVec::new(vec![oref_bc].into_iter()).into(),
+            consumed_identifiers: SmallVec::new(
+                vec![Token::from_string_unsafe(
+                    "5c28b78fa0773d9d766f218716ef7fc21a1251fb9837260246544bb7.",
+                )]
+                .into_iter(),
+            )
+            .into(),
+            produced_identifiers: Default::default(),
+        };
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
+        let ord = AdhocOrder::try_from_ledger(&bearer, &ctx).unwrap();
+        let finalized_tx_out = FinalizedTxOut(bearer, oref);
+
+        let target: Bundled<AdhocOrder, FinalizedTxOut> = Bundled(ord, finalized_tx_out);
+
+        let result: TerminalTake = TerminalTake {
+            remaining_input: ord.0.input_amount / 10,
+            accumulated_output: ord.0.min_marginal_output,
+            remaining_budget: 0,
+            remaining_fee: 0,
+        };
+
+        let terminal_trans = Trans {
+            target: target,
+            result: Term(result),
+        };
+
+        let partially_filled_instant_order = Magnet(terminal_trans);
+
+        let (state, effect, _) = partially_filled_instant_order.exec(ExecutionState::new(), ctx);
+
+        match effect {
+            Updated(Bundled(ord, FinalizedTxOut(bearer, oref)), _) => panic!("Should be eliminated"),
+            Eliminated(order) => {}
+        }
+
+        let mut correct_output_address = false;
+
+        if let Some(io) = state.tx_blueprint.script_io.first() {
+            let (input, output) = io;
+            correct_output_address =
+                output.address().script_hash().unwrap() == scripts.instant_order.script_hash
+        };
+
+        assert!(correct_output_address)
     }
 }
