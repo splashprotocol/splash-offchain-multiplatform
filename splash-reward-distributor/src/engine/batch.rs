@@ -23,17 +23,6 @@ impl<StateId, Bearer> HarvestBatch<StateId, Bearer> {
         self.total_payout + payout <= self.buffer_wallet.0.balance
     }
 
-    //pub fn orders(&self) -> Vec<&HarvestOrder<StateId>> {
-    //    self.orders
-    //        .iter()
-    //        .map(
-    //            |OrderWithPayout {
-    //                 order: Bundled(t, _), ..
-    //             }| t,
-    //        )
-    //        .collect()
-    //}
-
     pub fn add_order(&mut self, order: Bundled<HarvestOrder<StateId>, Bearer>, payout: u64) {
         let order = OrderWithPayout { order, payout };
         self.orders.push(order);
