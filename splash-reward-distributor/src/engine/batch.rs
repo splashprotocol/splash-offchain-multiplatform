@@ -6,7 +6,7 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestBatch<StateId, Bearer> {
     pub buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
-    pub orders: Vec<Bundled<HarvestOrder<StateId>, Bearer>>,
+    pub orders: Vec<OrderWithPayout<StateId, Bearer>>,
     pub total_payout: u64,
 }
 
@@ -20,17 +20,31 @@ impl<StateId, Bearer> HarvestBatch<StateId, Bearer> {
     }
 
     pub fn can_accept(&self, payout: u64) -> bool {
-        self.total_payout + payout >= self.buffer_wallet.0.balance
+        self.total_payout + payout <= self.buffer_wallet.0.balance
     }
 
-    pub fn orders(&self) -> Vec<&HarvestOrder<StateId>> {
-        self.orders.iter().map(|Bundled(t, _)| t).collect()
-    }
+    //pub fn orders(&self) -> Vec<&HarvestOrder<StateId>> {
+    //    self.orders
+    //        .iter()
+    //        .map(
+    //            |OrderWithPayout {
+    //                 order: Bundled(t, _), ..
+    //             }| t,
+    //        )
+    //        .collect()
+    //}
 
     pub fn add_order(&mut self, order: Bundled<HarvestOrder<StateId>, Bearer>, payout: u64) {
+        let order = OrderWithPayout { order, payout };
         self.orders.push(order);
         self.total_payout += payout;
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OrderWithPayout<StateId, Bearer> {
+    pub order: Bundled<HarvestOrder<StateId>, Bearer>,
+    pub payout: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

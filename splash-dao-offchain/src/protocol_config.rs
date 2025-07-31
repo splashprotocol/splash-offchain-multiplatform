@@ -145,6 +145,12 @@ pub struct GTAuthPolicy(pub PolicyId);
 pub struct GTBuiltPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
+pub struct HarvestOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct HarvestOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
 pub struct BufferWalletScript(pub NativeScript);
 
 #[derive(Debug, Clone)]
