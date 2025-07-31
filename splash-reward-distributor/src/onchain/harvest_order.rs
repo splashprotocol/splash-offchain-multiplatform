@@ -1,4 +1,8 @@
-use cml_chain::{certs::Credential, plutus::ConstrPlutusData, transaction::TransactionOutput};
+use cml_chain::{
+    certs::{Credential, StakeCredential},
+    plutus::ConstrPlutusData,
+    transaction::TransactionOutput,
+};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
@@ -27,6 +31,7 @@ pub struct HarvestOrderCredential(Credential);
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrderDatum {
     refund_key: Ed25519KeyHash,
+    owner_stake_credential: Option<StakeCredential>,
     distribution_agent_key: Ed25519KeyHash,
 }
 
@@ -37,12 +42,36 @@ impl TryFromPData for HarvestOrderDatum {
             .take_field(0)?
             .into_bytes()
             .map(|bytes| Ed25519KeyHash::from_raw_bytes(&bytes).ok())??;
+
+        let mut option_cpd = cpd.take_field(1)?.into_constr_pd()?;
+        let owner_stake_credential = if option_cpd.alternative == 1 {
+            None
+        } else {
+            let mut referenced_cpd = option_cpd.take_field(0)?.into_constr_pd()?;
+            // Looking for Referenced::Inline(..)
+            if referenced_cpd.alternative == 0 {
+                let mut stake_cred_cpd = referenced_cpd.take_field(0)?.into_constr_pd()?;
+                // Expecting key hash
+                if stake_cred_cpd.alternative == 0 {
+                    let key_hash =
+                        Ed25519KeyHash::from_raw_bytes(&stake_cred_cpd.take_field(0)?.into_bytes()?).ok()?;
+                    Some(StakeCredential::new_pub_key(key_hash))
+                } else {
+                    // Script not supported
+                    return None;
+                }
+            } else {
+                // Referenced::Pointer { .. } not supported
+                return None;
+            }
+        };
         let distribution_agent_key = cpd
-            .take_field(1)?
+            .take_field(2)?
             .into_bytes()
             .map(|bytes| Ed25519KeyHash::from_raw_bytes(&bytes).ok())??;
         Some(Self {
             refund_key,
+            owner_stake_credential,
             distribution_agent_key,
         })
     }
@@ -111,7 +140,11 @@ where
     let lovelaces = output.value().coin;
     if test_address(output.address(), ctx) && lovelaces >= harvest_limit {
         let datum = output.datum()?;
-        let HarvestOrderDatum { refund_key, .. } = datum.into_pd().map(HarvestOrderDatum::try_from_pd)??;
+        let HarvestOrderDatum {
+            refund_key,
+            owner_stake_credential,
+            ..
+        } = datum.into_pd().map(HarvestOrderDatum::try_from_pd)??;
         let harvest_order = HarvestOrder {
             id: output_ref,
             account: refund_key,

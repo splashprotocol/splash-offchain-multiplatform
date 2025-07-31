@@ -6,17 +6,20 @@ use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
-use cml_chain::address::EnterpriseAddress;
-use cml_chain::builders::input_builder::SingleInputBuilder;
+use cml_chain::address::{BaseAddress, EnterpriseAddress};
+use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::TransactionOutputBuilder;
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
 use cml_chain::certs::{Credential, StakeCredential};
+use cml_chain::plutus::ExUnits;
 use cml_chain::transaction::TransactionInput;
-use cml_chain::RequiredSigners;
+use cml_chain::{RequiredSigners, Value};
 use cml_crypto::RawBytesEncoding;
 use log::{error, warn};
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
@@ -27,8 +30,9 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, HarvestOrderRefScriptOutput, HarvestOrderScriptHash, SplashPolicy,
+    BufferWalletScript, HarvestOrderRefScriptOutput, HarvestOrderScriptHash, OperatorCreds, SplashPolicy,
 };
+use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -64,10 +68,10 @@ pub struct HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex,
 }
 
 #[async_trait]
-impl<Tx, Ctx, PositionIndex, OnChainIndex, Emiss> BatchExecutor<TaskId, Harvesting<OutputRef>, Tx, ()>
-    for HarvestingFlow<OutputRef, FinalizedTxOut, Tx, Ctx, PositionIndex, OnChainIndex, Emiss>
+impl<Ctx, PositionIndex, OnChainIndex, Emiss>
+    BatchExecutor<TaskId, Harvesting<OutputRef>, SignedTxBuilder, ()>
+    for HarvestingFlow<OutputRef, FinalizedTxOut, SignedTxBuilder, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
-    Tx: Send,
     PositionIndex: Positions<OutputRef> + Send,
     OnChainIndex: BufferWalletIndex<OutputRef, FinalizedTxOut> + OrderIndex<OutputRef, FinalizedTxOut> + Send,
     Emiss: Emission + Send,
@@ -76,6 +80,8 @@ where
         + Has<HarvestOrderScriptHash>
         + Has<HarvestOrderRefScriptOutput>
         + Has<SplashPolicy>
+        + Has<OperatorCreds>
+        + Has<Collateral>
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
@@ -142,7 +148,7 @@ where
         Control::Next
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, SignedTxBuilder>, ()> {
         if let Some(batch) = self.batch.take() {
             // Form TX:
             //  - reference inputs:
@@ -153,13 +159,7 @@ where
             //  - outputs:
             //    - buffer_wallet_output
             //    - user payout UTxOs
-            enum T {
-                BufferWallet,
-                HarvestOrder,
-            }
-            let mut tx_builder = constant_tx_builder();
-            let harvest_order_ref_script = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
-            tx_builder.add_reference_input(harvest_order_ref_script);
+            let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
             let num_payouts = batch.orders.len();
 
@@ -173,15 +173,24 @@ where
                 PlutusScriptWitness::Ref(harvest_order_script_hash),
                 harvest_order_redeemer,
             );
-            let mut typed_inputs: Vec<_> = batch
+            let ex_units = Some(ExUnits::new(1_000_000, 1_000_000));
+            let mut sorted_inputs: Vec<_> = batch
                 .orders
                 .into_iter()
                 .map(
                     |OrderWithPayout {
-                         order: Bundled(HarvestOrder { account, .. }, tx_out),
+                         order:
+                             Bundled(
+                        HarvestOrder {
+                            account,
+                            owner_stake_credential,
+                            ..
+                        },
+                        tx_out,
+                    ),
                          payout,
                      }| {
-                        accounts.push((account, payout));
+                        accounts.push((account, owner_stake_credential, payout, tx_out.0.value().coin));
                         let harvest_order_input =
                             SingleInputBuilder::new(TransactionInput::from(tx_out.1), tx_out.0)
                                 .plutus_script_inline_datum(
@@ -190,7 +199,7 @@ where
                                 )
                                 .unwrap();
 
-                        (T::HarvestOrder, harvest_order_input)
+                        (harvest_order_input, ex_units.clone())
                     },
                 )
                 .collect();
@@ -200,8 +209,8 @@ where
             let mut bw_output_value = bw_tx_out.value().clone();
             let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
             let splash_policy = self.ctx.select::<SplashPolicy>().0;
-            let ac = AssetClass::Token(Token(splash_policy, splash_asset_name));
-            bw_output_value.sub_unsafe(ac, batch.total_payout);
+            let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
+            bw_output_value.sub_unsafe(splash_asset_class, batch.total_payout);
 
             let buffer_wallet_input = SingleInputBuilder::new(TransactionInput::from(output_ref), bw_tx_out)
                 .native_script(
@@ -209,9 +218,9 @@ where
                     NativeScriptWitnessInfo::Vkeys(vec![]),
                 ) // TODO: add authorized_keys here?
                 .unwrap();
-            typed_inputs.push((T::BufferWallet, buffer_wallet_input));
+            sorted_inputs.push((buffer_wallet_input, None));
 
-            typed_inputs.sort_by_key(|(_, input)| input.input.clone());
+            sorted_inputs.sort_by_key(|(input, _)| input.input.clone());
 
             // Outputs
             let network_id = self.ctx.select::<NetworkId>();
@@ -230,12 +239,74 @@ where
 
             let mut outputs = vec![buffer_wallet_output];
 
-            for (key_has, payout) in accounts {}
+            const BASE_FEE: usize = 1_000_000;
 
-            // The TX fee is shared equally among all accounts receiving a payout.
+            for (key_hash, owner_stake_credential, payout, coin) in accounts {
+                let payment_cred = Credential::new_pub_key(key_hash);
+                let user_addr = if let Some(stake_cred) = owner_stake_credential {
+                    BaseAddress::new(network_id.into(), payment_cred, stake_cred).to_address()
+                } else {
+                    EnterpriseAddress::new(network_id.into(), payment_cred).to_address()
+                };
+
+                let mut user_value = Value::from(coin);
+                // The TX fee is shared equally among all accounts receiving a payout.
+                let reduction = (BASE_FEE / num_payouts) as u64;
+                assert!(user_value.coin > reduction);
+                user_value.coin -= reduction;
+                user_value.add_unsafe(splash_asset_class, payout);
+
+                let user_payout_output = TransactionOutputBuilder::new()
+                    .with_address(user_addr)
+                    .next()
+                    .unwrap()
+                    .with_value(user_value)
+                    .build()
+                    .unwrap();
+                outputs.push(user_payout_output);
+            }
+
             // Use blueprint to determine the total change amount. Then evenly distribute among all
             // receivers of payout.
-            todo!("DEX-890")
+            let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
+            let mut blueprint = DaoTxBlueprint {
+                reference_inputs: vec![harvest_order_ref_script_output],
+                sorted_inputs,
+                outputs,
+                sorted_mints: vec![],
+                withdrawal: None,
+                fee_buffer: 500_000,
+                operator_address: operator_address.clone(),
+            };
+            let BlueprintEstimates {
+                estimated_fee,
+                change_output,
+                ..
+            } = blueprint.compute_estimated_fee_and_change_output();
+
+            // The change-output will be evenly distributed amongst all payout receivers.
+            let chg_output_coin = change_output.output.value().coin;
+            let amt = chg_output_coin / (num_payouts as u64);
+            for output in blueprint.outputs.iter_mut().skip(1) {
+                output.output.value_mut().coin += amt;
+            }
+
+            // Add residual amount to the last output
+            blueprint.outputs.last_mut().unwrap().output.value_mut().coin +=
+                chg_output_coin % (num_payouts as u64);
+
+            let mut tx_builder = blueprint.build(estimated_fee, None);
+            tx_builder
+                .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
+                .unwrap();
+            let output = tx_builder
+                .build(ChangeSelectionAlgo::Default, &operator_address)
+                .unwrap();
+
+            Ok(ExecutionResult {
+                executed_tasks: vec![],
+                output,
+            })
         } else {
             Err(())
         }
