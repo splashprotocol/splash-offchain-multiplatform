@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-
-use cml_chain::{certs::Credential, transaction::TransactionOutput};
+use cml_chain::{certs::Credential, plutus::ConstrPlutusData, transaction::TransactionOutput};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
+    plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
     types::TryFromPData,
@@ -47,6 +45,21 @@ impl TryFromPData for HarvestOrderDatum {
             refund_key,
             distribution_agent_key,
         })
+    }
+}
+
+pub enum HarvestOrderAction {
+    Refund,
+    Harvest,
+}
+
+impl IntoPlutusData for HarvestOrderAction {
+    fn into_pd(self) -> cml_chain::plutus::PlutusData {
+        let alternative = match self {
+            HarvestOrderAction::Refund => 0,
+            HarvestOrderAction::Harvest => 1,
+        };
+        cml_chain::plutus::PlutusData::ConstrPlutusData(ConstrPlutusData::new(alternative, vec![]))
     }
 }
 
