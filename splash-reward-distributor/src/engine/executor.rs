@@ -29,10 +29,12 @@ use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
 use splash_dao_offchain::constants::SPLASH_NAME;
+use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, HarvestOrderRefScriptOutput, HarvestOrderScriptHash, OperatorCreds, SplashPolicy,
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
+use splash_reward_distributor::constants::{HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA};
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -150,18 +152,9 @@ where
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, SignedTxBuilder>, ()> {
         if let Some(batch) = self.batch.take() {
-            // Form TX:
-            //  - reference inputs:
-            //    - harvest_order
-            //  - inputs:
-            //    - buffer_wallet_input
-            //    - harvest order UTxOs
-            //  - outputs:
-            //    - buffer_wallet_output
-            //    - user payout UTxOs
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
-            let num_payouts = batch.orders.len();
+            let num_payouts = batch.orders.len() as u64;
 
             let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
 
@@ -173,7 +166,7 @@ where
                 PlutusScriptWitness::Ref(harvest_order_script_hash),
                 harvest_order_redeemer,
             );
-            let ex_units = Some(ExUnits::new(1_000_000, 1_000_000));
+            let ex_units = Some(DaoScriptData::global().harvest_order.ex_units.clone());
             let mut sorted_inputs: Vec<_> = batch
                 .orders
                 .into_iter()
@@ -239,8 +232,6 @@ where
 
             let mut outputs = vec![buffer_wallet_output];
 
-            const BASE_FEE: usize = 1_000_000;
-
             for (key_hash, owner_stake_credential, payout, coin) in accounts {
                 let payment_cred = Credential::new_pub_key(key_hash);
                 let user_addr = if let Some(stake_cred) = owner_stake_credential {
@@ -251,7 +242,7 @@ where
 
                 let mut user_value = Value::from(coin);
                 // The TX fee is shared equally among all accounts receiving a payout.
-                let reduction = (BASE_FEE / num_payouts) as u64;
+                let reduction = HARVESTING_TX_ASSUMED_BASE_FEE / num_payouts;
                 assert!(user_value.coin > reduction);
                 user_value.coin -= reduction;
                 user_value.add_unsafe(splash_asset_class, payout);
@@ -275,7 +266,7 @@ where
                 outputs,
                 sorted_mints: vec![],
                 withdrawal: None,
-                fee_buffer: 500_000,
+                fee_buffer: HARVESTING_TX_FEE_DELTA,
                 operator_address: operator_address.clone(),
             };
             let BlueprintEstimates {
@@ -286,14 +277,13 @@ where
 
             // The change-output will be evenly distributed amongst all payout receivers.
             let chg_output_coin = change_output.output.value().coin;
-            let amt = chg_output_coin / (num_payouts as u64);
+            let amt = chg_output_coin / num_payouts;
             for output in blueprint.outputs.iter_mut().skip(1) {
                 output.output.value_mut().coin += amt;
             }
 
             // Add residual amount to the last output
-            blueprint.outputs.last_mut().unwrap().output.value_mut().coin +=
-                chg_output_coin % (num_payouts as u64);
+            blueprint.outputs.last_mut().unwrap().output.value_mut().coin += chg_output_coin % num_payouts;
 
             let mut tx_builder = blueprint.build(estimated_fee, None);
             tx_builder
