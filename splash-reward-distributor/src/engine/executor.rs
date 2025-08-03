@@ -218,9 +218,11 @@ where
             let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
             let splash_policy = self.ctx.select::<SplashPolicy>().0;
             let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
-            let mut splash_tokens_value = Value::zero();
-            splash_tokens_value.add_unsafe(splash_asset_class, batch.total_payout);
-            assert!(bw_out.value_mut().checked_sub(&splash_tokens_value).is_ok());
+
+            assert!(bw_out
+                .value_mut()
+                .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
+                .is_ok());
 
             let buffer_wallet_output = SingleOutputBuilderResult::new(bw_out);
 
@@ -340,6 +342,12 @@ where
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
         todo!("DEX-891")
     }
+}
+
+fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {
+    let mut splash_tokens_value = Value::zero();
+    splash_tokens_value.add_unsafe(splash_asset_class, amount);
+    splash_tokens_value
 }
 
 pub enum Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, PositionIndex, Emission> {
