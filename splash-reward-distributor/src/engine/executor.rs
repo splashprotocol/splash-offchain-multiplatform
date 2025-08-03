@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::address::{BaseAddress, EnterpriseAddress};
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
-use cml_chain::builders::output_builder::TransactionOutputBuilder;
+use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
@@ -199,36 +199,30 @@ where
 
             let Bundled(_, FinalizedTxOut(bw_tx_out, output_ref)) = batch.buffer_wallet;
 
-            let mut bw_output_value = bw_tx_out.value().clone();
-            let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
-            let splash_policy = self.ctx.select::<SplashPolicy>().0;
-            let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
-            bw_output_value.sub_unsafe(splash_asset_class, batch.total_payout);
-
-            let buffer_wallet_input = SingleInputBuilder::new(TransactionInput::from(output_ref), bw_tx_out)
-                .native_script(
-                    buffer_wallet_script.clone(),
-                    NativeScriptWitnessInfo::Vkeys(vec![]),
-                ) // TODO: add authorized_keys here?
-                .unwrap();
+            let buffer_wallet_input =
+                SingleInputBuilder::new(TransactionInput::from(output_ref), bw_tx_out.clone())
+                    .native_script(
+                        buffer_wallet_script.clone(),
+                        NativeScriptWitnessInfo::num_signatures(2),
+                    )
+                    .unwrap();
             sorted_inputs.push((buffer_wallet_input, None));
 
             sorted_inputs.sort_by_key(|(input, _)| input.input.clone());
 
             // Outputs
             let network_id = self.ctx.select::<NetworkId>();
-            let script_addr = |script_hash| {
-                EnterpriseAddress::new(u8::from(network_id), StakeCredential::new_script(script_hash))
-                    .to_address()
-            };
 
-            let buffer_wallet_output = TransactionOutputBuilder::new()
-                .with_address(script_addr(buffer_wallet_script.hash()))
-                .next()
-                .unwrap()
-                .with_value(bw_output_value)
-                .build()
-                .unwrap();
+            let mut bw_out = bw_tx_out;
+
+            let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
+            let splash_policy = self.ctx.select::<SplashPolicy>().0;
+            let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
+            let mut splash_tokens_value = Value::zero();
+            splash_tokens_value.add_unsafe(splash_asset_class, batch.total_payout);
+            assert!(bw_out.value_mut().checked_sub(&splash_tokens_value).is_ok());
+
+            let buffer_wallet_output = SingleOutputBuilderResult::new(bw_out);
 
             let mut outputs = vec![buffer_wallet_output];
 
