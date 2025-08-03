@@ -414,7 +414,6 @@ where
                     (InputT::FundingBox(input), t.1)
                 });
 
-            // Need to sort gauges elements directly first.
             enum InputT<S> {
                 Gauge(S),
                 BufferWallet(InputBuilderResult),
@@ -442,7 +441,7 @@ where
             let gauge_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
             let gauge_ex_units = Some(DaoScriptData::global().mint_farm_auth_token.ex_units.clone());
 
-            // The TX outputs are arranged as:
+            // The TX output is arranged as:
             //   [buffer_wallet_output] <> gauge_outputs <> [change_output],
             // where the gauge_outputs are ordered in like-manner to the sorted gauge-inputs: the
             // first gauge-input is associated with output index 1, the second with output index 2
