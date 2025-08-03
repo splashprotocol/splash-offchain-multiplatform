@@ -380,7 +380,8 @@ where
 
             let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
 
-            let Bundled(auth_manager, tx_out) = batch.auth_manager;
+            let Bundled(_, tx_out) = batch.auth_manager;
+
             let perm_manager_unspent_input =
                 TransactionUnspentOutput::new(TransactionInput::from(tx_out.1), tx_out.0);
 
@@ -439,14 +440,16 @@ where
             let mut buffer_wallet_out = bw_tx_out;
 
             let gauge_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
-            // TODO: add ex_units specifically for smart_farm
-            let gauge_ex_units = Some(DaoScriptData::global().farm_factory.ex_units.clone());
+            let gauge_ex_units = Some(DaoScriptData::global().mint_farm_auth_token.ex_units.clone());
 
             // The TX outputs are arranged as:
-            //  [buffer_wallet_output] <> gauge_outputs <> [change_output],
+            //   [buffer_wallet_output] <> gauge_outputs <> [change_output],
             // where the gauge_outputs are ordered in like-manner to the sorted gauge-inputs: the
             // first gauge-input is associated with output index 1, the second with output index 2
             // etc.
+
+            // This variable associates a given gauge-input with its associated output index. Needed
+            // by the input's redeemer.
             let mut successor_out_ix = 1;
             let mut gauge_outputs = vec![];
             let sorted_inputs: Vec<_> = typed_inputs
