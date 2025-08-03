@@ -518,8 +518,12 @@ where
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
 
+            let tx_body = output.body();
+            let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
+            let task_id = TaskId::from(tx_hash);
+
             Ok(ExecutionResult {
-                executed_tasks: vec![],
+                executed_tasks: vec![task_id],
                 output,
             })
         } else {
