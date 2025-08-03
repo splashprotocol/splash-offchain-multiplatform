@@ -20,6 +20,7 @@ use cml_chain::{RequiredSigners, Value};
 use cml_crypto::RawBytesEncoding;
 use log::{error, warn};
 use spectrum_cardano_lib::collateral::Collateral;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
@@ -289,8 +290,12 @@ where
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
 
+            let tx_body = output.body();
+            let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
+            let task_id = TaskId::from(tx_hash);
+
             Ok(ExecutionResult {
-                executed_tasks: vec![],
+                executed_tasks: vec![task_id],
                 output,
             })
         } else {
