@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize, derive_more::From,
+)]
 pub struct TaskId([u8; 32]);
 
 impl Display for TaskId {
