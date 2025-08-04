@@ -1,28 +1,31 @@
-import { DoubleRoyaltyPoolPoolValidatePool, RoyaltyPoolPoolValidatePool} from "../../plutus.ts";
+import {DoubleRoyaltyPoolPoolValidatePool} from "../../plutus.ts";
 import {
     getCSAndSсript,
-    getUtxoWithToken,
+    getDAOPolicy,
     getUtxoWithAda,
-    stringifyBigIntReviewer,
-    getDAOPolicy, DAOInfo, getDAO
+    getUtxoWithToken,
+    stringifyBigIntReviewer
 } from "../balance/balancePool.ts";
-import { getConfig } from "../config.ts";
-import { getLucid } from "../lucid.ts";
-import { Asset, BuiltValidators, asUnit } from "../types.ts";
-import { setupWallet } from "../wallet.ts";
-import { Unit, Datum, MintingPolicy, Data, Lucid} from "@lucid-evolution/lucid";
-import { credentialToAddress } from "@lucid-evolution/utils";
+import {getConfig} from "../config.ts";
+import {encoder} from 'npm:js-encoding-utils'
+import {getLucid} from "../lucid.ts";
+import {Asset, asUnit, BuiltValidators} from "../types.ts";
+import {setupWallet} from "../wallet.ts";
+import {Data, Datum, Lucid, MintingPolicy, Unit} from "@lucid-evolution/lucid";
+import {credentialToAddress} from "@lucid-evolution/utils";
 
-export const TokenB   = "7465737444"
-export const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26"
+export const TokenB   = "6c71"
+export const TokenB2   = "747474"
+export const TokenBCS = "c701c0263b2de5a58616428a481b01218b62d8369a3a575ab512731c"
+export const TokenB2CS   = "06fdee504f461905e391123692c22db9fb931d24e562469d0831df2d"
 
 const lqFee = 95000n
 const treasuryFee = 10000n
 const firstRoyaltyFee = 10000n
 const secondRoyaltyFee = 50000n
 
-const startLovelaceValue = 100000000
-const startTokenB        = 100000000
+const startLovelaceValue = 300000000
+const startTokenB        = 300000000
 
 // do not touch
 const lqEmission = 9223372036854775807n;
@@ -101,7 +104,8 @@ async function main() {
 
     const utxos = (await lucid.wallet().getUtxos());
 
-    const boxWithToken = await getUtxoWithToken(utxos, encodedTestB);
+    const boxWithToken = await getUtxoWithToken(utxos, TokenBCS);
+    //const boxWithToken2 = await getUtxoWithToken(utxos, TokenB2);
     const boxWithAda   = await getUtxoWithAda(utxos)
 
     if (!boxWithToken) {
@@ -118,7 +122,7 @@ async function main() {
 
     const poolAddress = credentialToAddress(
         "Preprod",
-        { hash: conf.validators!.royaltyPool.hash, type: 'Script' },
+        { hash: conf.validators!.doubleRoyaltyPool.hash, type: 'Script' },
     );
 
     const nftMintingPolicy: MintingPolicy =
@@ -182,8 +186,8 @@ async function main() {
         }],
         // treasuryAddress - is contract
         treasuryAddress: conf.validators.royaltyPool.hash,
-        firstRoyaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
-        secondRoyaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
+        firstRoyaltyPubKeyHash256: "b2f97417886f87a990b7f2a6c78c8210d6bcf8c93498d6a5c54f7026a9948d75",
+        secondRoyaltyPubKeyHash256: "83d3aa4ccd1c72ff7a27c032394f44b699778b6050290e37fd82bc295f5caf18",
         royaltyNonce: 0n,
     }
 
@@ -204,6 +208,8 @@ async function main() {
         .mintAssets(mintingNftAssets, Data.to(0n))
         .attach.MintingPolicy(lqMintingPolicy)
         .mintAssets(mintingLqAssets, Data.to(0n))
+        .attachMetadata(42, "008d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b681d87f73eca0cc06a5a85cc9b418fb735410050e5dedadcc1d20a51d".match(/.{1,64}/g)!.map(chunk => encoder.hexStringToArrayBuffer(chunk)))
+        .attachMetadata(43, "00d350803d45e327f8808469d5dde9e0f6fdc6e6637d85ed44cc37a12c391e62575d48d770e7c421b9d0e5557f2fa8845c6b8be2d358446cb9".match(/.{1,64}/g)!.map(chunk => encoder.hexStringToArrayBuffer(chunk)))
         .pay.ToContract(
             poolAddress,
             { kind: "inline", value: buildRoyaltyPoolDatum(lucid, poolConfig) },

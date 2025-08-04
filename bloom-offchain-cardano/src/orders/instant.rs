@@ -1,6 +1,3 @@
-use std::cmp::{max, Ordering};
-use std::fmt::{Display, Formatter};
-
 use crate::orders::harden_price;
 use crate::orders::limit::{order_state, LimitOrderValidation, OrderState, MIN_LOVELACE};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
@@ -9,9 +6,10 @@ use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
+    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
+use cml_chain::assets::PositiveCoin;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
@@ -34,6 +32,8 @@ use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::InstantOrderV1;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs};
+use std::cmp::{max, Ordering};
+use std::fmt::{Display, Formatter};
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 1,
@@ -46,7 +46,7 @@ pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusD
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct InstantOrder {
     /// Identifier of the order.
-    pub beacon: PolicyId,
+    pub beacon: Token,
     /// What a user pays.
     pub input_asset: AssetClass,
     /// Remaining tradable input.
@@ -61,12 +61,6 @@ pub struct InstantOrder {
     pub fee_asset: AssetClass,
     /// Remaining ADA to facilitate execution.
     pub execution_budget: FeeAsset<u64>,
-    /// Fee reserved for the whole swap.
-    pub fee: FeeAsset<u64>,
-    /// Assumed cost (in Lovelace) of one step of execution.
-    pub max_cost_per_ex_step: FeeAsset<u64>,
-    /// Minimal marginal output allowed per execution step.
-    pub min_marginal_output: OutputAsset<u64>,
     /// Redeemer address.
     pub redeemer_address: PlutusAddress,
     /// Cancellation PKH.
@@ -83,7 +77,7 @@ impl Display for InstantOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             format!(
-                "InstantOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={} {}, init={})",
+                "InstantOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={}, init={})",
                 self.beacon,
                 self.side(),
                 self.pair_id(),
@@ -93,7 +87,6 @@ impl Display for InstantOrder {
                 self.output_amount,
                 self.output_asset,
                 self.execution_budget,
-                self.fee,
                 self.fee_asset,
                 self.virgin,
             )
@@ -134,16 +127,12 @@ impl TakerBehaviour for InstantOrder {
     ) -> Next<Self, TerminalTake> {
         self.input_amount -= removed_input;
         self.output_amount += added_output;
-        if self.input_amount == 0 {
-            Next::Term(TerminalTake {
-                remaining_input: self.input_amount,
-                accumulated_output: self.output_amount,
-                remaining_fee: self.fee,
-                remaining_budget: self.execution_budget,
-            })
-        } else {
-            Next::Succ(self)
-        }
+        Next::Term(TerminalTake {
+            remaining_input: self.input_amount,
+            accumulated_output: self.output_amount,
+            remaining_fee: 0,
+            remaining_budget: self.execution_budget,
+        })
     }
 
     fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
@@ -156,7 +145,6 @@ impl TakerBehaviour for InstantOrder {
     }
 
     fn with_fee_charged(mut self, fee: u64) -> Self {
-        self.fee -= fee;
         self
     }
 
@@ -166,16 +154,12 @@ impl TakerBehaviour for InstantOrder {
     }
 
     fn try_terminate(self) -> Next<Self, TerminalTake> {
-        if self.execution_budget < self.max_cost_per_ex_step {
-            Next::Term(TerminalTake {
-                remaining_input: self.input_amount,
-                accumulated_output: self.output_amount,
-                remaining_fee: self.fee,
-                remaining_budget: self.execution_budget,
-            })
-        } else {
-            Next::Succ(self)
-        }
+        Next::Term(TerminalTake {
+            remaining_input: self.input_amount,
+            accumulated_output: self.output_amount,
+            remaining_fee: 0,
+            remaining_budget: self.execution_budget,
+        })
     }
 }
 
@@ -199,14 +183,11 @@ impl MarketTaker for InstantOrder {
     }
 
     fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
-        self.fee
-            .saturating_mul(input_consumed)
-            .checked_div(self.input_amount)
-            .unwrap_or(0)
+        0
     }
 
     fn fee(&self) -> FeeAsset<u64> {
-        self.fee
+        0
     }
 
     fn budget(&self) -> FeeAsset<u64> {
@@ -214,7 +195,7 @@ impl MarketTaker for InstantOrder {
     }
 
     fn consumable_budget(&self) -> FeeAsset<u64> {
-        self.max_cost_per_ex_step
+        self.execution_budget
     }
 
     fn marginal_cost_hint(&self) -> ExUnits {
@@ -222,7 +203,7 @@ impl MarketTaker for InstantOrder {
     }
 
     fn min_marginal_output(&self) -> OutputAsset<u64> {
-        self.min_marginal_output
+        self.base_price.to_integer() as u64
     }
 
     fn time_bounds(&self) -> TimeBounds<u64> {
@@ -233,7 +214,7 @@ impl MarketTaker for InstantOrder {
 impl Stable for InstantOrder {
     type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
-        Token(self.beacon, AssetName::zero())
+        self.beacon
     }
     fn is_quasi_permanent(&self) -> bool {
         false
@@ -256,82 +237,66 @@ impl Tradable for InstantOrder {
 
 #[derive(Debug, PartialEq, Eq)]
 struct Datum {
-    pub beacon: PolicyId,
+    pub redeemer_address: PlutusAddress,
     pub input: AssetClass,
-    pub tradable_input: InputAsset<u64>,
-    pub cost_per_ex_step: FeeAsset<u64>,
     pub output: AssetClass,
     pub base_price: RelativePrice,
     pub fee: FeeAsset<u64>,
-    pub redeemer_address: PlutusAddress,
+    pub min_lovelace: Lovelace,
+    pub permitted_executor: Ed25519KeyHash,
     pub cancellation_pkh: Ed25519KeyHash,
-    pub authed_executor: Ed25519KeyHash,
     pub cancellation_after: u64,
 }
 
 struct DatumMapping {
-    pub beacon: usize,
+    pub redeemer_address: usize,
     pub input: usize,
-    pub tradable_input: usize,
-    pub cost_per_ex_step: usize,
     pub output: usize,
     pub base_price: usize,
     pub fee: usize,
-    pub redeemer_address: usize,
-    pub cancellation_pkh: usize,
-    pub authed_executor: usize,
+    pub min_lovelace: usize,
+    pub permitted_executor: usize,
     pub cancellation_after: usize,
+    pub cancellation_pkh: usize,
 }
 
 const DATUM_MAPPING: DatumMapping = DatumMapping {
     redeemer_address: 1,
     input: 2,
-    tradable_input: 3,
-    cost_per_ex_step: 4,
-    output: 5,
-    base_price: 6,
-    fee: 7,
-    authed_executor: 8,
-    cancellation_after: 9,
-    cancellation_pkh: 10,
-    beacon: 11,
+    output: 3,
+    base_price: 4,
+    fee: 5,
+    min_lovelace: 6,
+    permitted_executor: 7,
+    cancellation_after: 8,
+    cancellation_pkh: 9,
 };
-
-pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64>, fee: FeeAsset<u64>) {
-    let cpd = data.get_constr_pd_mut().unwrap();
-    cpd.set_field(DATUM_MAPPING.tradable_input, tradable_input.into_pd());
-    cpd.set_field(DATUM_MAPPING.fee, fee.into_pd());
-}
 
 impl TryFromPData for Datum {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let beacon = PolicyId::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.beacon)?.into_bytes()?).ok()?;
         let input = AssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.input)?)?;
-        let tradable_input = cpd.take_field(DATUM_MAPPING.tradable_input)?.into_u64()?;
-        let cost_per_ex_step = cpd.take_field(DATUM_MAPPING.cost_per_ex_step)?.into_u64()?;
         let output = AssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.output)?)?;
         let base_price = RelativePrice::try_from_pd(cpd.take_field(DATUM_MAPPING.base_price)?)?;
         let fee = cpd.take_field(DATUM_MAPPING.fee)?.into_u64()?;
+        let min_lovelace = cpd.take_field(DATUM_MAPPING.min_lovelace)?.into_u64()?;
         let redeemer_address = PlutusAddress::try_from_pd(cpd.take_field(DATUM_MAPPING.redeemer_address)?)?;
         let cancellation_pkh =
             Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.cancellation_pkh)?.into_bytes()?)
                 .ok()?;
-        let authed_executor =
-            Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.authed_executor)?.into_bytes()?)
+        let permitted_executor =
+            Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.permitted_executor)?.into_bytes()?)
                 .ok()?;
         let cancellation_after = cpd.take_field(DATUM_MAPPING.cancellation_after)?.into_u64()?;
         Some(Datum {
-            beacon,
+            redeemer_address,
             input,
-            tradable_input,
-            cost_per_ex_step,
             output,
             base_price,
             fee,
-            redeemer_address,
+            min_lovelace,
             cancellation_pkh,
-            authed_executor,
+            permitted_executor,
             cancellation_after,
         })
     }
@@ -355,69 +320,49 @@ where
             let datum = repr.datum()?.into_pd()?;
             let conf = Datum::try_from_pd(datum.clone())?;
             let total_input_asset_amount = value.amount_of(conf.input)?;
-            let total_ada_input = value.amount_of(AssetClass::Native)?;
-            let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
-                (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
-                (_, AssetClass::Native) => (0, 0),
-                _ => (MIN_LOVELACE, 0),
+
+            let tradable_input: u64 = match conf.input {
+                AssetClass::Native => value.coin - conf.fee - conf.min_lovelace,
+                token => value.amount_of(token)?,
             };
-            let execution_budget = total_ada_input
-                .checked_sub(reserved_lovelace)
-                .and_then(|lov| lov.checked_sub(conf.fee))
-                .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
-            if let Some(base_output) = linear_output_relative(conf.tradable_input, conf.base_price) {
-                let min_marginal_output = base_output / MIN_MARGINAL_OUTPUT_FACTOR;
-                let max_execution_steps_available = execution_budget.checked_div(conf.cost_per_ex_step)?;
-                let sufficient_input = total_input_asset_amount >= conf.tradable_input;
-                let sufficient_execution_budget = max_execution_steps_available >= MIN_EXECUTION_STEPS;
-                let executable = conf.authed_executor == ctx.select::<OperatorCred>().into();
+
+            if let Some(_) = linear_output_relative(tradable_input, conf.base_price) {
+                let sufficient_input = total_input_asset_amount >= tradable_input;
+                let executable = conf.permitted_executor == ctx.select::<OperatorCred>().into();
                 let validation = ctx.select::<LimitOrderValidation>();
-                let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
-                    && execution_budget >= conf.cost_per_ex_step;
-                let order_state = order_state(conf.beacon, datum, DATUM_MAPPING.beacon, ctx);
-                let sufficient_fee = match order_state {
-                    Some(OrderState::New) | None => conf.fee >= validation.min_fee_lovelace,
-                    _ => true,
-                };
-                let valid_beacon = order_state.is_some();
-                if sufficient_input
-                    && sufficient_execution_budget
-                    && sufficient_fee
-                    && executable
-                    && valid_configuration
-                    && valid_beacon
-                {
-                    // Fresh beacon must be derived from one of consumed utxos.
+                let valid_configuration = conf.min_lovelace >= validation.min_lovelace;
+                let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
+                if sufficient_input && executable && valid_configuration {
+                    let output_ref = ctx.select::<OutputRef>();
                     let script_info = ctx.select::<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>();
+                    let mut pseudo_beacon: [u8; 60] = [0u8; 60];
+                    let mut tx_hash_with_index = output_ref.tx_hash().to_raw_bytes().to_vec();
+                    tx_hash_with_index.extend_from_slice(output_ref.index().to_be_bytes().as_ref());
+                    pseudo_beacon[..tx_hash_with_index.len()].copy_from_slice(&tx_hash_with_index);
                     return Some(InstantOrder {
-                        beacon: conf.beacon,
+                        beacon: Token::from(pseudo_beacon),
                         input_asset: conf.input,
-                        input_amount: conf.tradable_input,
+                        input_amount: tradable_input,
                         output_asset: conf.output,
                         output_amount: value.amount_of(conf.output).unwrap_or(0),
-                        base_price: harden_price(conf.base_price, conf.tradable_input),
-                        execution_budget,
+                        base_price: harden_price(conf.base_price, tradable_input),
+                        execution_budget: conf.fee,
                         fee_asset: AssetClass::Native,
-                        fee: conf.fee,
-                        max_cost_per_ex_step: conf.cost_per_ex_step,
-                        min_marginal_output,
+                        //max_cost_per_ex_step: conf.fee,
                         redeemer_address: conf.redeemer_address,
                         cancellation_pkh: conf.cancellation_pkh,
                         marginal_cost: script_info.marginal_cost,
-                        virgin: matches!(order_state, Some(OrderState::New)),
+                        virgin: true, //todo: verify correctness // matches!(order_state, Some(OrderState::New)),
                         cancellation_after: conf.cancellation_after,
                     });
                 } else {
                     trace!(
-                        "UTxO {}, InstantOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
+                        "UTxO {}, InstantOrder :: sufficient_input: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}",
                         ctx.select::<OutputRef>(),
-                        conf.beacon,
                         sufficient_input,
-                        sufficient_execution_budget,
                         sufficient_fee,
                         executable,
                         valid_configuration,
-                        valid_beacon
                     );
                 }
             }
@@ -480,7 +425,7 @@ mod tests {
     impl Has<LimitOrderValidation> for Context {
         fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
             LimitOrderValidation {
-                min_cost_per_ex_step: 0,
+                min_lovelace: 0,
                 min_fee_lovelace: 0,
             }
         }

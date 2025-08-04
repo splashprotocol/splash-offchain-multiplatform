@@ -154,7 +154,7 @@ impl MarketTaker for AdhocOrder {
 }
 
 impl Stable for AdhocOrder {
-    type StableId = <LimitOrder as Stable>::StableId;
+    type StableId = <InstantOrder as Stable>::StableId;
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
     }

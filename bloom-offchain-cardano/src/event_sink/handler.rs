@@ -1197,7 +1197,7 @@ mod tests {
         let context = HandlerContextProto {
             validation_rules: ValidationRules {
                 limit_order: LimitOrderValidation {
-                    min_cost_per_ex_step: 1000,
+                    min_lovelace: 1000,
                     min_fee_lovelace: 1000,
                 },
                 deposit_order: DepositOrderValidation {

@@ -273,7 +273,7 @@ async fn main() {
         time: 0.into(),
         execution_conf: config
             .execution
-            .into_lb_config(validation_rules.limit_order.min_cost_per_ex_step.into()),
+            .into_lb_config(validation_rules.limit_order.min_lovelace.into()),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
     };
     let context = ExecutionContext {
