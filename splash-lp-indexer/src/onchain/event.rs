@@ -339,11 +339,16 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let events = OnChainEvents::try_from_ledger(repr, ctx)?;
 
+        let mut most_recent_slot = 0;
         let accounts: Vec<_> = events
             .0
             .iter()
             .filter_map(|event| {
                 if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
+                    let issued_at = h.issued_at.0;
+                    if issued_at > most_recent_slot {
+                        most_recent_slot = issued_at;
+                    }
                     Some(Credential::new_pub_key(h.account))
                 } else {
                     None
@@ -354,7 +359,7 @@ where
         if !accounts.is_empty() {
             Some(Self {
                 accounts,
-                harvested_till: Slot(repr.slot),
+                harvested_till: Slot(most_recent_slot),
             })
         } else {
             None

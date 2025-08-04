@@ -429,6 +429,7 @@ mod tests {
         event::{AnyMod, Confirmed, Predicted, Traced},
         EntitySnapshot, Stable,
     };
+    use splash_dao_offchain::routines::Slot;
 
     use crate::{
         indexer::{HarvestOrderIndex, IndexerDB, Mod, OnChainIndex},
@@ -584,6 +585,7 @@ mod tests {
         HarvestOrder {
             id,
             account: Ed25519KeyHash::from_raw_bytes(&array).unwrap(),
+            issued_at: Slot(1000),
         }
     }
 
