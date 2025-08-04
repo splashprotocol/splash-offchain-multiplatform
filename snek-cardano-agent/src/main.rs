@@ -271,9 +271,12 @@ async fn main() {
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),
-        execution_conf: config
-            .execution
-            .into_lb_config(validation_rules.limit_order.min_cost_per_ex_step.into()),
+        execution_conf: config.execution.into_lb_config(
+            validation_rules
+                .instant_order
+                .min_execution_budget_lovelace
+                .into(),
+        ),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
     };
     let context = ExecutionContext {

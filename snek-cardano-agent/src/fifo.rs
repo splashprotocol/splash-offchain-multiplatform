@@ -423,7 +423,7 @@ mod tests {
     impl Has<LimitOrderValidation> for Context {
         fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
             LimitOrderValidation {
-                min_cost_per_ex_step: 0,
+                min_lovelace: 0,
                 min_fee_lovelace: 0,
             }
         }
