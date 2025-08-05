@@ -1,11 +1,10 @@
 use crate::OutputRef;
 use cml_chain::transaction::TransactionOutput;
-use serde::{Deserialize, Serialize};
 use spectrum_offchain::domain::Has;
 use std::cmp::Ordering;
 use type_equalities::IsEqual;
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FinalizedTxOut(pub TransactionOutput, pub OutputRef);
 
 impl Has<OutputRef> for FinalizedTxOut {

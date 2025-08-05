@@ -75,8 +75,8 @@ where
             }
         }
 
-        let mm = HarvestOrderSlotCreation(map_to_slots);
-        let augmented_ctx = WithHarvestOrderCreationSlots(context, mm);
+        let map_to_slots = HarvestOrderCreationSlots(map_to_slots);
+        let augmented_ctx = WithHarvestOrderCreationSlots(context, map_to_slots);
         if let Some(out) = Out::try_from_ledger(&tx, &augmented_ctx) {
             events.push(out);
         }
@@ -110,14 +110,14 @@ pub fn test_address(addr: &Address, utxo_filter: &HashSet<ScriptHash>) -> bool {
 }
 
 #[derive(Clone)]
-/// If a harvest order was created from a particular `OutputRef`, then it is mapped to Slot time of
-/// its associated TX.
-pub struct HarvestOrderSlotCreation(pub HashMap<OutputRef, Slot>);
+/// Given a collection of TX inputs `I`, this struct represents a mapping of harvest order
+/// `OutputRef` values in `I` to the Slot time of the TX which created the harvest order.
+pub struct HarvestOrderCreationSlots(pub HashMap<OutputRef, Slot>);
 
-pub struct WithHarvestOrderCreationSlots<'a, Cx>(pub &'a Cx, pub HarvestOrderSlotCreation);
+pub struct WithHarvestOrderCreationSlots<'a, Cx>(pub &'a Cx, pub HarvestOrderCreationSlots);
 
-impl<Cx> Has<HarvestOrderSlotCreation> for WithHarvestOrderCreationSlots<'_, Cx> {
-    fn select<U: IsEqual<HarvestOrderSlotCreation>>(&self) -> HarvestOrderSlotCreation {
+impl<Cx> Has<HarvestOrderCreationSlots> for WithHarvestOrderCreationSlots<'_, Cx> {
+    fn select<U: IsEqual<HarvestOrderCreationSlots>>(&self) -> HarvestOrderCreationSlots {
         self.1.clone()
     }
 }
