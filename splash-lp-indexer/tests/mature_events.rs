@@ -138,7 +138,7 @@ mod tests {
                 &harvest_order_index,
                 &persistable_entites,
             )
-            .then(|events| resolve_gauges(events, &gauges_db, &db))
+            .then(|events| resolve_gauges(events, &gauges_db, &db, &harvest_order_index))
             .then(|events| log_event(events, &db))
             .await;
 

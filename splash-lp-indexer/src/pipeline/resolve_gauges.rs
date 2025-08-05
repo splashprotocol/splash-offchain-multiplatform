@@ -6,15 +6,23 @@ use crate::position_db::accounts::Accounts;
 use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
+use cml_chain::transaction::TransactionOutput;
 use log::info;
+use spectrum_cardano_lib::OutputRef;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::routines::Slot;
+use splash_reward_distributor::indexer::HarvestOrderIndex;
 use std::collections::HashSet;
 
-pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
+pub async fn resolve_gauges<
+    I: VoteEscrowIndex,
+    DB: Accounts + PoolFrames,
+    Harvest: HarvestOrderIndex<OutputRef, TransactionOutput>,
+>(
     events: BlockEvents<StatelessOnChainEvent>,
     index: &I,
     events_log: &DB,
+    harvest_order_index: &Harvest,
 ) -> BlockEvents<OnChainEvent> {
     match events {
         BlockEvents::RollForward {
@@ -22,7 +30,7 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
             block_num,
             block_slot,
         } => BlockEvents::RollForward {
-            events: resolve_events(events, index, events_log, block_slot).await,
+            events: resolve_events(events, index, events_log, block_slot, harvest_order_index).await,
             block_num,
             block_slot,
         },
@@ -31,18 +39,23 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
             block_num,
             block_slot,
         } => BlockEvents::RollBackward {
-            events: resolve_events(events, index, events_log, block_slot).await,
+            events: resolve_events(events, index, events_log, block_slot, harvest_order_index).await,
             block_num,
             block_slot,
         },
     }
 }
 
-async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
+async fn resolve_events<
+    I: VoteEscrowIndex,
+    DB: Accounts + PoolFrames,
+    Harvest: HarvestOrderIndex<OutputRef, TransactionOutput>,
+>(
     events: Vec<StatelessOnChainEvent>,
     index: &I,
     events_log: &DB,
     block_slot: u64,
+    harvest_order_index: &Harvest,
 ) -> Vec<OnChainEvent> {
     let mut translated_events = vec![];
     for ev in events {
@@ -123,6 +136,8 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
             }
             StatelessOnChainEvent::MultipleHarvest(multiple_harvest) => {
                 for account in multiple_harvest.accounts {
+                    // TODO: (DEX-897)
+                    //    harvest_order_index.write_confirmed_spend_harvest_order(..)
                     let account_pools = events_log.get_account_pools(account.clone()).await;
                     for pool_id in account_pools {
                         translated_events.push(OnChainEvent::Account(AccountEvent::Harvest(
@@ -137,6 +152,10 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
             }
             StatelessOnChainEvent::PoolCreated(e) => {
                 translated_events.push(OnChainEvent::PoolEvent(PoolEvent::PoolCreated(e)))
+            }
+            StatelessOnChainEvent::NewHarvestOrder(harvest_order) => {
+                // TODO: (DEX-897)
+                //    harvest_order_index.write_confirmed_harvest_order(harvest_order)
             }
         }
     }

@@ -77,7 +77,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges, Harvest>(
     log_onchain_events(
         upstream.then(|(block, tx_handle)| {
             read_events(block, &context, &utxos, &harvest_order_index, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges, &log))
+                .then(|batch| resolve_gauges(batch, &gauges, &log, &harvest_order_index))
                 .map(|events| (events, tx_handle))
         }),
         &log,

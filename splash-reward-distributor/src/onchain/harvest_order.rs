@@ -16,7 +16,7 @@ use splash_dao_offchain::{deployment::ProtocolValidator as DaoProtocolValidator,
 
 use crate::config::HarvestLimits;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     pub account: Ed25519KeyHash,
