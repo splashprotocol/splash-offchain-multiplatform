@@ -13,7 +13,6 @@ mod tests {
     use spectrum_offchain_cardano::deployment::{
         DeployedValidators as DexValidators, ProtocolDeployment as DexDeployment,
     };
-    use spectrum_offchain_cardano::event_pipeline::read_events::read_events;
     use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
     use splash_dao_offchain::deployment::ProtocolTokens;
     use splash_dao_offchain::deployment::{
@@ -23,12 +22,14 @@ mod tests {
     use splash_lp_index::config::AppConfig;
     use splash_lp_index::context::Context;
     use splash_lp_index::pipeline::log_events::log_event;
+    use splash_lp_index::pipeline::read_events::read_events;
     use splash_lp_index::pipeline::resolve_gauges::resolve_gauges;
     use splash_lp_index::position_db::event_log::EventLog;
     use splash_lp_index::position_db::export_feed::ExportEventFeed;
     use splash_lp_index::position_db::mature_events::MatureEvents;
     use splash_lp_index::position_db::PositionDB;
     use splash_lp_index::ve_index::VoteEscrowDB;
+    use splash_reward_distributor::indexer::IndexerDB;
     use splash_testing::db_path::DBPath;
     use std::collections::HashSet;
 
@@ -128,11 +129,18 @@ mod tests {
                 block_num,
                 block_slot,
             };
+            let harvest_order_index = IndexerDB::new("");
 
-            read_events(block_event_with_tx, &cx, &utxo_index, &persistable_entites)
-                .then(|events| resolve_gauges(events, &gauges_db, &db))
-                .then(|events| log_event(events, &db))
-                .await;
+            read_events(
+                block_event_with_tx,
+                &cx,
+                &utxo_index,
+                &harvest_order_index,
+                &persistable_entites,
+            )
+            .then(|events| resolve_gauges(events, &gauges_db, &db))
+            .then(|events| log_event(events, &db))
+            .await;
 
             db.batch_append(block_slot + confirmation_blocks_delay + 1, vec![])
                 .await;
