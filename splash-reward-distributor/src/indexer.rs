@@ -585,7 +585,6 @@ mod tests {
         HarvestOrder {
             id,
             account: Ed25519KeyHash::from_raw_bytes(&array).unwrap(),
-            issued_at: Slot(1000),
         }
     }
 

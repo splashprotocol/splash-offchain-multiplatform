@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use cml_chain::{certs::Credential, transaction::TransactionOutput};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
@@ -18,7 +20,6 @@ use crate::config::HarvestLimits;
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     pub account: Ed25519KeyHash,
-    pub issued_at: Slot,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +60,7 @@ where
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
-        try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
+        try_extract_harvest_order(output, output_ref, ctx)
     })
 }
 
@@ -76,7 +77,7 @@ where
         .filter_map(|(tx_input, output)| {
             if let Some(output) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
-                return try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx);
+                return try_extract_harvest_order(output, output_ref, ctx);
             }
             None
         })
@@ -86,7 +87,6 @@ where
 fn try_extract_harvest_order<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
-    issued_at: Slot,
     ctx: &C,
 ) -> Option<HarvestOrder<OutputRef>>
 where
@@ -100,7 +100,6 @@ where
         let harvest_order = HarvestOrder {
             id: output_ref,
             account: refund_key,
-            issued_at,
         };
         return Some(harvest_order);
     }
