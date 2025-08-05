@@ -1,5 +1,5 @@
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
-use crate::pipeline::read_events::HarvestOrderSlotCreation;
+use crate::pipeline::read_events::HarvestOrderCreationSlots;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionOutput;
@@ -70,7 +70,7 @@ where
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
-        + Has<HarvestOrderSlotCreation>
+        + Has<HarvestOrderCreationSlots>
         + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -339,7 +339,7 @@ where
         + Has<PermManagerAuthPolicy>
         + Has<HarvestLimits>
         + Has<BufferWalletScript>
-        + Has<HarvestOrderSlotCreation>
+        + Has<HarvestOrderCreationSlots>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
@@ -347,7 +347,7 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let events = OnChainEvents::try_from_ledger(repr, ctx)?;
 
-        let slots = ctx.select::<HarvestOrderSlotCreation>();
+        let slots = ctx.select::<HarvestOrderCreationSlots>();
         let mut most_recent_slot = 0;
         let accounts: Vec<_> = events
             .0
