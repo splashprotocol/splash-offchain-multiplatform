@@ -15,8 +15,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolDAOV1,
     RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1,
     RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2,
-    RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest,
+    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 use type_equalities::IsEqual;
@@ -316,6 +316,14 @@ impl Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>> for E
         &self,
     ) -> DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }> {
         self.deployment.royalty_pool_royalty_withdraw_request.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }> {
+        self.deployment.royalty_pool_v2_royalty_withdraw_request.clone()
     }
 }
 
