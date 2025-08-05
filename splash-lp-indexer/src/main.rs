@@ -131,7 +131,7 @@ async fn main() {
     let flow_driver_handle = tokio::spawn(flow_driver.run());
     processes.push(flow_driver_handle);
 
-    let harvest_order_index = IndexerDB::new("");
+    let harvest_order_index = IndexerDB::new(config.harvest_orders_db_path);
 
     let log_events_handle = tokio::spawn(event_pipeline(
         block_events,
