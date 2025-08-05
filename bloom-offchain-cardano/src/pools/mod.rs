@@ -24,7 +24,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw,
     RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
     RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit,
-    RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 
 /// Magnet for local instances.
@@ -65,6 +66,7 @@ where
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>

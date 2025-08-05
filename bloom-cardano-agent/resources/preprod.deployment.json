@@ -266,9 +266,9 @@
     }
   },
   "royaltyPoolV2": {
-    "hash": "06cee40c5f122132b4990e99a1d1385286a5f6efe53af87f953ae70a",
+    "hash": "223d7f4bb858e74a3a1c1ec5a6146d6fe8d6dc55f61b3c340c021116",
     "referenceUtxo": {
-      "txHash": "f9da7f5b870360c6f3b961dce9c2a6202840dce0934c1fefe69a1485bcb61d66",
+      "txHash": "76384bd9e7a560ce04e2186cad40d0fa45d5dde38d33896e20ad60b6b33aa4af",
       "outputIndex": 0
     },
     "cost": {
@@ -355,6 +355,21 @@
       "steps": 240000000
     }
   },
+  "royaltyPoolV2WithdrawRequest": {
+    "hash": "6710f3002759d028a90a08e1538b25d4eaf48c72d88157f71d68dcc0",
+    "referenceUtxo": {
+      "txHash": "76384bd9e7a560ce04e2186cad40d0fa45d5dde38d33896e20ad60b6b33aa4af",
+      "outputIndex": 2
+    },
+    "cost": {
+      "mem": 800000,
+      "steps": 320000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
   "royaltyPoolDaoRequest": {
     "hash": "e6715e7c155fbb5bb5cc23e41ebf5491ccb292959fc2220d7499a1fa",
     "referenceUtxo": {
@@ -386,10 +401,10 @@
     }
   },
   "royaltyPoolWithdrawContractV2": {
-    "hash": "9b092753fa5116553f66c5f60041e4b7008d27c304c081c0d1693c23",
+    "hash": "d80ff7c295e018708f9daf709ab1ce50634959d13247a5f708e8bded",
     "referenceUtxo": {
-      "txHash": "d2d8593fb31a2aeb8c965a35e6eeb570a60a6446b5e93f5d1102bf6cf25c3a77",
-      "outputIndex": 3
+      "txHash": "76384bd9e7a560ce04e2186cad40d0fa45d5dde38d33896e20ad60b6b33aa4af",
+      "outputIndex": 1
     },
     "cost": {
       "mem": 800000,
@@ -431,9 +446,9 @@
     }
   },
   "instantOrderWitness": {
-    "hash": "152e7a364d285842494bb356ddd54ab46eb8360c9fecf5e792525298",
+    "hash": "a5643b4a22a192d7691d05baf4a9bbb8acdbb5daa60be1f333e128f1",
     "referenceUtxo": {
-      "txHash": "b203342a2694668c7d00b6ce1a26de81934712a15224f8e6abbf09d028fad461",
+      "txHash": "3ddcf70e259988fc20e0bc82d20d3711372520faaac43fd26b745fac31b3e303",
       "outputIndex": 1
     },
     "cost": {
@@ -446,9 +461,9 @@
     }
   },
   "instantOrder": {
-    "hash": "9e94e848482ffb2befe7fe6c2f5171c99086b53b3f73f535ff61ca09",
+    "hash": "d9143ac63473b17a215d1b7484dfb6ac6b4a0005beb0e26a6ca02c96",
     "referenceUtxo": {
-      "txHash": "b203342a2694668c7d00b6ce1a26de81934712a15224f8e6abbf09d028fad461",
+      "txHash": "3ddcf70e259988fc20e0bc82d20d3711372520faaac43fd26b745fac31b3e303",
       "outputIndex": 0
     },
     "cost": {

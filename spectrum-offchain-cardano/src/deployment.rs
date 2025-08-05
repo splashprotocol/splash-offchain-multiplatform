@@ -128,6 +128,7 @@ pub struct DeployedValidators {
     pub royalty_pool_deposit: DeployedValidatorRef,
     pub royalty_pool_redeem: DeployedValidatorRef,
     pub royalty_pool_withdraw_request: DeployedValidatorRef,
+    pub royalty_pool_v2_withdraw_request: DeployedValidatorRef,
     pub royalty_pool_dao_request: DeployedValidatorRef,
     pub royalty_pool_withdraw_contract: DeployedValidatorRef,
     pub royalty_pool_dao_contract: DeployedValidatorRef,
@@ -171,6 +172,7 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             royalty_pool_redeem: From::from(&deployment.royalty_pool_redeem),
             royalty_pool_redeem_v2: From::from(&deployment.royalty_pool_redeem_v2),
             royalty_pool_withdraw_request: From::from(&deployment.royalty_pool_withdraw_request),
+            royalty_pool_v2_withdraw_request: From::from(&deployment.royalty_pool_v2_withdraw_request),
             royalty_pool_dao_request: From::from(&deployment.royalty_pool_dao_request),
             royalty_pool_dao: From::from(&deployment.royalty_pool_dao_contract),
             royalty_pool_dao_v2: From::from(&deployment.royalty_pool_dao_contract_v2),
@@ -325,12 +327,13 @@ pub enum ProtocolValidator {
     RoyaltyPoolV2 = 30,
     RoyaltyPoolV2Deposit = 31,
     RoyaltyPoolV2Redeem = 32,
-    RoyaltyPoolRoyaltyWithdraw = 33,
-    RoyaltyPoolRoyaltyWithdrawV2 = 34,
-    RoyaltyPoolDAOV1Request = 35,
-    RoyaltyPoolDAOV1 = 36,
-    RoyaltyPoolV2DAO = 37,
-    RoyaltyPoolDAOV2 = 38,
+    RoyaltyPoolV2RoyaltyWithdrawRequest = 33,
+    RoyaltyPoolRoyaltyWithdraw = 34,
+    RoyaltyPoolRoyaltyWithdrawV2 = 35,
+    RoyaltyPoolDAOV1Request = 36,
+    RoyaltyPoolDAOV1 = 37,
+    RoyaltyPoolV2DAO = 38,
+    RoyaltyPoolDAOV2 = 39,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -370,6 +373,8 @@ pub struct ProtocolScriptHashes {
     pub royalty_pool_redeem_v2: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2Redeem as u8 }>,
     pub royalty_pool_withdraw_request:
         DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>,
+    pub royalty_pool_v2_withdraw_request:
+        DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>,
     pub royalty_pool_dao_request: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolDAOV1Request as u8 }>,
     pub royalty_pool_dao: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolDAOV1 as u8 }>,
     pub royalty_pool_dao_v2: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2DAO as u8 }>,
@@ -409,6 +414,9 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             royalty_pool_redeem: From::from(&deployment.royalty_pool_redeem),
             royalty_pool_redeem_v2: From::from(&deployment.royalty_pool_redeem_v2),
             royalty_pool_withdraw_request: From::from(&deployment.royalty_pool_royalty_withdraw_request),
+            royalty_pool_v2_withdraw_request: From::from(
+                &deployment.royalty_pool_v2_royalty_withdraw_request,
+            ),
             royalty_pool_dao_request: From::from(&deployment.royalty_pool_dao_request),
             royalty_pool_dao: From::from(&deployment.royalty_pool_dao),
             royalty_pool_dao_v2: From::from(&deployment.royalty_pool_v2_dao),
@@ -454,6 +462,8 @@ pub struct ProtocolDeployment {
     pub royalty_pool_redeem_v2: DeployedValidator<{ ProtocolValidator::RoyaltyPoolV2Redeem as u8 }>,
     pub royalty_pool_royalty_withdraw_request:
         DeployedValidator<{ ProtocolValidator::RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>,
+    pub royalty_pool_v2_royalty_withdraw_request:
+        DeployedValidator<{ ProtocolValidator::RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>,
     pub royalty_pool_dao_request: DeployedValidator<{ ProtocolValidator::RoyaltyPoolDAOV1Request as u8 }>,
     pub royalty_pool_dao: DeployedValidator<{ ProtocolValidator::RoyaltyPoolDAOV1 as u8 }>,
     pub royalty_pool_v2_dao: DeployedValidator<{ ProtocolValidator::RoyaltyPoolV2DAO as u8 }>,
@@ -550,6 +560,11 @@ impl ProtocolDeployment {
             .await,
             royalty_pool_royalty_withdraw_request: DeployedValidator::unsafe_pull(
                 validators.royalty_pool_withdraw_request,
+                explorer,
+            )
+            .await,
+            royalty_pool_v2_royalty_withdraw_request: DeployedValidator::unsafe_pull(
+                validators.royalty_pool_v2_withdraw_request,
                 explorer,
             )
             .await,

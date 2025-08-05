@@ -15,6 +15,7 @@ use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolRoyaltyWithdrawV2,
     RoyaltyPoolV1, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO,
+    RoyaltyPoolV2RoyaltyWithdrawRequest,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::{
@@ -1158,6 +1159,7 @@ where
     Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<RoyaltyWithdrawContext>,
 {
     type Result = RoyaltyWithdrawOutput;

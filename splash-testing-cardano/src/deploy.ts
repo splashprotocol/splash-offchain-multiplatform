@@ -235,17 +235,23 @@ export class Deployment {
         });
         const tx = await this.lucid
             .newTx()
+            .pay.ToAddressWithData(
+                lockScript,
+                {kind: "inline", value: "00"},
+                undefined,
+                builtValidators.degenT2TFactory.script,
+            )
             // .pay.ToAddressWithData(
             //     lockScript,
             //     {kind: "inline", value: "00"},
             //     undefined,
-            //     builtValidators.degenT2TPool.script,
+            //     builtValidators.doubleRoyaltyWithdrawPool.script,
             // )
             // .pay.ToAddressWithData(
             //     lockScript,
             //     {kind: "inline", value: "00"},
             //     undefined,
-            //     builtValidators.doubleRoyaltyPool.script,
+            //     builtValidators.royaltyWithdrawRequest.script,
             // )
             // .pay.ToAddressWithData(
             //     lockScript,
@@ -253,18 +259,12 @@ export class Deployment {
             //     undefined,
             //     builtValidators.degenT2TFactory.script,
             // )
-            .pay.ToAddressWithData(
-                lockScript,
-                {kind: "inline", value: "00"},
-                undefined,
-                builtValidators.degenT2TFactory.script,
-            )
-            .pay.ToAddressWithData(
-                lockScript,
-                {kind: "inline", value: "00"},
-                undefined,
-                builtValidators.doubleRoyaltyPool.script,
-            )
+            // .pay.ToAddressWithData(
+            //     lockScript,
+            //     {kind: "inline", value: "00"},
+            //     undefined,
+            //     builtValidators.doubleRoyaltyPool.script,
+            // )
             // .pay.ToAddressWithData(
             //     lockScript,
             //     {kind: "inline", value: "00"},

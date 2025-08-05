@@ -35,7 +35,8 @@ use crate::deployment::ProtocolValidator::{
     ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw,
     RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
     RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit,
-    RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
@@ -181,6 +182,7 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>
@@ -237,6 +239,7 @@ where
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
