@@ -16,6 +16,7 @@ use spectrum_offchain::domain::{
     event::{AnyMod, Confirmed, Predicted, Traced},
     EntitySnapshot,
 };
+use splash_dao_offchain::routines::Slot;
 use tokio::task::spawn_blocking;
 
 use crate::onchain::{
@@ -56,15 +57,30 @@ pub enum Mod<T> {
     Predicted(T),
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct TimedHarvestOrder<StateId> {
+    pub order: HarvestOrder<StateId>,
+    pub created_at_slot: Slot,
+}
+
 #[async_trait::async_trait]
 pub trait HarvestOrderIndex<StateId, Bearer>
 where
     StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Serialize + DeserializeOwned + 'static,
 {
-    async fn read_harvest_order(&self, id: StateId) -> Option<Mod<Bundled<HarvestOrder<StateId>, Bearer>>>;
-    async fn write_predicted_harvest_order(&self, order: Predicted<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
+    async fn read_harvest_order(
+        &self,
+        id: StateId,
+    ) -> Option<Mod<Bundled<TimedHarvestOrder<StateId>, Bearer>>>;
+    async fn write_predicted_harvest_order(
+        &self,
+        order: Predicted<Bundled<TimedHarvestOrder<StateId>, Bearer>>,
+    );
+    async fn write_confirmed_harvest_order(
+        &self,
+        order: Confirmed<Bundled<TimedHarvestOrder<StateId>, Bearer>>,
+    );
     async fn remove_harvest_order(&self, id: StateId) -> Option<StateId>;
 }
 
@@ -275,7 +291,10 @@ where
     StateId: Copy + Eq + Hash + Send + Sync + Debug + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Send + Serialize + DeserializeOwned + 'static,
 {
-    async fn read_harvest_order(&self, id: StateId) -> Option<Mod<Bundled<HarvestOrder<StateId>, Bearer>>> {
+    async fn read_harvest_order(
+        &self,
+        id: StateId,
+    ) -> Option<Mod<Bundled<TimedHarvestOrder<StateId>, Bearer>>> {
         let wrapped = self.read::<HarvestOrderWrap<StateId>>(id).await;
 
         wrapped.map(|h| match h {
@@ -292,8 +311,11 @@ where
         })
     }
 
-    async fn write_predicted_harvest_order(&self, order: Predicted<Bundled<HarvestOrder<StateId>, Bearer>>) {
-        let id = order.0 .0.id;
+    async fn write_predicted_harvest_order(
+        &self,
+        order: Predicted<Bundled<TimedHarvestOrder<StateId>, Bearer>>,
+    ) {
+        let id = order.0 .0.order.id;
         let prev_state_id = self.read::<HarvestOrderWrap<StateId>>(id).await.and_then(
             |o: AnyMod<Bundled<HarvestOrderWrap<StateId>, Bearer>>| match o {
                 AnyMod::Confirmed(Traced { prev_state_id, .. })
@@ -306,8 +328,11 @@ where
         self.write_predicted(Traced { state, prev_state_id }).await;
     }
 
-    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
-        let id = order.0 .0.id;
+    async fn write_confirmed_harvest_order(
+        &self,
+        order: Confirmed<Bundled<TimedHarvestOrder<StateId>, Bearer>>,
+    ) {
+        let id = order.0 .0.order.id;
         let prev_state_id = self.read::<HarvestOrderWrap<StateId>>(id).await.and_then(
             |o: AnyMod<Bundled<HarvestOrderWrap<StateId>, Bearer>>| match o {
                 AnyMod::Confirmed(Traced { prev_state_id, .. })
@@ -329,7 +354,7 @@ where
 /// This wrapper type exists to allow `HarvestOrder`s to be treated as an `EntitySnapshot`. This
 /// simplifies the implementation of IndexerDB, as we'd otherwise need custom logic just for
 /// `HarvestOrder`.
-pub struct HarvestOrderWrap<StateId>(HarvestOrder<StateId>);
+pub struct HarvestOrderWrap<StateId>(TimedHarvestOrder<StateId>);
 
 impl<StateId> Stable for HarvestOrderWrap<StateId>
 where
@@ -338,7 +363,7 @@ where
     type StableId = StateId;
 
     fn stable_id(&self) -> Self::StableId {
-        self.0.id
+        self.0.order.id
     }
 
     fn is_quasi_permanent(&self) -> bool {
@@ -353,7 +378,7 @@ where
     type Version = StateId;
 
     fn version(&self) -> Self::Version {
-        self.0.id
+        self.0.order.id
     }
 }
 
@@ -432,7 +457,7 @@ mod tests {
     use splash_dao_offchain::routines::Slot;
 
     use crate::{
-        indexer::{HarvestOrder, HarvestOrderIndex, IndexerDB, Mod, OnChainIndex},
+        indexer::{HarvestOrder, HarvestOrderIndex, IndexerDB, Mod, OnChainIndex, TimedHarvestOrder},
         onchain::{buffer_wallet::BufferWallet, smart_farm::Gauge},
     };
 
@@ -447,7 +472,7 @@ mod tests {
         }
 
         for i in 0..20 {
-            let p: Mod<Bundled<HarvestOrder<u32>, _>> = db.read_harvest_order(i).await.unwrap();
+            let p: Mod<Bundled<TimedHarvestOrder<u32>, _>> = db.read_harvest_order(i).await.unwrap();
             assert_eq!(Mod::Predicted(orders[i as usize].clone()), p);
         }
 
@@ -455,7 +480,7 @@ mod tests {
             let id = h.1;
             let conf = confirmed(h.0.clone(), id);
             db.write_confirmed_harvest_order(conf).await;
-            let p: Mod<Bundled<HarvestOrder<u32>, _>> = db.read_harvest_order(id).await.unwrap();
+            let p: Mod<Bundled<TimedHarvestOrder<u32>, _>> = db.read_harvest_order(id).await.unwrap();
             assert_eq!(Mod::Confirmed(h.clone()), p);
         }
 
@@ -578,11 +603,11 @@ mod tests {
         }
     }
 
-    fn mk_harvest_order(id: u32) -> HarvestOrder<u32> {
+    fn mk_harvest_order(id: u32) -> TimedHarvestOrder<u32> {
         let mut rng = rand::thread_rng();
         let mut array = [0u8; 28];
         rng.fill(&mut array);
-        HarvestOrder {
+        let order = HarvestOrder {
             id,
             account: Ed25519KeyHash::from_raw_bytes(&array).unwrap(),
             issued_at: Slot(100),

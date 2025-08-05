@@ -26,6 +26,7 @@ use splash_dao_offchain::protocol_config::{
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_reward_distributor::config::HarvestLimits;
 use splash_reward_distributor::events::OnChainEvents;
+use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
@@ -34,6 +35,7 @@ use std::fmt::{Display, Formatter};
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     MultipleHarvest(MultiAccountHarvested),
+    NewHarvestOrder(HarvestOrder<OutputRef>),
     FarmCreated(FarmCreated),
     PollFactory(PollFactoryEvents),
     PoolCreated(PoolCreated),

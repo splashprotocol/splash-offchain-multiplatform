@@ -1,3 +1,4 @@
+use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
@@ -23,7 +24,7 @@ use splash_dao_offchain::protocol_config::{
 };
 use splash_dao_offchain::routines::Slot;
 use splash_reward_distributor::config::HarvestLimits;
-use splash_reward_distributor::indexer::HarvestOrderIndex;
+use splash_reward_distributor::indexer::{HarvestOrderIndex, Mod};
 use std::collections::{HashMap, HashSet};
 use type_equalities::IsEqual;
 
@@ -66,8 +67,10 @@ where
         let mut map_to_slots = HashMap::new();
         for (input, _) in &tx.inputs {
             let id = OutputRef::from(input.clone());
-            if harvest_order_index.read_harvest_order(id).await.is_some() {
-                let slot = Slot(tx.slot);
+            if let Some(wrapped_order) = harvest_order_index.read_harvest_order(id).await {
+                let slot = match wrapped_order {
+                    Mod::Confirmed(Bundled(t, _)) | Mod::Predicted(Bundled(t, _)) => t.created_at_slot,
+                };
                 map_to_slots.insert(id, slot);
             }
         }
