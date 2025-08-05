@@ -129,7 +129,7 @@ mod tests {
                 block_num,
                 block_slot,
             };
-            let harvest_order_index = IndexerDB::new("");
+            let harvest_order_index = IndexerDB::new("harvest_order_index");
 
             read_events(
                 block_event_with_tx,
