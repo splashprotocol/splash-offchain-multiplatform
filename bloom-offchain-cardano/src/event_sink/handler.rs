@@ -1331,6 +1331,10 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
+                royalty_pool_v2_withdraw_request: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
                 royalty_pool_dao_request: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),

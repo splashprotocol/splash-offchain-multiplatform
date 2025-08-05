@@ -37,8 +37,6 @@ export const hexToBytes = (hex: HexString): Uint8Array =>
 export type InstantOrderConf = {
     redeemerAddress: Address
     input: Asset,
-    tradableInput: bigint,
-    costPerExStep: Lovelace,
     output: Asset,
     basePrice: Rational,
     fee: Lovelace,
@@ -46,7 +44,8 @@ export type InstantOrderConf = {
     cancellationAfter: bigint,
     cancellationPkh: PubKeyHash,
     redeemerAddr: Address,
-    beacon: PolicyId
+    minLovelace: bigint,
+    tradableInput: bigint
 }
 
 function buildInstantOrderDatum(lucid: LucidEvolution, conf: InstantOrderConf, beacon: PolicyId): Datum {
@@ -59,15 +58,13 @@ function buildInstantOrderDatum(lucid: LucidEvolution, conf: InstantOrderConf, b
             },
           },
         input: conf.input,
-        tradableInput: conf.tradableInput,
-        costPerExStep: conf.costPerExStep,
         output: conf.output,
         basePrice: conf.basePrice,
         fee: conf.fee,
         permittedExecutors: conf.permittedExecutors,
         cancellationAfter: 0n,
         cancellationPkh: conf.cancellationPkh,
-        beacon: beacon,
+        minLovelace: 1_500_000n
     }, InstantOrderInstantOrder.conf)
 }
 
@@ -82,7 +79,7 @@ async function createInstantOrder(lucid: LucidEvolution, validator: BuiltValidat
     const input = await getUtxoWithToken(utxos, tokenABase16)
     const beacon = await beaconFromInput(lucid, input, conf);
     console.log("Beacon: " + beacon);
-    const lovelaceTotal = conf.fee + conf.costPerExStep * 4n;
+    const lovelaceTotal = conf.fee + conf.minLovelace * 4n;
     const depositedValue = conf.input.policy == "" ? { lovelace: lovelaceTotal + conf.tradableInput } : { lovelace: lovelaceTotal, [asUnit(conf.input)]: conf.tradableInput};
     const tx = lucid.newTx().collectFrom([input]).pay.ToAddressWithData(orderAddress, { kind: "inline", value: buildInstantOrderDatum(lucid, conf, beacon) }, depositedValue);
     return tx.complete();
@@ -132,11 +129,10 @@ async function main() {
             name: tokenABase16,
         },
         output: {
-            policy: "aad2b2cadf2a45d536e4b2545009e4e7f17a0cf9d87f4a3d3f83bb73",
+            policy: "ce93f37e1b9da84739be6b32d266f5c7eef5b56ee20173e64fc6ec89",
             name: "746f6b656e",
         },
         tradableInput: 10_000_000n,
-        costPerExStep: 600_000n,
         basePrice: {
             num: 0n,
             denom: 1n,
@@ -147,7 +143,7 @@ async function main() {
         permittedExecutors: "15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d509",
         redeemerAddress: myAddr,
         cancellationAfter: 0n,
-        beacon: ""
+        minLovelace: 1_500_000n
     });
     const txBidId = await (await txBid.sign.withWallet().complete()).submit();
     console.log(txBidId);

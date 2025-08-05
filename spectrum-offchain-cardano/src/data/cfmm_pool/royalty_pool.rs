@@ -1256,7 +1256,7 @@ where
                 } else {
                     return Err(ApplyOrderError::verification_failed(
                         royalty_withdraw,
-                        format!("signature_is_correct for both keys"),
+                        format!("signature_is_incorrect for both keys"),
                     ));
                 }
             };
@@ -1414,6 +1414,7 @@ mod tests {
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
         ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1RoyaltyWithdrawRequest,
+        RoyaltyPoolV2RoyaltyWithdrawRequest,
     };
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use crate::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
@@ -1435,6 +1436,7 @@ mod tests {
         fee_switch_v2: DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>,
         fee_switch_bi_dir: DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>,
         royalty_withdraw: DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>,
+        royalty_withdraw_v2: DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>,
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
         consumed_identifiers: ConsumedIdentifiers<Token>,
@@ -1499,6 +1501,14 @@ mod tests {
         }
     }
 
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }> {
+            self.royalty_withdraw_v2
+        }
+    }
+
     impl Has<OutputRef> for Context {
         fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
             self.oref
@@ -1517,7 +1527,7 @@ mod tests {
         }
     }
 
-    const POOL_UTXO: &str = "a300583930156cf166f3cfea6b6fcabd07a3a0f8217aef135b2859eb01deba6948b2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a004c4b40a4581c6e917b8b965078a39804a6313e5be73535612421acd70aa83f0ec200a158201fa39f0acfe45739a9c7abef0e51a27ab8bdb20e62b2da3521aacb24388698601b7fffffff75db360a581c74591babd5070801f8a45658d356fc8e957aea9dd75612ee6e6884e7a145746f6b656e1a0ffdd24b581cd8eb52caf3289a2880288b23141ce3d2a7025dcf76f26fd5659add06a15820cf6eb4eb6f2ca2a35298388b71e524716481196d0abb8533ddfdd29b84f834e201581cf357c6f00f0496fcd01851a7a8d909a1d9d1c9d7ba9bc021ac3bc3fea14d636e74546f6b656e746f6b656e1b00000004a95d6d1d028201d818590180d8799fd8799f581cd8eb52caf3289a2880288b23141ce3d2a7025dcf76f26fd5659add065820cf6eb4eb6f2ca2a35298388b71e524716481196d0abb8533ddfdd29b84f834e2ffd8799f581cf357c6f00f0496fcd01851a7a8d909a1d9d1c9d7ba9bc021ac3bc3fe4d636e74546f6b656e746f6b656effd8799f581c74591babd5070801f8a45658d356fc8e957aea9dd75612ee6e6884e745746f6b656effd8799f581c6e917b8b965078a39804a6313e5be73535612421acd70aa83f0ec20058201fa39f0acfe45739a9c7abef0e51a27ab8bdb20e62b2da3521aacb2438869860ff1a0001831c1832183218320000000000009fd8799fd87a9f581ce7d070220666eee395115a938ac86fb69773fa8b8183ff0aad1a47dbffffff581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133582072c68f905716a5f59a0ee2552ab68559f42287d335396d8f430da98e96c5009c5820c2d5d602ef90b3bc522a8bd6723b3fd94fbcfcc103997fe5ac769e369ab9ea1800ff";
+    const POOL_UTXO: &str = "a300581d706710f3002759d028a90a08e1538b25d4eaf48c72d88157f71d68dcc0011a00989680028201d81858f6d87983d87985d87982581c459f8ab900aea89a4c797cdfd265f994170bf06a16aed88cb8cb925a436e66741a08f0d1801a01c60e9c581cd350803d45e327f8808469d5dde9e0f6fdc6e6637d85ed44cc37a12c1a0044aa2058403f0f6ca28a12d6c07cfb9eff2e739cb99b514f741f6c0482994660dcea03018b2bca1a5c9c5ba214ea81710d66a1776583c2817942ba788cfe02e0fc7c4daa015f5840846a5369676e6174757265315846a201276761646472657373583900d350803d45e327f8808469d5dde9e0f6fdc6e6637d85ed44cc37a12c391e62575d48d77057e7c421b9d0e5557f2fa8845c6b8be2d358446cb940585cff";
 
     #[test]
     fn try_read() {
@@ -1541,6 +1551,7 @@ mod tests {
             fee_switch_v2: scripts.const_fn_pool_fee_switch_v2,
             fee_switch_bi_dir: scripts.const_fn_pool_fee_switch_bidir_fee,
             royalty_withdraw: scripts.royalty_pool_withdraw_request,
+            royalty_withdraw_v2: scripts.royalty_pool_v2_withdraw_request,
             cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
             consumed_inputs: SmallVec::new(vec![oref].into_iter()).into(),
             consumed_identifiers: Default::default(),
