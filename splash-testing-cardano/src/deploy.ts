@@ -17,7 +17,7 @@ import {
     DoubleRoyaltyPoolDepositValidatePool,
     DoubleRoyaltyPoolPoolValidatePool,
     DoubleRoyaltyPoolRedeemValidatePool,
-    DoubleRoyaltyPoolRoyaltyWithdrawPoolValidatePool,
+    DoubleRoyaltyWithdrawPoolDoubleRoyaltyWithdrawPool,
     FactoryT2tValidateFactory,
     FactoryValidateFactory,
     FeeWithdrawerT2tValidateFeeWithdraw,
@@ -32,8 +32,8 @@ import {
     RoyaltyPoolDepositValidate,
     RoyaltyPoolPoolValidatePool,
     RoyaltyPoolRedeemValidate,
-    RoyaltyPoolRoyaltyWithdrawPoolValidate,
     RoyaltyPoolWithdrawRoyaltyRequestValidate,
+    SingleRoyaltyWithdrawPoolRoyaltyWithdrawPool,
 } from "../plutus.ts";
 
 export class Deployment {
@@ -58,7 +58,7 @@ export class Deployment {
         const gridOrderNativeHash = validatorToScriptHash(gridOrderNativeScript);
         const royaltyPool = new RoyaltyPoolPoolValidatePool();
         const royaltyPoolHash = validatorToScriptHash(royaltyPool);
-        const royaltyPoolWithdraw = new RoyaltyPoolRoyaltyWithdrawPoolValidate();
+        const royaltyPoolWithdraw = new SingleRoyaltyWithdrawPoolRoyaltyWithdrawPool();
         const royaltyPoolWithdrawHash = validatorToScriptHash(royaltyPoolWithdraw);
         const royaltyWithdrawRequest = new RoyaltyPoolWithdrawRoyaltyRequestValidate();
         const royaltyWithdrawRequestHash = validatorToScriptHash(royaltyWithdrawRequest);
@@ -76,7 +76,7 @@ export class Deployment {
 
         const doubleRoyaltyPool = new DoubleRoyaltyPoolPoolValidatePool();
         const doubleRoyaltyPoolHash = validatorToScriptHash(doubleRoyaltyPool);
-        const doubleRoyaltyPoolWithdraw = new DoubleRoyaltyPoolRoyaltyWithdrawPoolValidatePool();
+        const doubleRoyaltyPoolWithdraw = new DoubleRoyaltyWithdrawPoolDoubleRoyaltyWithdrawPool();
         const doubleRoyaltyPoolWithdrawHash = validatorToScriptHash(doubleRoyaltyPoolWithdraw);
         const doubleRoyaltyDeposit = new DoubleRoyaltyPoolDepositValidatePool();
         const doubleRoyaltyDepositHash = validatorToScriptHash(doubleRoyaltyDeposit);
@@ -160,10 +160,6 @@ export class Deployment {
                 script: doubleRoyaltyPool,
                 hash: doubleRoyaltyPoolHash
             },
-            doubleRoyaltyWithdrawPool: {
-                script: doubleRoyaltyPoolWithdraw,
-                hash: doubleRoyaltyPoolWithdrawHash
-            },
             doubleRoyaltyDeposit: {
                 script: doubleRoyaltyDeposit,
                 hash: doubleRoyaltyDepositHash
@@ -199,6 +195,14 @@ export class Deployment {
             instantOrderWitness: {
                 script: instantOrderWitness,
                 hash: instantOrderWitnessHash
+            },
+            singleRoyaltyWithdrawPool: {
+                script: royaltyPoolWithdraw,
+                hash: royaltyPoolWithdrawHash
+            },
+            doubleRoyaltyWithdrawPool: {
+                script: doubleRoyaltyPoolWithdraw,
+                hash: doubleRoyaltyPoolWithdrawHash
             }
         }
     }
@@ -208,38 +212,56 @@ export class Deployment {
             type: 'before',
             slot: 0,
         });
-        const lockScript = validatorToAddress("Preprod", ns);
-        const degenFactoryAddr = credentialToRewardAddress("Preprod", {
+        const lockScript = validatorToAddress("Mainnet", ns);
+        const degenFactoryAddr = credentialToRewardAddress("Mainnet", {
             type: "Script",
             hash: builtValidators.degenT2TFactory.hash
         });
-        const degenAdminAddress = credentialToRewardAddress("Preprod", {
+        const degenAdminAddress = credentialToRewardAddress("Mainnet", {
             type: "Script",
             hash: builtValidators.degenT2TAdmin.hash
         });
-        const degenFeeWithdrawAddress = credentialToRewardAddress("Preprod", {
+        const degenFeeWithdrawAddress = credentialToRewardAddress("Mainnet", {
             type: "Script",
             hash: builtValidators.degenT2TFeeWithdraw.hash
         });
-        const instantOrderWitnessAddr = credentialToRewardAddress("Preprod", {
+        const instantOrderWitnessAddr = credentialToRewardAddress("Mainnet", {
             type: "Script",
             hash: builtValidators.instantOrderWitness.hash
         });
-        const doubleRoyaltyDao = credentialToRewardAddress("Preprod", {
+        const singleRoyaltyWithdraw = credentialToRewardAddress("Mainnet", {
             type: "Script",
-            hash: builtValidators.doubleRoyaltyDAOV1Pool.hash
+            hash: builtValidators.singleRoyaltyWithdrawPool.hash
         });
-        const doubleRoyaltyWithdraw = credentialToRewardAddress("Preprod", {
+        const doubleRoyaltyWithdraw = credentialToRewardAddress("Mainnet", {
             type: "Script",
             hash: builtValidators.doubleRoyaltyWithdrawPool.hash
         });
         const tx = await this.lucid
             .newTx()
+            .pay.ToAddressWithData(
+                lockScript,
+                {kind: "inline", value: "00"},
+                undefined,
+                builtValidators.degenT2TFactory.script,
+            )
             // .pay.ToAddressWithData(
             //     lockScript,
             //     {kind: "inline", value: "00"},
             //     undefined,
-            //     builtValidators.degenT2TPool.script,
+            //     builtValidators.doubleRoyaltyWithdrawPool.script,
+            // )
+            // .pay.ToAddressWithData(
+            //     lockScript,
+            //     {kind: "inline", value: "00"},
+            //     undefined,
+            //     builtValidators.singleRoyaltyWithdrawPool.script,
+            // )
+            // .pay.ToAddressWithData(
+            //     lockScript,
+            //     {kind: "inline", value: "00"},
+            //     undefined,
+            //     builtValidators.degenT2TFactory.script,
             // )
             // .pay.ToAddressWithData(
             //     lockScript,
@@ -251,29 +273,10 @@ export class Deployment {
             //     lockScript,
             //     {kind: "inline", value: "00"},
             //     undefined,
-            //     builtValidators.degenT2TFactory.script,
-            // )
-            .pay.ToAddressWithData(
-                lockScript,
-                {kind: "inline", value: "00"},
-                undefined,
-                builtValidators.degenT2TFactory.script,
-            )
-            .pay.ToAddressWithData(
-                lockScript,
-                {kind: "inline", value: "00"},
-                undefined,
-                builtValidators.doubleRoyaltyPool.script,
-            )
-            // .pay.ToAddressWithData(
-            //     lockScript,
-            //     {kind: "inline", value: "00"},
-            //     undefined,
             //     builtValidators.doubleRoyaltyWithdrawPool.script,
             // )
-            //.registerStake(degenAdminAddress)
+            //.registerStake(doubleRoyaltyWithdraw)
             .registerStake(degenFactoryAddr)
-            //.registerStake(degenFeeWithdrawAddress)
             .complete();
 
         return tx;

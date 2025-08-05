@@ -1,7 +1,7 @@
 {
   "instantOrder": {
-    "minFeeLovelace": 200000,
-    "minLovelace": 500000,
+    "minFeeLovelace": 500000,
+    "minLovelace": 1500000,
     "minExecutionBudgetLovelace": 500000
   },
   "depositOrder": {

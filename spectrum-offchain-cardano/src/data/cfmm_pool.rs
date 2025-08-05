@@ -53,9 +53,10 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
     ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2,
     ConstFnPoolRedeem, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request,
-    RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
-    RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO,
-    RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolRoyaltyWithdrawLedgerFixed, RoyaltyPoolRoyaltyWithdrawV2,
+    RoyaltyPoolV1, RoyaltyPoolV1Deposit, RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1Redeem,
+    RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit,
+    RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
@@ -195,7 +196,7 @@ impl ConstFnPool {
                 fee_switch.treasury_y.untag(),
             ),
             ConstFnPool::Royalty(royalty_pool) => match royalty_pool.ver {
-                RoyaltyPoolVer::V1 => unsafe_update_pd_royalty(
+                RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => unsafe_update_pd_royalty(
                     raw_datum,
                     *royalty_pool.lp_fee.numer(),
                     *royalty_pool.treasury_fee.numer(),
@@ -301,6 +302,7 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
@@ -469,6 +471,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
         + Has<PoolValidation>,
 {
@@ -665,8 +668,10 @@ where
 impl<Ctx> ApplyOrder<OnChainRoyaltyWithdraw, Ctx> for ConstFnPool
 where
     Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<RoyaltyWithdrawContext>,
 {
     type Result = RoyaltyWithdrawOutput;
@@ -744,7 +749,7 @@ mod tests {
     use crate::data::PoolId;
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
-        ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV2,
+        ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1LedgerFixed, RoyaltyPoolV2,
     };
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
 
@@ -946,6 +951,14 @@ mod tests {
             &self,
         ) -> DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }> {
             self.scripts.royalty_pool_v1
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }> {
+            self.scripts.royalty_pool_v1_ledger_fixed
         }
     }
 

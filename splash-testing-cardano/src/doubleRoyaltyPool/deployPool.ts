@@ -12,17 +12,18 @@ import {Asset, asUnit, BuiltValidators} from "../types.ts";
 import {setupWallet} from "../wallet.ts";
 import {Data, Datum, Lucid, MintingPolicy, Unit} from "@lucid-evolution/lucid";
 import {credentialToAddress} from "@lucid-evolution/utils";
+import {encoder} from 'npm:js-encoding-utils'
 
-export const TokenB   = "7465737444"
-export const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26"
+export const TokenB   = "636e74546f6b656e746f6b656e"
+export const TokenBCS = "f357c6f00f0496fcd01851a7a8d909a1d9d1c9d7ba9bc021ac3bc3fe"
 
 const lqFee = 95000n
 const treasuryFee = 10000n
 const firstRoyaltyFee = 10000n
 const secondRoyaltyFee = 50000n
 
-const startLovelaceValue = 100000000
-const startTokenB        = 100000000
+const startLovelaceValue = 500000000
+const startTokenB        = 500000000
 
 // do not touch
 const lqEmission = 9223372036854775807n;
@@ -102,6 +103,7 @@ async function main() {
     const utxos = (await lucid.wallet().getUtxos());
 
     const boxWithToken = await getUtxoWithToken(utxos, encodedTestB);
+    console.log(`box with token: ${JSON.stringify(utxos, stringifyBigIntReviewer)}`);
     const boxWithAda   = await getUtxoWithAda(utxos)
 
     if (!boxWithToken) {
@@ -118,7 +120,7 @@ async function main() {
 
     const poolAddress = credentialToAddress(
         "Preprod",
-        { hash: conf.validators!.royaltyPool.hash, type: 'Script' },
+        { hash: conf.validators!.doubleRoyaltyPool.hash, type: 'Script' },
     );
 
     const nftMintingPolicy: MintingPolicy =
@@ -182,8 +184,8 @@ async function main() {
         }],
         // treasuryAddress - is contract
         treasuryAddress: conf.validators.royaltyPool.hash,
-        firstRoyaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
-        secondRoyaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
+        firstRoyaltyPubKeyHash256: "b2f97417886f87a990b7f2a6c78c8210d6bcf8c93498d6a5c54f7026a9948d75",
+        secondRoyaltyPubKeyHash256: "369e55aff55ee447554bc2ac1a89e92acfb6a06a56a228ca8b90bd82e9a77008",
         royaltyNonce: 0n,
     }
 
@@ -204,6 +206,8 @@ async function main() {
         .mintAssets(mintingNftAssets, Data.to(0n))
         .attach.MintingPolicy(lqMintingPolicy)
         .mintAssets(mintingLqAssets, Data.to(0n))
+        .attachMetadata(42, '008d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b681d87f73eca0cc06a5a85cc9b418fb735410050e5dedadcc1d20a51d'.match(/.{1,64}/g)!.map(chunk => encoder.hexStringToArrayBuffer(chunk)))
+		.attachMetadata(43, '00b369499b1daa8a62fea98ae02c623738eda3542e87d3b3a1faf0b7d2fb2c8a3961dcea2ed2461921e0b02890ea7266fb84517b75f99e44e7'.match(/.{1,64}/g)!.map(chunk => encoder.hexStringToArrayBuffer(chunk)))
         .pay.ToContract(
             poolAddress,
             { kind: "inline", value: buildRoyaltyPoolDatum(lucid, poolConfig) },
