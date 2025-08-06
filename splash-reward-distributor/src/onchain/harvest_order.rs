@@ -20,6 +20,7 @@ use crate::config::HarvestLimits;
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     pub account: Ed25519KeyHash,
+    pub issued_at: Slot,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,7 +61,7 @@ where
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
-        try_extract_harvest_order(output, output_ref, ctx)
+        try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
     })
 }
 
@@ -87,6 +88,7 @@ where
 fn try_extract_harvest_order<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
+    issued_at: Slot,
     ctx: &C,
 ) -> Option<HarvestOrder<OutputRef>>
 where
@@ -100,6 +102,7 @@ where
         let harvest_order = HarvestOrder {
             id: output_ref,
             account: refund_key,
+            issued_at,
         };
         return Some(harvest_order);
     }
