@@ -13,21 +13,21 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        64919047,
-        "1baae92d01e355d0cdb1908dbdecdd0c73be76a6f460c460ad6772bb9cce1bde"
+        98741774,
+        "6915f769592bcddd01ea93b20e04a862e249c72da58b29989b6aafec65025059"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        64919047,
-        "1baae92d01e355d0cdb1908dbdecdd0c73be76a6f460c460ad6772bb9cce1bde"
+        98741774,
+        "6915f769592bcddd01ea93b20e04a862e249c72da58b29989b6aafec65025059"
       ]
     },
-    "disableRollbacksUntil": 64919047,
-    "dbPath": "state"
+    "disableRollbacksUntil": 94471864,
+    "dbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/snek-cardano-agent/state"
   },
   "node": {
-    "path": "/root/cardano-vasil-docker/ipc/node.socket",
+    "path": "/Users/aleksandr/node-external/node.socket",
     "magic": 1
   },
   "txSubmissionBufferSize": 64,
@@ -38,10 +38,15 @@
     "nanos": 0
   },
   "operatorKey": "",
-  "serviceFeeAddress": "",
-  "allowedPaymentDestinations": [],
+  "serviceFeeAddress": "addr_test1qzx5hcgdjd9kpg30yemfn63l0676mc0cu56ar0gw7l8p3d5pmplh8m9qesr2t2zuex6p37mn2sgq2rjaakkuc8fq55wst9lue8",
+  "allowedPaymentDestinations": [
+    "addr_test1qq2hwt50rlw0zt2evdk27sjj9d7kyjwvkg3j204haxmd2ztzlc2x5w3jh8rplp3jhwmkszrvhq9aata9t8ldr9qhjyzsxuq0k0",
+    "addr_test1qq2hwt50rlw0zt2evdk27sjj9d7kyjwvkg3j204haxmd2zvhqmshhfcv73pyw5avfw2de6nr6hqytvsxe03vgtr46p5q5epqgs",
+    "addr_test1qq2hwt50rlw0zt2evdk27sjj9d7kyjwvkg3j204haxmd2ztx3c6lspp2zqx45dklm47n46etc0w747ay5vgpzwddd8nqxjzdqm",
+    "addr_test1qq2hwt50rlw0zt2evdk27sjj9d7kyjwvkg3j204haxmd2zgcvddrnt5pfsfdyd4dtndaxf5j2g7nvt78l966x9p8nkys0lhg8p"
+  ],
   "explorer": {
-    "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key"
+    "maestroKeyPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/snek-cardano-agent/resources/maestro.key"
   },
   "execution": {
     "executionCap": {
@@ -58,7 +63,7 @@
   },
   "reportingEndpoint": "127.0.0.1:9021",
   "eventCacheTtl": {
-    "secs": 120,
+    "secs": 800,
     "nanos": 0
   },
   "mempoolBufferingDuration": {

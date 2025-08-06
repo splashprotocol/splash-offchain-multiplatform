@@ -1,4 +1,4 @@
-use crate::orders::instant::InstantOrder;
+use crate::orders::instant::{InstantOrder, InstantOrderValidation};
 use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -191,7 +191,7 @@ where
         + Has<AddedPaymentDestinations>
         + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
-        + Has<LimitOrderValidation>
+        + Has<InstantOrderValidation>
         + Has<AdhocFeeStructure>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {

@@ -434,7 +434,7 @@ where
                             .permitted_executors
                             .contains(&ctx.select::<OperatorCred>().into());
                     let validation = ctx.select::<LimitOrderValidation>();
-                    let valid_configuration = conf.cost_per_ex_step >= validation.min_lovelace
+                    let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step;
                     let order_state = order_state(conf.beacon, datum, DATUM_MAPPING.beacon, ctx);
                     let sufficient_fee = match order_state {
@@ -492,8 +492,7 @@ where
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitOrderValidation {
-    //todo: remove
-    pub min_lovelace: u64,
+    pub min_cost_per_ex_step: u64,
     pub min_fee_lovelace: Lovelace,
 }
 
@@ -564,7 +563,7 @@ mod tests {
     impl Has<LimitOrderValidation> for Context {
         fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
             LimitOrderValidation {
-                min_lovelace: 0,
+                min_cost_per_ex_step: 0,
                 min_fee_lovelace: 0,
             }
         }

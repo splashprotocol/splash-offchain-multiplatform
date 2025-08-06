@@ -61,6 +61,8 @@ pub struct InstantOrder {
     pub fee_asset: AssetClass,
     /// Remaining ADA to facilitate execution.
     pub execution_budget: FeeAsset<u64>,
+    /// Fee reserved for the whole swap.
+    pub fee: FeeAsset<u64>,
     /// Redeemer address.
     pub redeemer_address: PlutusAddress,
     /// Cancellation PKH.
@@ -77,7 +79,7 @@ impl Display for InstantOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             format!(
-                "InstantOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={}, init={})",
+                "InstantOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={} {}, init={})",
                 self.beacon,
                 self.side(),
                 self.pair_id(),
@@ -87,6 +89,7 @@ impl Display for InstantOrder {
                 self.output_amount,
                 self.output_asset,
                 self.execution_budget,
+                self.fee,
                 self.fee_asset,
                 self.virgin,
             )
@@ -130,7 +133,7 @@ impl TakerBehaviour for InstantOrder {
         Next::Term(TerminalTake {
             remaining_input: self.input_amount,
             accumulated_output: self.output_amount,
-            remaining_fee: 0,
+            remaining_fee: self.fee,
             remaining_budget: self.execution_budget,
         })
     }
@@ -157,7 +160,7 @@ impl TakerBehaviour for InstantOrder {
         Next::Term(TerminalTake {
             remaining_input: self.input_amount,
             accumulated_output: self.output_amount,
-            remaining_fee: 0,
+            remaining_fee: self.fee,
             remaining_budget: self.execution_budget,
         })
     }
@@ -183,11 +186,14 @@ impl MarketTaker for InstantOrder {
     }
 
     fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
-        0
+        self.fee
+            .saturating_mul(input_consumed)
+            .checked_div(self.input_amount)
+            .unwrap_or(0)
     }
 
     fn fee(&self) -> FeeAsset<u64> {
-        0
+        self.fee
     }
 
     fn budget(&self) -> FeeAsset<u64> {
@@ -233,6 +239,15 @@ impl Tradable for InstantOrder {
     fn pair_id(&self) -> Self::PairId {
         PairId::canonical(self.input_asset, self.output_asset)
     }
+}
+
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstantOrderValidation {
+    //todo: remove
+    pub min_lovelace: u64,
+    pub min_fee_lovelace: Lovelace,
+    pub min_execution_budget_lovelace: Lovelace,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -312,7 +327,7 @@ where
         + Has<ConsumedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
-        + Has<LimitOrderValidation>,
+        + Has<InstantOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -329,9 +344,10 @@ where
             if let Some(_) = linear_output_relative(tradable_input, conf.base_price) {
                 let sufficient_input = total_input_asset_amount >= tradable_input;
                 let executable = conf.permitted_executor == ctx.select::<OperatorCred>().into();
-                let validation = ctx.select::<LimitOrderValidation>();
+                let validation = ctx.select::<InstantOrderValidation>();
                 let valid_configuration = conf.min_lovelace >= validation.min_lovelace;
-                let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
+                let sufficient_fee =
+                    conf.fee >= (validation.min_execution_budget_lovelace + validation.min_fee_lovelace);
                 if sufficient_input && executable && valid_configuration {
                     let output_ref = ctx.select::<OutputRef>();
                     let script_info = ctx.select::<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>();
@@ -346,14 +362,14 @@ where
                         output_asset: conf.output,
                         output_amount: value.amount_of(conf.output).unwrap_or(0),
                         base_price: harden_price(conf.base_price, tradable_input),
-                        execution_budget: conf.fee,
+                        execution_budget: validation.min_execution_budget_lovelace,
                         fee_asset: AssetClass::Native,
-                        //max_cost_per_ex_step: conf.fee,
                         redeemer_address: conf.redeemer_address,
                         cancellation_pkh: conf.cancellation_pkh,
                         marginal_cost: script_info.marginal_cost,
                         virgin: true, //todo: verify correctness // matches!(order_state, Some(OrderState::New)),
                         cancellation_after: conf.cancellation_after,
+                        fee: conf.fee - validation.min_execution_budget_lovelace,
                     });
                 } else {
                     trace!(
@@ -373,13 +389,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::orders::instant::{InstantOrder, DATUM_MAPPING};
-    use crate::orders::limit::LimitOrderValidation;
+    use crate::orders::instant::{InstantOrder, InstantOrderValidation};
     use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
-    use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
-    use cml_core::serialization::{Deserialize, Serialize};
-    use cml_crypto::{blake2b224, Ed25519KeyHash, TransactionHash};
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use spectrum_cardano_lib::{OutputRef, Token};
     use spectrum_offchain::data::small_vec::SmallVec;
     use spectrum_offchain::display::display_option;
@@ -422,11 +436,12 @@ mod tests {
         }
     }
 
-    impl Has<LimitOrderValidation> for Context {
-        fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
-            LimitOrderValidation {
+    impl Has<InstantOrderValidation> for Context {
+        fn select<U: IsEqual<InstantOrderValidation>>(&self) -> InstantOrderValidation {
+            InstantOrderValidation {
                 min_lovelace: 0,
                 min_fee_lovelace: 0,
+                min_execution_budget_lovelace: 0,
             }
         }
     }
@@ -459,14 +474,16 @@ mod tests {
         const TX_BC: &str = "99d8460a4f4c500bccd922e34db1536d784b0b5952fa8bc1bc90d48333344dde";
         const IX_BC: u64 = 1;
         let oref_bc = OutputRef::new(TransactionHash::from_hex(TX_BC).unwrap(), IX_BC);
-        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let raw_deployment = std::fs::read_to_string("/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/preprod.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Context {
             oref,
             instant_order: scripts.instant_order,
-            cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
+            cred: OperatorCred(
+                Ed25519KeyHash::from_hex("15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d509").unwrap(),
+            ),
             consumed_inputs: SmallVec::new(vec![oref_bc].into_iter()).into(),
             consumed_identifiers: SmallVec::new(
                 vec![Token::from_string_unsafe(
@@ -483,21 +500,5 @@ mod tests {
         println!("P_abs: {}", display_option(&ord.map(|x| x.price())));
     }
 
-    const ORDER_UTXO: &str = "a30058391164956ddc4df888a294bec79d53a91601b60fc46592e8b78e33a486ff7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a0036ee80028201d81858f6d8798c4101d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdd8798240401a000f42401a000927c0d87982581c41f4454459daa1b6b856a7a5e28e6ea930bf9d593adec38d7700f7df4442415348d879821a001dad0d1a009896801a0007a120581cedbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e47761a68345fc9581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25581ca83d20206ee7e3ae5cabfbdb6e026f53f5220dcc8980f1b10784530c";
-
-    #[test]
-    fn beacon_derivation_eqv() {
-        const DT: &str = "d8798c4101d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdd8798240401a000f42401a000927c0d87982581c297b968a322f2b7ab777b6df775f69ae1f0555b60ce98cd59fc6b6c0484d6f6f6e4775696ed879821a0002f7b31a000f42401a0007a120581cedbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e47761a68359791581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25581cbb9b18c8d5e79db8b1457d1ffdd7430c090cbf4c1ca1756186ac40f2";
-        const TX: &str = "35e2698b2acbd453cfca7ba678aa120c299a230f42afa182b52a7922ed8bebc8";
-        const IX: u64 = 1;
-        const ORDER_IX: u64 = 0;
-        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DT).unwrap()).unwrap();
-        let pd_without_beacon = crate::orders::limit::with_erased_beacon_unsafe(pd, DATUM_MAPPING.beacon);
-        let datum_hash = blake2b224(&*pd_without_beacon.to_cbor_bytes());
-        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
-        assert_eq!(
-            crate::orders::limit::beacon_from_oref(oref, datum_hash, ORDER_IX).to_hex(),
-            "bb9b18c8d5e79db8b1457d1ffdd7430c090cbf4c1ca1756186ac40f2"
-        )
-    }
+    const ORDER_UTXO: &str = "a300581d70d9143ac63473b17a215d1b7484dfb6ac6b4a0005beb0e26a6ca02c9601821a00632ea0a1581c77cb34f72da105bd0cab41c2a10e2fa2fe97a181e6771a62d0c9673ea14974657374546f6b656e1a00989680028201d81858f7d8799f4101d8799fd8799f581caf31ce038e8a8b297546db1a86b3973c32e49e191b3c76626046ed93ffd8799fd8799fd8799f581c1fc3c30bb2966c801399aa685012979d1f5048da659407e8371b8126ffffffffd8799f581c77cb34f72da105bd0cab41c2a10e2fa2fe97a181e6771a62d0c9673e4974657374546f6b656effd8799f581cce93f37e1b9da84739be6b32d266f5c7eef5b56ee20173e64fc6ec8945746f6b656effd8799f0001ff1a0007a1201a0016e360581c15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d50900581caf31ce038e8a8b297546db1a86b3973c32e49e191b3c76626046ed93ff";
 }

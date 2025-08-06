@@ -137,7 +137,7 @@ async function main() {
             num: 0n,
             denom: 1n,
         },
-        fee: 500000n,
+        fee: 700000n,
         redeemerAddr: myAddr,
         cancellationPkh: getAddressDetails(myAddr).paymentCredential!.hash,
         permittedExecutors: "15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d509",

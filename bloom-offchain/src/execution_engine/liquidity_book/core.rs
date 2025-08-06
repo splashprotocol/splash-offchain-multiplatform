@@ -10,7 +10,7 @@ use algebra_core::semigroup::Semigroup;
 use bigdecimal::BigDecimal;
 use derive_more::{Display, From, Into};
 use either::Either;
-use log::{trace, warn};
+use log::{debug, trace, warn};
 use nonempty::NonEmpty;
 use num_bigint::BigInt;
 use num_rational::{BigRational, Ratio};
@@ -841,28 +841,28 @@ where
         let num_takes = recipe.takes.len();
         let num_makes = recipe.makes.len();
         if num_makes > 0 {
-            trace!("Calculating takes_to_makes ratio.");
+            debug!("Calculating takes_to_makes ratio.");
             let takes_to_makes = Ratio::new_raw(num_takes, num_makes);
-            trace!("Calculated takes_to_makes: {:?}", takes_to_makes);
+            debug!("Calculated takes_to_makes: {:?}", takes_to_makes);
 
-            trace!("Calculating base_budget.");
+            debug!("Calculating base_budget.");
             let base_budget = max(<u64>::from(cx.get()), 1);
-            trace!("Base budget calculated: {}", base_budget);
+            debug!("Base budget calculated: {}", base_budget);
 
-            trace!("Calculating total_budget.");
+            debug!("Calculating total_budget.");
             let total_budget = recipe
                 .takes
                 .values()
                 .fold(0, |acc, Final(take)| acc + take.target.consumable_budget());
-            trace!("Total budget calculated: {}", total_budget);
+            debug!("Total budget calculated: {}", total_budget);
 
-            trace!("Calculating budget_ratio.");
+            debug!("Calculating budget_ratio.");
             let budget_ratio = Ratio::new_raw(total_budget as usize, base_budget as usize);
-            trace!("Budget ratio calculated: {:?}", budget_ratio);
+            debug!("Budget ratio calculated: {:?}", budget_ratio);
 
-            trace!("Calculating takes_to_makes_ratio.");
+            debug!("Calculating takes_to_makes_ratio.");
             let takes_to_makes_ratio = takes_to_makes * budget_ratio.reduced();
-            trace!("Takes to makes ratio calculated: {:?}", takes_to_makes_ratio);
+            debug!("Takes to makes ratio calculated: {:?}", takes_to_makes_ratio);
 
             return takes_to_makes_ratio >= BASE_TAKE_TO_MAKE_RATIO;
         }
