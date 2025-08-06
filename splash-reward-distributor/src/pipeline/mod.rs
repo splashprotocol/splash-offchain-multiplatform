@@ -4,6 +4,7 @@ use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{FutureExt, Stream, StreamExt};
+use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::persistent_index::PersistentIndex;
@@ -31,7 +32,7 @@ pub async fn event_pipeline<U, Cx, Utxos>(
             TransactionHandle,
         ),
     >,
-    Utxos: PersistentIndex<OutputRef, TransactionOutput>,
+    Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<BufferWalletScript>

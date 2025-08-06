@@ -6,7 +6,9 @@ use cml_crypto::ScriptHash;
 use derive_more::From;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    transaction::TransactionOutputExtension, tx_view::TxViewPartiallyResolved, AssetName, OutputRef,
+    transaction::TransactionOutputExtension,
+    tx_view::{TimedOutput, TxViewPartiallyResolved},
+    AssetName, OutputRef,
 };
 use spectrum_offchain::{
     domain::{EntitySnapshot, Has, Stable},
@@ -80,7 +82,7 @@ where
                 .map(|buffer_wallet| (buffer_wallet, output.clone()))
         })?;
         let consumed = repr.inputs.iter().find_map(|(tx_input, output)| {
-            if let Some(output) = output {
+            if let Some(TimedOutput { output, .. }) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
                 if try_extract_buffer_wallet(output, output_ref, ctx).is_some() {
                     return Some(output_ref);

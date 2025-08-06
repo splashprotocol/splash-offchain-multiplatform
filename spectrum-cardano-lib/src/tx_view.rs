@@ -59,18 +59,45 @@ impl From<Either<BabbageTransaction, Transaction>> for TxView {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TimedOutput {
+    pub output: TransactionOutput,
+    pub slot: Slot,
+}
+
+impl cml_crypto::Serialize for TimedOutput {
+    fn serialize<'a, W: std::io::Write + Sized>(
+        &self,
+        serializer: &'a mut cbor_event::se::Serializer<W>,
+        force_canonical: bool,
+    ) -> cbor_event::Result<&'a mut cbor_event::se::Serializer<W>> {
+        todo!()
+    }
+}
+
+impl cml_crypto::Deserialize for TimedOutput {
+    fn deserialize<R: std::io::BufRead + std::io::Seek>(
+        raw: &mut cbor_event::de::Deserializer<R>,
+    ) -> Result<Self, cml_core::DeserializeError>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+}
+
 /// A Tx view giving access to its mandatory fields, inputs are partially resolved.
 #[derive(Debug, Clone)]
 pub struct TxViewPartiallyResolved {
     pub hash: TransactionHash,
-    pub inputs: Vec<(TransactionInput, Option<TransactionOutput>)>,
+    pub inputs: Vec<(TransactionInput, Option<TimedOutput>)>,
     pub outputs: Vec<TransactionOutput>,
     pub signers: Vec<Ed25519KeyHash>,
     pub slot: u64,
 }
 
 impl TxViewPartiallyResolved {
-    pub async fn resolve<Index: PersistentIndex<OutputRef, TransactionOutput>>(
+    pub async fn resolve<Index: PersistentIndex<OutputRef, TimedOutput>>(
         tx: TxView,
         index: &Index,
         slot: Slot,
@@ -85,10 +112,10 @@ impl TxViewPartiallyResolved {
     }
 }
 
-async fn try_resolve_inputs<Index: PersistentIndex<OutputRef, TransactionOutput>>(
+async fn try_resolve_inputs<Index: PersistentIndex<OutputRef, TimedOutput>>(
     inputs: Vec<TransactionInput>,
     index: &Index,
-) -> Vec<(TransactionInput, Option<TransactionOutput>)> {
+) -> Vec<(TransactionInput, Option<TimedOutput>)> {
     let mut processed_inputs = vec![];
     for input in inputs {
         let maybe_output = index.get(OutputRef::new(input.transaction_id, input.index)).await;

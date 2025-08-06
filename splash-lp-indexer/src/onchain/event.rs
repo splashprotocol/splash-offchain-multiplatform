@@ -1,12 +1,11 @@
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
-use crate::pipeline::read_events::HarvestOrderCreationSlots;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionOutput;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
+use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
@@ -35,7 +34,6 @@ use std::fmt::{Display, Formatter};
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     MultipleHarvest(MultiAccountHarvested),
-    NewHarvestOrder(HarvestOrder<OutputRef>),
     FarmCreated(FarmCreated),
     PollFactory(PollFactoryEvents),
     PoolCreated(PoolCreated),
@@ -70,7 +68,6 @@ where
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
-        + Has<HarvestOrderCreationSlots>
         + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -216,7 +213,9 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
-            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+            maybe_utxo
+                .as_ref()
+                .and_then(|TimedOutput { output, .. }| AnyPool::try_from_ledger(output, ctx))
         });
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
         if let (Some(pin), Some(pout)) = (pool_in, pool_out) {
@@ -337,7 +336,6 @@ where
         + Has<PermManagerAuthPolicy>
         + Has<HarvestLimits>
         + Has<BufferWalletScript>
-        + Has<HarvestOrderCreationSlots>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
@@ -345,14 +343,13 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let events = OnChainEvents::try_from_ledger(repr, ctx)?;
 
-        let slots = ctx.select::<HarvestOrderCreationSlots>();
         let mut most_recent_slot = 0;
         let accounts: Vec<_> = events
             .0
             .iter()
             .filter_map(|event| {
                 if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
-                    let issued_at = slots.0.get(&h.id).unwrap().0;
+                    let issued_at = h.issued_at.0;
                     if issued_at > most_recent_slot {
                         most_recent_slot = issued_at;
                     }
@@ -391,9 +388,9 @@ where
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| {
+                    .and_then(|TimedOutput { output, .. }| {
                         let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        SmartFarmSnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        SmartFarmSnapshot::try_from_ledger(output, &ProvideTimedOref(ctx, oref))
                     })
                     .map(|farm| farm.get().farm_id)
             }));
@@ -430,9 +427,9 @@ where
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| {
+                    .and_then(|TimedOutput { output, .. }| {
                         let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        PollFactorySnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        PollFactorySnapshot::try_from_ledger(output, &ProvideTimedOref(ctx, oref))
                     })
                     .map(|farm| farm.get().stable_id)
             }));
@@ -523,7 +520,9 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
-            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+            maybe_utxo
+                .as_ref()
+                .and_then(|TimedOutput { output, .. }| AnyPool::try_from_ledger(output, ctx))
         });
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
         if let (None, Some(pout)) = (pool_in, pool_out) {

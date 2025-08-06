@@ -1,5 +1,4 @@
 use crate::pipeline::log_events::log_onchain_events;
-use crate::pipeline::read_events::read_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
@@ -8,37 +7,36 @@ use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_core::Slot;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::FutureExt;
 use futures::{Stream, StreamExt};
-use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::persistent_index::PersistentIndex;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
+use spectrum_offchain_cardano::event_pipeline::read_events::read_events;
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_reward_distributor::config::HarvestLimits;
-use splash_reward_distributor::indexer::HarvestOrderIndex;
 use std::collections::HashSet;
 
 pub mod log_events;
-pub mod read_events;
 pub mod resolve_gauges;
 
-pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges, Harvest>(
+pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     upstream: U,
     log: Log,
     context: Cx,
     utxos: Utxos,
     gauges: Gauges,
-    harvest_order_index: Harvest,
     utxo_filter: HashSet<ScriptHash>,
 ) where
     U: Stream<
@@ -48,9 +46,8 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges, Harvest>(
         ),
     >,
     Log: EventLog + Accounts + PoolFrames,
-    Utxos: PersistentIndex<OutputRef, TransactionOutput>,
+    Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Gauges: VoteEscrowIndex,
-    Harvest: HarvestOrderIndex<OutputRef, TransactionOutput>,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
@@ -76,8 +73,8 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges, Harvest>(
 {
     log_onchain_events(
         upstream.then(|(block, tx_handle)| {
-            read_events(block, &context, &utxos, &harvest_order_index, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges, &log, &harvest_order_index))
+            read_events(block, &context, &utxos, &utxo_filter)
+                .then(|batch| resolve_gauges(batch, &gauges, &log))
                 .map(|events| (events, tx_handle))
         }),
         &log,

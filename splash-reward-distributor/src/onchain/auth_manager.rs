@@ -4,7 +4,10 @@ use std::hash::Hash;
 use cml_chain::transaction::TransactionOutput;
 use derive_more::From;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use spectrum_cardano_lib::{tx_view::TxViewPartiallyResolved, OutputRef};
+use spectrum_cardano_lib::{
+    tx_view::{TimedOutput, TxViewPartiallyResolved},
+    OutputRef,
+};
 use spectrum_offchain::{
     domain::{EntitySnapshot, Has, Stable},
     ledger::TryFromLedger,
@@ -65,7 +68,7 @@ where
                 .map(|auth_manager| (auth_manager, output.clone()))
         })?;
         let consumed = repr.inputs.iter().find_map(|(tx_input, output)| {
-            if let Some(output) = output {
+            if let Some(TimedOutput { output, .. }) = output {
                 let output_ref = TimedOutputRef::new(OutputRef::from(tx_input.clone()), Slot(repr.slot));
                 if try_extract_auth_manager(output, output_ref, ctx).is_some() {
                     return Some(output_ref.output_ref);
