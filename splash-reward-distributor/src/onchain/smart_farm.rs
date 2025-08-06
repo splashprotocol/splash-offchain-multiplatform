@@ -4,8 +4,10 @@ use std::hash::Hash;
 use cml_chain::transaction::TransactionOutput;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
-    OutputRef,
+    value::ValueExtension,
+    AssetClass, AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
     domain::{EntitySnapshot, Has, Stable},
@@ -13,9 +15,10 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::{
+    constants::SPLASH_NAME,
     deployment::ProtocolValidator as DaoProtocolValidator,
     entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot},
-    protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy},
+    protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy},
     routines::{Slot, TimedOutputRef},
 };
 
@@ -60,6 +63,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -89,8 +93,10 @@ fn try_extract_gauge<C>(
 where
     C: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
+    let splash_policy = ctx.select::<SplashPolicy>().0;
     let ctx = GaugeCtx {
         perm_manager_auth_policy: ctx.select::<PermManagerAuthPolicy>(),
         farm_auth_policy: ctx.select::<FarmAuthPolicy>(),
@@ -99,10 +105,13 @@ where
     };
     let snapshot = SmartFarmSnapshot::try_from_ledger(output, &ctx)?;
     let smart_farm = snapshot.get();
+    let splash_asset_class =
+        AssetClass::Token(Token(splash_policy, AssetName::from_utf8(SPLASH_NAME.into())));
+    let balance = output.value().amount_of(splash_asset_class)?;
     Some(Gauge {
         id: smart_farm.farm_id,
         state_id: timed_output_ref.output_ref,
-        balance: todo!(),
+        balance,
     })
 }
 
