@@ -610,6 +610,9 @@ mod tests {
                 db.read_harvest_order(i).await;
             assert!(p.is_none());
         }
+
+        // Undo the refunds
+        unconsume_orders().await;
     }
 
     #[tokio::test]
