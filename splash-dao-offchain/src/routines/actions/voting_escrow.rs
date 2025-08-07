@@ -228,13 +228,13 @@ where
 
         let sorted_inputs = if mve_in_ix == 0 {
             vec![
-                (mve_input_builder, mve_ex_units),
-                (ve_factory_input_builder, ve_factory_ex_units),
+                (mve_input_builder, Some(mve_ex_units)),
+                (ve_factory_input_builder, Some(ve_factory_ex_units)),
             ]
         } else {
             vec![
-                (ve_factory_input_builder, ve_factory_ex_units),
-                (mve_input_builder, mve_ex_units),
+                (ve_factory_input_builder, Some(ve_factory_ex_units)),
+                (mve_input_builder, Some(mve_ex_units)),
             ]
         };
 
@@ -453,9 +453,9 @@ where
         let ve_factory_ex_units = DaoScriptData::global().ve_factory.ex_units.clone();
 
         let mut typed_inputs = [
-            (T::Order, order_out_ref, order_ex_units),
-            (T::VE, ve_out_ref, ve_ex_units),
-            (T::VEFactory, ve_factory_out_ref, ve_factory_ex_units),
+            (T::Order, order_out_ref, Some(order_ex_units)),
+            (T::VE, ve_out_ref, Some(ve_ex_units)),
+            (T::VEFactory, ve_factory_out_ref, Some(ve_factory_ex_units)),
         ];
         typed_inputs.sort_by(|(_, x, _), (_, y, _)| x.cmp(y));
 
@@ -866,9 +866,9 @@ where
         let ve_factory_ex_units = DaoScriptData::global().ve_factory.ex_units.clone();
 
         let mut typed_inputs = [
-            (T::Order, order_out_ref, order_ex_units),
-            (T::VE, ve_out_ref, ve_ex_units),
-            (T::VEFactory, ve_factory_out_ref, ve_factory_ex_units),
+            (T::Order, order_out_ref, Some(order_ex_units)),
+            (T::VE, ve_out_ref, Some(ve_ex_units)),
+            (T::VEFactory, ve_factory_out_ref, Some(ve_factory_ex_units)),
         ];
         typed_inputs.sort_by(|(_, x, _), (_, y, _)| x.cmp(y));
 

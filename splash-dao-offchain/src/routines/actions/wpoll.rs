@@ -722,9 +722,9 @@ where
 
         let dsd = DaoScriptData::global();
 
-        let order_ex_units = dsd.wpoll_vote_order.ex_units.clone();
-        let ve_ex_units = dsd.voting_escrow.ex_units.clone();
-        let wp_ex_units = dsd.mint_wp_auth_token.mint_ex_units.clone();
+        let order_ex_units = Some(dsd.wpoll_vote_order.ex_units.clone());
+        let ve_ex_units = Some(dsd.voting_escrow.ex_units.clone());
+        let wp_ex_units = Some(dsd.mint_wp_auth_token.mint_ex_units.clone());
 
         let mut typed_inputs = vec![
             (T::Order, order_output_ref, order_ex_units),
