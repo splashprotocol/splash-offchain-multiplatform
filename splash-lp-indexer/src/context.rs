@@ -1,11 +1,14 @@
-use crate::config::HarvestLimits;
+use cml_crypto::ScriptHash;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolDeployment as DexDeployment};
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
+use splash_dao_offchain::protocol_config::{
+    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+};
+use splash_reward_distributor::config::HarvestLimits;
 use type_equalities::IsEqual;
 
 pub struct Context {
@@ -14,6 +17,7 @@ pub struct Context {
     pub dao_tokens: DaoTokens,
     pub pool_validation: PoolValidation,
     pub harvest_limits: HarvestLimits,
+    pub splash_policy_id: ScriptHash,
 }
 
 impl Has<DeployedScriptInfo<{ WpFactory as u8 }>> for Context {
@@ -29,6 +33,20 @@ impl Has<DeployedScriptInfo<{ SmartFarm as u8 }>> for Context {
         &self,
     ) -> DeployedScriptInfo<{ SmartFarm as u8 }> {
         (&self.dao_deployment.smart_farm).into()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ PermManager as u8 }>> for Context {
+    fn select<U: IsEqual<DeployedScriptInfo<{ PermManager as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ PermManager as u8 }> {
+        (&self.dao_deployment.perm_manager).into()
+    }
+}
+
+impl Has<SplashPolicy> for Context {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+        SplashPolicy(self.splash_policy_id)
     }
 }
 
@@ -139,5 +157,11 @@ impl Has<DeployedScriptInfo<{ HarvestOrder as u8 }>> for Context {
 impl Has<HarvestLimits> for Context {
     fn select<U: IsEqual<HarvestLimits>>(&self) -> HarvestLimits {
         self.harvest_limits
+    }
+}
+
+impl Has<BufferWalletScript> for Context {
+    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
+        BufferWalletScript(self.dao_deployment.buffer_wallet.clone())
     }
 }

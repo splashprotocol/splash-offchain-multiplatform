@@ -6,6 +6,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_explorer::{AnyExplorer, Maestro};
 use clap::Parser;
+use cml_crypto::ScriptHash;
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use log::info;
@@ -98,12 +99,14 @@ async fn main() {
         dex_protocol_deployment.royalty_pool.hash,
         dex_protocol_deployment.stable_fn_pool_t2t.hash,
     ]);
+
     let cx = Context {
         dex_deployment: dex_protocol_deployment,
         dao_deployment: dao_protocol_deployment,
         dao_tokens,
         pool_validation: validation_rules.pool,
         harvest_limits: config.harvest_limits,
+        splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
     };
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");

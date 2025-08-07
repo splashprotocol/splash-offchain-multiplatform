@@ -1,23 +1,26 @@
+use std::collections::HashMap;
+
 use cml_chain::{certs::Credential, transaction::TransactionOutput};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
     transaction::TransactionOutputExtension,
-    tx_view::TxViewPartiallyResolved,
+    tx_view::{TimedOutput, TxViewPartiallyResolved},
     types::TryFromPData,
     OutputRef,
 };
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
+use splash_dao_offchain::{deployment::ProtocolValidator as DaoProtocolValidator, routines::Slot};
 
 use crate::config::HarvestLimits;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     pub account: Ed25519KeyHash,
+    pub issued_at: Slot,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,21 +61,24 @@ where
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
-        try_extract_harvest_order(output, output_ref, ctx)
+        try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
     })
 }
 
 /// Returns the OutputRefs of all known harvest orders that have been consumed.
-pub(crate) fn get_consumed_harvest_orders<C>(repr: &TxViewPartiallyResolved, ctx: &C) -> Vec<OutputRef>
+pub(crate) fn get_consumed_harvest_orders<C>(
+    repr: &TxViewPartiallyResolved,
+    ctx: &C,
+) -> Vec<HarvestOrder<OutputRef>>
 where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.inputs
         .iter()
         .filter_map(|(tx_input, output)| {
-            if let Some(output) = output {
+            if let Some(TimedOutput { output, slot }) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
-                return try_extract_harvest_order(output, output_ref, ctx).map(|order| order.id);
+                return try_extract_harvest_order(output, output_ref, Slot(*slot), ctx);
             }
             None
         })
@@ -82,6 +88,7 @@ where
 fn try_extract_harvest_order<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
+    issued_at: Slot,
     ctx: &C,
 ) -> Option<HarvestOrder<OutputRef>>
 where
@@ -95,6 +102,7 @@ where
         let harvest_order = HarvestOrder {
             id: output_ref,
             account: refund_key,
+            issued_at,
         };
         return Some(harvest_order);
     }

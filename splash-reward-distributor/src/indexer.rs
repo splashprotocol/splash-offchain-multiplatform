@@ -429,10 +429,11 @@ mod tests {
         event::{AnyMod, Confirmed, Predicted, Traced},
         EntitySnapshot, Stable,
     };
+    use splash_dao_offchain::routines::Slot;
 
     use crate::{
-        indexer::{HarvestOrderIndex, IndexerDB, Mod, OnChainIndex},
-        onchain::{buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge},
+        indexer::{HarvestOrder, HarvestOrderIndex, IndexerDB, Mod, OnChainIndex},
+        onchain::{buffer_wallet::BufferWallet, smart_farm::Gauge},
     };
 
     #[tokio::test]
@@ -584,6 +585,7 @@ mod tests {
         HarvestOrder {
             id,
             account: Ed25519KeyHash::from_raw_bytes(&array).unwrap(),
+            issued_at: Slot(100),
         }
     }
 
@@ -592,6 +594,7 @@ mod tests {
         Gauge {
             id: rng.next_u32(),
             state_id: rng.next_u32(),
+            balance: 1000,
         }
     }
 

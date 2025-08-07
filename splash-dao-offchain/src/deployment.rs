@@ -1,5 +1,5 @@
 use cardano_explorer::CardanoNetwork;
-use cml_chain::{plutus::ExUnits, utils::BigInteger};
+use cml_chain::{plutus::ExUnits, transaction::NativeScript, utils::BigInteger};
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{NetworkId, Token};
 use spectrum_offchain::domain::Has;
@@ -36,6 +36,7 @@ pub struct DeployedValidators {
     pub harvest_order: DeployedValidatorRef,
     pub redeem_ve_order: DeployedValidatorRef,
     pub wpoll_vote_order: DeployedValidatorRef,
+    pub buffer_wallet: NativeScript,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -153,6 +154,7 @@ pub enum ProtocolValidator {
     HarvestOrder = 114,
     WPollVoteOrder = 115,
     RedeemVeOrder = 116,
+    BufferWallet = 117,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -219,6 +221,7 @@ pub struct ProtocolDeployment {
     pub harvest_order: DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>,
     pub wpoll_vote_order: DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>,
     pub redeem_ve_order: DeployedValidator<{ ProtocolValidator::RedeemVeOrder as u8 }>,
+    pub buffer_wallet: NativeScript,
 }
 
 impl ProtocolDeployment {
@@ -245,6 +248,7 @@ impl ProtocolDeployment {
             harvest_order: DeployedValidator::unsafe_pull(validators.harvest_order, explorer).await,
             wpoll_vote_order: DeployedValidator::unsafe_pull(validators.wpoll_vote_order, explorer).await,
             redeem_ve_order: DeployedValidator::unsafe_pull(validators.redeem_ve_order, explorer).await,
+            buffer_wallet: validators.buffer_wallet,
         }
     }
 }

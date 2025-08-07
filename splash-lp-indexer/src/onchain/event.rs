@@ -1,11 +1,11 @@
-use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
+use cml_chain::transaction::TransactionOutput;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
+use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
@@ -16,11 +16,16 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use splash_dao_offchain::deployment::ProtocolValidator;
+use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
+use splash_dao_offchain::protocol_config::{
+    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
+use splash_reward_distributor::config::HarvestLimits;
+use splash_reward_distributor::events::OnChainEvents;
+use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
@@ -53,13 +58,16 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<BufferWalletScript>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
         + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -205,7 +213,9 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
-            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+            maybe_utxo
+                .as_ref()
+                .and_then(|TimedOutput { output, .. }| AnyPool::try_from_ledger(output, ctx))
         });
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
         if let (Some(pin), Some(pout)) = (pool_in, pool_out) {
@@ -320,10 +330,44 @@ pub struct MultiAccountHarvested {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultiAccountHarvested
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> + Has<HarvestLimits>,
+    Cx: Has<PermManagerAuthPolicy>
+        + Has<FarmAuthPolicy>
+        + Has<SplashPolicy>
+        + Has<PermManagerAuthPolicy>
+        + Has<HarvestLimits>
+        + Has<BufferWalletScript>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        todo!("DEX-888")
+        let events = OnChainEvents::try_from_ledger(repr, ctx)?;
+
+        let mut most_recent_slot = 0;
+        let accounts: Vec<_> = events
+            .0
+            .iter()
+            .filter_map(|event| {
+                if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
+                    let issued_at = h.issued_at.0;
+                    if issued_at > most_recent_slot {
+                        most_recent_slot = issued_at;
+                    }
+                    Some(Credential::new_pub_key(h.account))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !accounts.is_empty() {
+            Some(Self {
+                accounts,
+                harvested_till: Slot(most_recent_slot),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -337,16 +381,16 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let farms_in_inputs: HashSet<_> =
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| {
+                    .and_then(|TimedOutput { output, .. }| {
                         let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        SmartFarmSnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        SmartFarmSnapshot::try_from_ledger(output, &ProvideTimedOref(ctx, oref))
                     })
                     .map(|farm| farm.get().farm_id)
             }));
@@ -376,16 +420,16 @@ pub enum PollFactoryEvents {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryEvents
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
+    Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let factory_in_inputs: HashSet<_> =
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| {
+                    .and_then(|TimedOutput { output, .. }| {
                         let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        PollFactorySnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        PollFactorySnapshot::try_from_ledger(output, &ProvideTimedOref(ctx, oref))
                     })
                     .map(|farm| farm.get().stable_id)
             }));
@@ -476,7 +520,9 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
-            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+            maybe_utxo
+                .as_ref()
+                .and_then(|TimedOutput { output, .. }| AnyPool::try_from_ledger(output, ctx))
         });
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
         if let (None, Some(pout)) = (pool_in, pool_out) {
