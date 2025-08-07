@@ -23,6 +23,7 @@ pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     pub account: Ed25519KeyHash,
     pub issued_at: Slot,
+    pub owner_stake_credential: Option<StakeCredential>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +150,7 @@ where
             id: output_ref,
             account: refund_key,
             issued_at,
+            owner_stake_credential,
         };
         return Some(harvest_order);
     }

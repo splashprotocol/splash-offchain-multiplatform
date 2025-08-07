@@ -1,15 +1,16 @@
 use crate::emission::Emission;
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
-use crate::index::{BufferWalletIndex, GaugeIndex, OrderIndex};
+use crate::index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex, OrderIndex};
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
+use crate::onchain::smart_farm::Gauge;
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::address::{BaseAddress, EnterpriseAddress};
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
@@ -17,7 +18,7 @@ use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::ExUnits;
 use cml_chain::transaction::TransactionInput;
 use cml_chain::{RequiredSigners, Value};
-use cml_crypto::RawBytesEncoding;
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use log::{error, warn};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -26,16 +27,21 @@ use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
+use spectrum_cardano_lib::{ex_units, AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::deployment::DaoScriptData;
+use splash_dao_offchain::entities::onchain::smart_farm;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, HarvestOrderRefScriptOutput, HarvestOrderScriptHash, OperatorCreds, SplashPolicy,
+    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput,
+    HarvestOrderScriptHash, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
-use splash_reward_distributor::constants::{HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA};
+use splash_reward_distributor::constants::{
+    GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
+    HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
+};
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -308,32 +314,44 @@ fn reward_amount(share_bps: u64, interval_emission: u64) -> u64 {
     (share_bps * interval_emission) / 10_000
 }
 
-pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, OnChainIndex> {
+pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex> {
     onchain_index: OnChainIndex,
     batch: Option<BufferingBatch<GaugeId, StateId, Bearer>>,
+    ctx: Ctx,
     pd: PhantomData<Tx>,
 }
 
 #[async_trait]
-impl<GaugeId, StateId, Bearer, Tx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, Tx, ()>
-    for BufferingFlow<GaugeId, StateId, Bearer, Tx, OnChainIndex>
+impl<GaugeId, Ctx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, SignedTxBuilder, ()>
+    for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, SignedTxBuilder, Ctx, OnChainIndex>
 where
     GaugeId: Display + Copy + Send + 'static,
-    StateId: Send + 'static,
-    Bearer: Send,
-    Tx: Send,
-    OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer> + BufferWalletIndex<StateId, Bearer> + Send,
+    Ctx: Send
+        + Has<BufferWalletScript>
+        + Has<Collateral>
+        + Has<PermManagerBoxRefScriptOutput>
+        + Has<FarmAuthRefScriptOutput>
+        + Has<FarmAuthPolicy>
+        + Has<OperatorCreds>
+        + Has<SplashPolicy>,
+    OnChainIndex: GaugeIndex<GaugeId, OutputRef, FinalizedTxOut>
+        + BufferWalletIndex<OutputRef, FinalizedTxOut>
+        + FundingBoxIndex<FinalizedTxOut>
+        + Send,
 {
     async fn feed(&mut self, task_id: TaskId, task: GaugeBuffering<GaugeId>) -> Control<TaskId> {
         let batch = if let Some(ref mut batch) = self.batch {
             batch
-        } else {
-            if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
-                self.batch.insert(BufferingBatch::new(bw))
+        } else if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
+            if let Some(auth_manager) = self.onchain_index.get_auth_manager().await {
+                self.batch.insert(BufferingBatch::new(bw, auth_manager))
             } else {
-                error!("No buffer wallet found");
+                error!("No auth manager found");
                 return Control::Stop;
             }
+        } else {
+            error!("No buffer wallet found");
+            return Control::Stop;
         };
         if let Some(gauge) = self.onchain_index.get_gauge(task.gauge_id).await {
             batch.add_gauge(gauge);
@@ -344,8 +362,173 @@ where
         Control::Next
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx>, ()> {
-        todo!("DEX-891")
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, SignedTxBuilder>, ()> {
+        enum RefInputT {
+            AuthManager,
+            Gauge,
+        }
+        if let Some(batch) = self.batch.take() {
+            let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
+            let Bundled(_, FinalizedTxOut(bw_tx_out, bw_output_ref)) = batch.buffer_wallet;
+            let buffer_wallet_input =
+                SingleInputBuilder::new(TransactionInput::from(bw_output_ref), bw_tx_out.clone())
+                    .native_script(
+                        buffer_wallet_script.clone(),
+                        NativeScriptWitnessInfo::num_signatures(2),
+                    )
+                    .unwrap();
+
+            let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
+
+            let Bundled(_, tx_out) = batch.auth_manager;
+
+            let perm_manager_unspent_input =
+                TransactionUnspentOutput::new(TransactionInput::from(tx_out.1), tx_out.0);
+
+            let mut typed_ref_inputs = vec![
+                (RefInputT::AuthManager, perm_manager_unspent_input),
+                (RefInputT::Gauge, smart_farm_ref_script),
+            ];
+            typed_ref_inputs.sort_by_key(|(_, input)| input.input.clone());
+
+            let perm_manager_input_ix = if matches!(typed_ref_inputs[0].0, RefInputT::AuthManager) {
+                0
+            } else {
+                1
+            };
+
+            let reference_inputs: Vec<_> = typed_ref_inputs
+                .into_iter()
+                .map(|(_, tx_unspent_output)| tx_unspent_output)
+                .collect();
+
+            let funding_boxes = self
+                .onchain_index
+                .get_funding_boxes(GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE)
+                .await
+                .into_iter()
+                .map(|t| {
+                    let input = SingleInputBuilder::new(TransactionInput::from(t.1), t.0)
+                        .payment_key()
+                        .unwrap();
+                    (InputT::FundingBox(input), t.1)
+                });
+
+            enum InputT<S> {
+                Gauge(S),
+                BufferWallet(InputBuilderResult),
+                FundingBox(InputBuilderResult),
+            }
+            let mut typed_inputs: Vec<_> = batch
+                .gauges
+                .into_iter()
+                .map(|g| {
+                    let output_ref = g.0.state_id;
+                    (InputT::Gauge(g), output_ref)
+                })
+                .chain(funding_boxes)
+                .chain([(InputT::BufferWallet(buffer_wallet_input), bw_output_ref)])
+                .collect();
+            typed_inputs.sort_by_key(|(_, input)| *input);
+
+            let mut total_splash_to_deposit = 0;
+            let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
+            let splash_policy = self.ctx.select::<SplashPolicy>().0;
+            let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
+
+            let mut buffer_wallet_out = bw_tx_out;
+
+            let gauge_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
+            let gauge_ex_units = Some(DaoScriptData::global().mint_farm_auth_token.ex_units.clone());
+
+            // The TX output is arranged as:
+            //   [buffer_wallet_output] <> gauge_outputs <> [change_output],
+            // where the gauge_outputs are ordered in like-manner to the sorted gauge-inputs: the
+            // first gauge-input is associated with output index 1, the second with output index 2
+            // etc.
+
+            // This variable associates a given gauge-input with its associated output index. Needed
+            // by the input's redeemer.
+            let mut successor_out_ix = 1;
+            let mut gauge_outputs = vec![];
+            let sorted_inputs: Vec<_> = typed_inputs
+                .into_iter()
+                .map(|(input, _)| match input {
+                    InputT::Gauge(Bundled(g, tx_out)) => {
+                        total_splash_to_deposit += g.balance;
+                        let gauge_redeemer = smart_farm::Redeemer {
+                            successor_out_ix,
+                            action: smart_farm::Action::DistributeRewards {
+                                perm_manager_input_ix,
+                            },
+                        }
+                        .into_pd();
+                        let gauge_witness = PartialPlutusWitness::new(
+                            PlutusScriptWitness::Ref(gauge_script_hash),
+                            gauge_redeemer,
+                        );
+
+                        let gauge_input =
+                            SingleInputBuilder::new(TransactionInput::from(tx_out.1), tx_out.0.clone())
+                                .plutus_script_inline_datum(gauge_witness, RequiredSigners::from(vec![]))
+                                .unwrap();
+
+                        let amount_splash_in_gauge = tx_out.0.value().amount_of(splash_asset_class).unwrap();
+                        let splash_delta = make_splash_value(splash_asset_class, amount_splash_in_gauge);
+                        assert!(buffer_wallet_out.value_mut().checked_add(&splash_delta).is_ok());
+
+                        let mut gauge_output = tx_out.0;
+                        assert!(gauge_output.value_mut().checked_sub(&splash_delta).is_ok());
+
+                        gauge_outputs.push(gauge_output);
+
+                        successor_out_ix += 1;
+                        (gauge_input, gauge_ex_units.clone())
+                    }
+                    InputT::BufferWallet(b) | InputT::FundingBox(b) => (b, None),
+                })
+                .collect();
+
+            let outputs: Vec<_> = std::iter::once(buffer_wallet_out)
+                .chain(gauge_outputs)
+                .map(SingleOutputBuilderResult::new)
+                .collect();
+            let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
+            let blueprint = DaoTxBlueprint {
+                reference_inputs,
+                sorted_inputs,
+                outputs,
+                sorted_mints: vec![],
+                withdrawal: None,
+                fee_buffer: GAUGE_BUFFERING_TX_FEE_DELTA,
+                operator_address: operator_address.clone(),
+            };
+            let BlueprintEstimates {
+                estimated_fee,
+                change_output,
+                ..
+            } = blueprint.compute_estimated_fee_and_change_output();
+
+            // Bot will pocket the change-output, since it's paying the TX fee
+            let mut tx_builder = blueprint.build(estimated_fee, Some(change_output));
+            tx_builder
+                .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
+                .unwrap();
+            let output = tx_builder
+                .build(ChangeSelectionAlgo::Default, &operator_address)
+                .unwrap();
+
+            let tx_body = output.body();
+            let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
+            let task_id = TaskId::from(tx_hash);
+
+            Ok(ExecutionResult {
+                executed_tasks: vec![task_id],
+                output,
+            })
+        } else {
+            Err(())
+        }
     }
 }
 
@@ -357,7 +540,7 @@ fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {
 
 pub enum Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, PositionIndex, Emission> {
     Harvesting(HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emission>),
-    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, OnChainIndex>),
+    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex>),
 }
 
 pub struct Executor<GaugeId, StateId, Bearer, Tx, Ctx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission>
@@ -391,6 +574,8 @@ where
     Emiss: Emission + Clone + Send,
     HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emiss>:
         BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>,
+    BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex>:
+        BatchExecutor<TaskId, GaugeBuffering<GaugeId>, Tx, ()>,
     Ctx: Send
         + Clone
         + Has<BufferWalletScript>
@@ -404,6 +589,7 @@ where
                 Task::GaugeBuffering(_) => self.flow.insert(Flow::Buffering(BufferingFlow {
                     onchain_index: self.onchain_index.clone(),
                     batch: None,
+                    ctx: self.ctx.clone(),
                     pd: PhantomData,
                 })),
                 Task::Harvesting(_) => self.flow.insert(Flow::Harvesting(HarvestingFlow {

@@ -20,3 +20,8 @@ pub trait GaugeIndex<GaugeId, StateId, Bearer> {
     async fn get_gauge(&self, id: GaugeId) -> Option<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
     async fn get_auth_manager(&self) -> Option<Bundled<AuthManager<GaugeId, StateId>, Bearer>>;
 }
+
+#[async_trait]
+pub trait FundingBoxIndex<Bearer> {
+    async fn get_funding_boxes(&self, lovelaces: u64) -> Vec<Bearer>;
+}

@@ -1,3 +1,4 @@
+use crate::onchain::auth_manager::AuthManager;
 use crate::onchain::buffer_wallet::BufferWallet;
 use crate::onchain::harvest_order::HarvestOrder;
 use crate::onchain::smart_farm::Gauge;
@@ -40,12 +41,17 @@ pub struct OrderWithPayout<StateId, Bearer> {
 pub struct BufferingBatch<GaugeId, StateId, Bearer> {
     pub gauges: Vec<Bundled<Gauge<GaugeId, StateId>, Bearer>>,
     pub buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
+    pub auth_manager: Bundled<AuthManager<GaugeId, StateId>, Bearer>,
 }
 
 impl<GaugeId, StateId, Bearer> BufferingBatch<GaugeId, StateId, Bearer> {
-    pub fn new(buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>) -> Self {
+    pub fn new(
+        buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
+        auth_manager: Bundled<AuthManager<GaugeId, StateId>, Bearer>,
+    ) -> Self {
         Self {
             buffer_wallet,
+            auth_manager,
             gauges: vec![],
         }
     }

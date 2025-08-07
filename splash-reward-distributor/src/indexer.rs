@@ -586,6 +586,7 @@ mod tests {
             id,
             account: Ed25519KeyHash::from_raw_bytes(&array).unwrap(),
             issued_at: Slot(100),
+            owner_stake_credential: None,
         }
     }
 
