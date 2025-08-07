@@ -77,7 +77,10 @@ where
     async fn write_predicted_spend_harvest_order(&self, id: StateId);
     async fn write_confirmed_spend_harvest_order(&self, id: StateId);
     async fn write_confirmed_refund_harvest_order(&self, id: StateId);
+    /// Used on rollback of a spent or refunded order
     async fn unconsume_harvest_order(&self, id: StateId);
+    /// Used on rollback of an unspent order
+    async fn remove_created_harvest_order(&self, id: StateId);
 }
 
 pub struct IndexerDB {
@@ -361,6 +364,7 @@ where
                     state: Confirmed(Bundled(mut harvest_order, bearer)),
                 }) => {
                     harvest_order.status = HarvestOrderStatus::Refunded;
+                    assert!(prev_state_id.is_none());
 
                     let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                         Confirmed(Bundled(harvest_order, bearer));
@@ -371,6 +375,7 @@ where
                     state: Predicted(Bundled(mut harvest_order, bearer)),
                 }) => {
                     harvest_order.status = HarvestOrderStatus::Refunded;
+                    assert!(prev_state_id.is_none());
 
                     let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                         Confirmed(Bundled(harvest_order, bearer));
@@ -382,11 +387,10 @@ where
 
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
         let id = order.0 .0.id;
-        let prev_state_id = self.read::<HarvestOrderWrap<StateId>>(id).await.and_then(
-            |o: AnyMod<Bundled<HarvestOrderWrap<StateId>, Bearer>>| match o {
-                AnyMod::Confirmed(Traced { prev_state_id, .. })
-                | AnyMod::Predicted(Traced { prev_state_id, .. }) => prev_state_id,
-            },
+        assert!(
+            <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id)
+                .await
+                .is_none()
         );
         let harvest_order = HarvestOrderWrap {
             order: order.0 .0,
@@ -394,7 +398,11 @@ where
         };
         let bearer = order.0 .1;
         let state = Confirmed(Bundled(harvest_order, bearer));
-        self.write_confirmed(Traced { state, prev_state_id }).await;
+        self.write_confirmed(Traced {
+            state,
+            prev_state_id: None,
+        })
+        .await;
     }
 
     async fn unconsume_harvest_order(&self, id: StateId) {
@@ -409,6 +417,7 @@ where
                         HarvestOrderStatus::Spent | HarvestOrderStatus::Refunded
                     ));
                     harvest_order.status = HarvestOrderStatus::Unspent;
+                    assert!(prev_state_id.is_none());
 
                     let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                         Confirmed(Bundled(harvest_order, bearer));
@@ -420,6 +429,7 @@ where
                 }) => {
                     assert!(matches!(harvest_order.status, HarvestOrderStatus::Spent));
                     harvest_order.status = HarvestOrderStatus::Unspent;
+                    assert!(prev_state_id.is_none());
 
                     let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                         Confirmed(Bundled(harvest_order, bearer));
@@ -427,6 +437,28 @@ where
                 }
             }
         }
+    }
+
+    async fn remove_created_harvest_order(&self, id: StateId) {
+        let r = <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id).await;
+        assert!(matches!(
+            r,
+            Some(AnyMod::Confirmed(Traced {
+                state: Confirmed(Bundled(
+                    HarvestOrderWrap {
+                        status: HarvestOrderStatus::Unspent,
+                        ..
+                    },
+                    _
+                )),
+                ..
+            }))
+        ));
+        assert!(
+            <IndexerDB as OnChainIndex<Bearer>>::remove::<HarvestOrderWrap<StateId>>(self, id, id)
+                .await
+                .is_none()
+        );
     }
 }
 
@@ -602,6 +634,14 @@ mod tests {
 
         // Undo the refunds
         unconsume_orders().await;
+
+        // Remove the orders
+        for i in 0..n {
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i).await;
+            let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
+                db.read_harvest_order(i).await;
+            assert!(p.is_none());
+        }
     }
 
     #[tokio::test]
