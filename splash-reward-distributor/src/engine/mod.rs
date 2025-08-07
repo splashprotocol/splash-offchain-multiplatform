@@ -6,20 +6,25 @@ mod task;
 use crate::engine::executor::{BatchExecutor, Control};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
-use crate::events::OnChainEvent;
+use crate::events::{EntityUpdated, OnChainEvent};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
-use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+#[derive(Debug, Clone, Copy)]
+pub struct EngineConfig {
+    buffering_threshold: u64,
+}
 
 pub struct Engine<U, Q, E> {
     event_stream: U,
     queue: Q,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>>>>>,
+    conf: EngineConfig,
 }
 
 impl<U, Q, E> Engine<U, Q, E> {
@@ -30,7 +35,7 @@ impl<U, Q, E> Engine<U, Q, E> {
 
 impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
-    GaugeId: Copy + Unpin + 'static,
+    GaugeId: Copy + Into<TaskId> + Unpin + 'static,
     StateId: Copy + Into<TaskId> + Unpin + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
@@ -57,7 +62,8 @@ where
             }
             let queue = self.queue.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
-                self.block_on(process_events(queue, events, tx));
+                let conf = self.conf;
+                self.block_on(process_events(queue, events, tx, conf));
                 continue;
             }
             let executor = self.executor.clone();
@@ -71,9 +77,10 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
     queue: Q,
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
     tx: TransactionHandle,
+    conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy,
+    GaugeId: Copy + Into<TaskId>,
     StateId: Copy + Into<TaskId>,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
@@ -92,6 +99,13 @@ where
                     Some(QueueCmd::Cancel(harvest_id.into()))
                 }
                 OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Done(harvest_order.id.into())),
+                OnChainEvent::GaugeUpdated(EntityUpdated {
+                    created: (gauge, _), ..
+                }) if gauge.balance >= conf.buffering_threshold => Some(QueueCmd::Schedule(
+                    gauge.id.into(),
+                    Task::new_gauge_buffering(gauge.id),
+                    StrikeTime::Ready,
+                )),
                 _ => None,
             })
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])

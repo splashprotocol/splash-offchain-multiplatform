@@ -1,8 +1,7 @@
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
-use cml_chain::transaction::{Transaction, TransactionOutput};
-use cml_core::Slot;
+use cml_chain::transaction::Transaction;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
