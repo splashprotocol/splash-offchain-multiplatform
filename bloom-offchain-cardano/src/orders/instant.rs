@@ -75,6 +75,16 @@ pub struct InstantOrder {
     pub cancellation_after: u64,
 }
 
+impl InstantOrder {
+    pub fn beacon_from_oref(oref: OutputRef) -> Token {
+        let mut pseudo_beacon: [u8; 60] = [0u8; 60];
+        let mut tx_hash_with_index = oref.tx_hash().to_raw_bytes().to_vec();
+        tx_hash_with_index.extend_from_slice(oref.index().to_be_bytes().as_ref());
+        pseudo_beacon[..tx_hash_with_index.len()].copy_from_slice(&tx_hash_with_index);
+        Token::from(pseudo_beacon)
+    }
+}
+
 impl Display for InstantOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
@@ -351,12 +361,8 @@ where
                 if sufficient_input && executable && valid_configuration {
                     let output_ref = ctx.select::<OutputRef>();
                     let script_info = ctx.select::<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>();
-                    let mut pseudo_beacon: [u8; 60] = [0u8; 60];
-                    let mut tx_hash_with_index = output_ref.tx_hash().to_raw_bytes().to_vec();
-                    tx_hash_with_index.extend_from_slice(output_ref.index().to_be_bytes().as_ref());
-                    pseudo_beacon[..tx_hash_with_index.len()].copy_from_slice(&tx_hash_with_index);
                     return Some(InstantOrder {
-                        beacon: Token::from(pseudo_beacon),
+                        beacon: InstantOrder::beacon_from_oref(output_ref),
                         input_asset: conf.input,
                         input_amount: tradable_input,
                         output_asset: conf.output,
