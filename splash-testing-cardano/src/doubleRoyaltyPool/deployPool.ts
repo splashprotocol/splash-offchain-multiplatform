@@ -1,17 +1,17 @@
-import { DoubleRoyaltyPoolPoolValidatePool, RoyaltyPoolPoolValidatePool} from "../../plutus.ts";
+import {DoubleRoyaltyPoolPoolValidatePool} from "../../plutus.ts";
 import {
     getCSAndSсript,
-    getUtxoWithToken,
+    getDAOPolicy,
     getUtxoWithAda,
-    stringifyBigIntReviewer,
-    getDAOPolicy, DAOInfo, getDAO
+    getUtxoWithToken,
+    stringifyBigIntReviewer
 } from "../balance/balancePool.ts";
-import { getConfig } from "../config.ts";
-import { getLucid } from "../lucid.ts";
-import { Asset, BuiltValidators, asUnit } from "../types.ts";
-import { setupWallet } from "../wallet.ts";
-import { Unit, Datum, MintingPolicy, Data, Lucid} from "@lucid-evolution/lucid";
-import { credentialToAddress } from "@lucid-evolution/utils";
+import {getConfig} from "../config.ts";
+import {getLucid} from "../lucid.ts";
+import {Asset, asUnit, BuiltValidators} from "../types.ts";
+import {setupWallet} from "../wallet.ts";
+import {Data, Datum, Lucid, MintingPolicy, Unit} from "@lucid-evolution/lucid";
+import {credentialToAddress} from "@lucid-evolution/utils";
 
 export const TokenB   = "7465737444"
 export const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26"

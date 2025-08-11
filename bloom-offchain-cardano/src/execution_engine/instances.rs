@@ -257,19 +257,14 @@ where
             FinalizedTxOut(consumed_utxo, in_ref),
         );
         let (residual_order, effect) = match result {
-            Next::Succ(AdhocOrder(next, fee)) => {
-                if let Some(data) = candidate.data_mut() {
-                    instant::unsafe_update_datum(data, next.input_amount, next.fee);
-                }
-                (
-                    candidate.clone(),
-                    ExecutionEff::Updated(consumed_bundle, Bundled(AdhocOrder(next, fee), candidate)),
-                )
-            }
             Next::Term(_) => {
                 candidate.null_datum();
                 candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
                 (candidate, ExecutionEff::Eliminated(consumed_bundle))
+            }
+            // Adhoc orders must always be terminated.
+            Next::Succ(AdhocOrder(_, _)) => {
+                unreachable!()
             }
         };
         let witness = context.select::<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>>();

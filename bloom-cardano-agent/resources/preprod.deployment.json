@@ -431,9 +431,9 @@
     }
   },
   "instantOrderWitness": {
-    "hash": "152e7a364d285842494bb356ddd54ab46eb8360c9fecf5e792525298",
+    "hash": "a5643b4a22a192d7691d05baf4a9bbb8acdbb5daa60be1f333e128f1",
     "referenceUtxo": {
-      "txHash": "b203342a2694668c7d00b6ce1a26de81934712a15224f8e6abbf09d028fad461",
+      "txHash": "3ddcf70e259988fc20e0bc82d20d3711372520faaac43fd26b745fac31b3e303",
       "outputIndex": 1
     },
     "cost": {
@@ -446,9 +446,9 @@
     }
   },
   "instantOrder": {
-    "hash": "9e94e848482ffb2befe7fe6c2f5171c99086b53b3f73f535ff61ca09",
+    "hash": "d9143ac63473b17a215d1b7484dfb6ac6b4a0005beb0e26a6ca02c96",
     "referenceUtxo": {
-      "txHash": "b203342a2694668c7d00b6ce1a26de81934712a15224f8e6abbf09d028fad461",
+      "txHash": "3ddcf70e259988fc20e0bc82d20d3711372520faaac43fd26b745fac31b3e303",
       "outputIndex": 0
     },
     "cost": {

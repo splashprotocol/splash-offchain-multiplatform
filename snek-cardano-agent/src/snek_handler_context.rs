@@ -1,11 +1,9 @@
-use bloom_offchain_cardano::event_sink::context::EventContext;
-use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
-use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
-use cml_chain::auxdata::Metadata;
-use type_equalities::IsEqual;
-
 use crate::snek_protocol_deployment::SnekProtocolScriptHashes;
 use crate::snek_validation_rules::SnekValidationRules;
+use bloom_offchain_cardano::event_sink::context::EventContext;
+use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
+use bloom_offchain_cardano::orders::instant::InstantOrderValidation;
+use cml_chain::auxdata::Metadata;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
@@ -18,6 +16,7 @@ use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
     Mints, ProducedIdentifiers,
 };
+use type_equalities::IsEqual;
 
 #[derive(Copy, Clone, Debug)]
 pub struct SnekHandlerContextProto {
@@ -90,9 +89,9 @@ impl<I: Copy> Has<Option<Metadata>> for SnekHandlerContext<I> {
     }
 }
 
-impl<I: Copy> Has<LimitOrderValidation> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
-        self.bounds.limit_order
+impl<I: Copy> Has<InstantOrderValidation> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<InstantOrderValidation>>(&self) -> InstantOrderValidation {
+        self.bounds.instant_order
     }
 }
 

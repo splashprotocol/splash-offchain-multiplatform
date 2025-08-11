@@ -1,8 +1,8 @@
 {
-  "limitOrder": {
-    "minCostPerExStep": 600000,
-    "minFeeLovelace": 250000,
-    "strictBeacon": false
+  "instantOrder": {
+    "minFeeLovelace": 200000,
+    "minLovelace": 500000,
+    "minExecutionBudgetLovelace": 500000
   },
   "depositOrder": {
     "minCollateralAda": 1500000
