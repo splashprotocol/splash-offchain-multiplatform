@@ -16,6 +16,7 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
 use std::fmt::Debug;
 use std::future::Future;
+use std::hash::Hash;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -25,23 +26,24 @@ pub struct EngineConfig {
     buffering_threshold: u64,
 }
 
-pub struct Engine<U, Q, E> {
+pub struct Engine<U, Q, E, I> {
     event_stream: U,
     queue: Q,
+    indexer: I,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>>>>>,
     conf: EngineConfig,
 }
 
-impl<U, Q, E> Engine<U, Q, E> {
+impl<U, Q, E, I> Engine<U, Q, E, I> {
     fn block_on(&mut self, task: impl Future<Output = ControlFlow<(), ()>> + 'static) {
         self.current_task = Some(Box::pin(task));
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
+impl<GaugeId, StateId, Bearer, U, Q, E, I> Future for Engine<U, Q, E, I>
 where
-    GaugeId: Copy + Into<TaskId> + Unpin + 'static,
+    GaugeId: Copy + Unpin + 'static,
     StateId: Copy + Into<TaskId> + Unpin + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
@@ -67,9 +69,9 @@ where
                 }
             }
             let queue = self.queue.clone();
+            let indexer = self.indexer.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
-                let conf = self.conf;
-                self.block_on(process_events(queue, events, tx, conf));
+                self.block_on(process_events(queue, events, tx));
                 continue;
             }
             let executor = self.executor.clone();
@@ -79,14 +81,15 @@ where
     }
 }
 
-async fn process_events<GaugeId, StateId, Bearer, Q>(
+async fn process_events<GaugeId, StateId, Bearer, Q, I>(
     queue: Q,
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
+    indexer: I,
     tx: TransactionHandle,
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy + Into<TaskId>,
+    GaugeId: Copy,
     StateId: Copy + Into<TaskId>,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
