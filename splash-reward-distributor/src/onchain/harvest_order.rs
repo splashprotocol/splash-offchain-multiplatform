@@ -110,13 +110,14 @@ impl IntoPlutusData for HarvestOrderAction {
 pub(crate) fn try_new_harvest_request<C>(
     repr: &TxViewPartiallyResolved,
     ctx: &C,
-) -> Option<HarvestOrder<OutputRef>>
+) -> Option<(HarvestOrder<OutputRef>, TransactionOutput)>
 where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
         try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
+            .map(|order| (order, output.clone()))
     })
 }
 

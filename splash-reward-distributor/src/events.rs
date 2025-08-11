@@ -36,7 +36,7 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     },
     UpdatedGauges(UpdatedGauges<GaugeId, StateId, Bearer>),
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
-    NewHarvestRequest(HarvestOrder<StateId>),
+    NewHarvestRequest(HarvestOrder<StateId>, Bearer),
     HarvestRequestCancelled(Vec<StateId>),
 }
 
@@ -109,8 +109,8 @@ where
                 .map(|order| order.id)
                 .collect();
             Some(OnChainEvent::HarvestRequestCancelled(res))
-        } else if let Some(new_harvest_order) = try_new_harvest_request(repr, ctx) {
-            Some(OnChainEvent::NewHarvestRequest(new_harvest_order))
+        } else if let Some((new_harvest_order, output)) = try_new_harvest_request(repr, ctx) {
+            Some(OnChainEvent::NewHarvestRequest(new_harvest_order, output))
         } else if let Some(updated_gauges) = UpdatedGauges::try_from_ledger(repr, ctx) {
             Some(OnChainEvent::UpdatedGauges(updated_gauges))
         } else {
