@@ -6,7 +6,7 @@ use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
-use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
+use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
@@ -24,7 +24,7 @@ use splash_dao_offchain::protocol_config::{
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_reward_distributor::config::HarvestLimits;
-use splash_reward_distributor::events::OnChainEvents;
+use splash_reward_distributor::events::OnChainEvent as RewardOnChainEvent;
 use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
@@ -68,6 +68,7 @@ where
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
+        + Has<NetworkId>
         + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -335,39 +336,36 @@ where
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<HarvestLimits>
+        + Has<NetworkId>
         + Has<BufferWalletScript>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        let events = OnChainEvents::try_from_ledger(repr, ctx)?;
+        let reward_event = RewardOnChainEvent::try_from_ledger(repr, ctx)?;
 
-        let mut most_recent_slot = 0;
-        let accounts: Vec<_> = events
-            .0
-            .iter()
-            .filter_map(|event| {
-                if let splash_reward_distributor::events::OnChainEvent::Harvested(h) = event {
-                    let issued_at = h.issued_at.0;
+        if let RewardOnChainEvent::BotHarvestingAction { payouts, .. } = reward_event {
+            let mut most_recent_slot = 0;
+            let accounts: Vec<_> = payouts
+                .iter()
+                .map(|(harvest_order, _)| {
+                    let issued_at = harvest_order.issued_at.0;
                     if issued_at > most_recent_slot {
                         most_recent_slot = issued_at;
                     }
-                    Some(Credential::new_pub_key(h.account))
-                } else {
-                    None
-                }
-            })
-            .collect();
+                    Credential::new_pub_key(harvest_order.account)
+                })
+                .collect();
 
-        if !accounts.is_empty() {
-            Some(Self {
-                accounts,
-                harvested_till: Slot(most_recent_slot),
-            })
-        } else {
-            None
+            if !accounts.is_empty() {
+                return Some(Self {
+                    accounts,
+                    harvested_till: Slot(most_recent_slot),
+                });
+            }
         }
+        None
     }
 }
 

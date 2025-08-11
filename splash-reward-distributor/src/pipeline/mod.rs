@@ -5,7 +5,7 @@ use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{FutureExt, Stream, StreamExt};
 use spectrum_cardano_lib::tx_view::TimedOutput;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::persistent_index::PersistentIndex;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
@@ -18,7 +18,7 @@ use splash_dao_offchain::protocol_config::{
 use std::collections::HashSet;
 
 use crate::config::HarvestLimits;
-use crate::events::OnChainEvents;
+use crate::events::OnChainEvent;
 
 pub async fn event_pipeline<U, Cx, Utxos>(
     upstream: U,
@@ -38,13 +38,14 @@ pub async fn event_pipeline<U, Cx, Utxos>(
         + Has<BufferWalletScript>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<HarvestLimits>
+        + Has<NetworkId>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>,
 {
     upstream
         .then(|(block, tx_handle)| {
-            read_events::<OnChainEvents<FarmId, OutputRef, TransactionOutput>, _, _>(
+            read_events::<OnChainEvent<FarmId, OutputRef, TransactionOutput>, _, _>(
                 block,
                 &context,
                 &utxos,

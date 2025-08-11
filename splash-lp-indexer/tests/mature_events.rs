@@ -91,6 +91,7 @@ mod tests {
             pool_validation: validation_rules.pool,
             harvest_limits: config.harvest_limits,
             splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
+            network_id: config.network_id,
         };
 
         let db_path = DBPath::new("position_db");

@@ -1,4 +1,5 @@
 use cml_chain::{
+    address::{Address, BaseAddress, EnterpriseAddress},
     certs::{Credential, StakeCredential},
     plutus::ConstrPlutusData,
     transaction::TransactionOutput,
@@ -10,7 +11,7 @@ use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
     types::TryFromPData,
-    OutputRef,
+    NetworkId, OutputRef,
 };
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
@@ -24,6 +25,17 @@ pub struct HarvestOrder<OrderId> {
     pub account: Ed25519KeyHash,
     pub issued_at: Slot,
     pub owner_stake_credential: Option<StakeCredential>,
+}
+
+impl<OrderId> HarvestOrder<OrderId> {
+    pub fn address(&self, network_id: NetworkId) -> Address {
+        let payment_cred = Credential::new_pub_key(self.account);
+        if let Some(ref stake_cred) = self.owner_stake_credential {
+            BaseAddress::new(network_id.into(), payment_cred, stake_cred.clone()).to_address()
+        } else {
+            EnterpriseAddress::new(network_id.into(), payment_cred).to_address()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

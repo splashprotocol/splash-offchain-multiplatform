@@ -24,7 +24,7 @@ use splash_dao_offchain::{
 
 use crate::events::EntityUpdated;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gauge<GaugeId, StateId> {
     pub id: GaugeId,
     pub state_id: StateId,
@@ -58,8 +58,12 @@ where
     }
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>
-    for EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, TransactionOutput>
+#[derive(derive_more::From, Clone, Debug, PartialEq, Eq)]
+pub struct UpdatedGauges<FarmId, StateId, Bearer>(
+    pub Vec<EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>>,
+);
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for UpdatedGauges<FarmId, OutputRef, TransactionOutput>
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
@@ -68,20 +72,50 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let slot = Slot(repr.slot);
-        let created = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
-            let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), slot);
-            try_extract_gauge(output, output_ref, ctx).map(|gauge| (gauge, output.clone()))
-        })?;
-        let consumed = repr.inputs.iter().find_map(|(tx_input, output)| {
-            if let Some(TimedOutput { output, .. }) = output {
-                let output_ref = TimedOutputRef::new(OutputRef::from(tx_input.clone()), slot);
-                if try_extract_gauge(output, output_ref, ctx).is_some() {
-                    return Some(output_ref.output_ref);
+        let mut successor_ix = 1_u64;
+
+        let consumed_gauges: Vec<_> = repr
+            .inputs
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, (_, output))| {
+                let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), slot);
+                if let Some(TimedOutput { output, .. }) = output {
+                    return try_extract_gauge(output, output_ref, ctx).map(|gauge| {
+                        successor_ix += 1;
+                        (gauge, successor_ix - 1)
+                    });
+                }
+                None
+            })
+            .collect();
+
+        let num_consumed_gauges = consumed_gauges.len();
+
+        if num_consumed_gauges > 0 && repr.outputs.len() == num_consumed_gauges + 2 {
+            let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, TransactionOutput>> = vec![];
+            for ((gauge_in, successor_ix), (output_ix, tx_output)) in consumed_gauges
+                .into_iter()
+                .zip(repr.outputs.iter().enumerate().skip(1).take(num_consumed_gauges))
+            {
+                if successor_ix != output_ix as u64 {
+                    return None;
+                }
+                let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, successor_ix as u64), slot);
+                if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
+                    if gauge_out.id == gauge_in.id {
+                        res.push(EntityUpdated {
+                            consumed: Some(gauge_in.state_id),
+                            created: (gauge_out, tx_output.clone()),
+                        });
+                    }
+                } else {
+                    return None;
                 }
             }
-            None
-        });
-        Some(EntityUpdated { consumed, created })
+            return Some(res.into());
+        }
+        None
     }
 }
 

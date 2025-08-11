@@ -94,24 +94,31 @@ where
         } => events
             .into_iter()
             .filter_map(|event| match event {
-                OnChainEvent::NewHarvestRequest(harvest) => Some(QueueCmd::Schedule(
+                OnChainEvent::NewHarvestRequest(harvest) => Some(vec![QueueCmd::Schedule(
                     harvest.id.into(),
                     Task::new_harvesting(harvest.id),
                     StrikeTime::Ready,
-                )),
+                )]),
                 OnChainEvent::HarvestRequestCancelled(harvest_id) => {
-                    Some(QueueCmd::Cancel(harvest_id.into()))
+                    let ids: Vec<_> = harvest_id
+                        .into_iter()
+                        .map(|id| {
+                            let id: TaskId = id.into();
+                            QueueCmd::Cancel(id)
+                        })
+                        .collect();
+                    Some(ids)
                 }
-                OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Done(harvest_order.id.into())),
-                OnChainEvent::GaugeUpdated(EntityUpdated {
-                    created: (gauge, _), ..
-                }) if gauge.balance >= conf.buffering_threshold => Some(QueueCmd::Schedule(
-                    gauge.id.into(),
-                    Task::new_gauge_buffering(gauge.id),
-                    StrikeTime::Ready,
-                )),
+                OnChainEvent::BotHarvestingAction { payouts, .. } => {
+                    let ids = payouts
+                        .into_iter()
+                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into()))
+                        .collect();
+                    Some(ids)
+                }
                 _ => None,
             })
+            .flatten()
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
             .collect(),
         BlockEvents::RollBackward {
@@ -119,20 +126,37 @@ where
         } => events
             .into_iter()
             .filter_map(|event| match event {
-                OnChainEvent::NewHarvestRequest(harvest) => Some(QueueCmd::Cancel(harvest.id.into())),
-                OnChainEvent::HarvestRequestCancelled(harvest_id) => Some(QueueCmd::Schedule(
-                    harvest_id.into(),
-                    Task::new_harvesting(harvest_id),
-                    StrikeTime::Ready,
-                )),
+                OnChainEvent::NewHarvestRequest(harvest) => Some(vec![QueueCmd::Cancel(harvest.id.into())]),
+                OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
+                    let cmds = harvest_ids
+                        .into_iter()
+                        .map(|harvest_id| {
+                            QueueCmd::Schedule(
+                                harvest_id.into(),
+                                Task::new_harvesting(harvest_id),
+                                StrikeTime::Ready,
+                            )
+                        })
+                        .collect();
+                    Some(cmds)
+                }
 
-                OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Schedule(
-                    harvest_order.id.into(),
-                    Task::new_harvesting(harvest_order.id),
-                    StrikeTime::Ready,
-                )),
+                OnChainEvent::BotHarvestingAction { payouts, .. } => {
+                    let cmds = payouts
+                        .into_iter()
+                        .map(|(harvest_order, _)| {
+                            QueueCmd::Schedule(
+                                harvest_order.id.into(),
+                                Task::new_harvesting(harvest_order.id),
+                                StrikeTime::Ready,
+                            )
+                        })
+                        .collect();
+                    Some(cmds)
+                }
                 _ => None,
             })
+            .flatten()
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])
             .collect(),
     };

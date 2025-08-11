@@ -1,4 +1,5 @@
 use cml_crypto::ScriptHash;
+use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
@@ -18,6 +19,7 @@ pub struct Context {
     pub pool_validation: PoolValidation,
     pub harvest_limits: HarvestLimits,
     pub splash_policy_id: ScriptHash,
+    pub network_id: NetworkId,
 }
 
 impl Has<DeployedScriptInfo<{ WpFactory as u8 }>> for Context {
@@ -163,5 +165,11 @@ impl Has<HarvestLimits> for Context {
 impl Has<BufferWalletScript> for Context {
     fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
         BufferWalletScript(self.dao_deployment.buffer_wallet.clone())
+    }
+}
+
+impl Has<NetworkId> for Context {
+    fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+        self.network_id
     }
 }
