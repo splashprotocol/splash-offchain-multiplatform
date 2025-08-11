@@ -14,8 +14,7 @@ path = "src/lib.rs"  # Default, can be omitted if unchanged
 name = "splash-reward-distributor" 
 
 [dependencies]
-actix-web = "4.9.0"
-actix-cors = "0.7.0"
+reqwest = { version = "0.12", features = ["json"] }
 rdkafka = { version = "0.37.0", features = ["cmake-build"] }
 async-primitives = { version = "0.1.0", path = "../concurrent-primitives" }
 spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }

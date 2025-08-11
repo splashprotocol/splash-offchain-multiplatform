@@ -1,9 +1,10 @@
-use crate::emission::Emission;
+use crate::emission::{reward_amount, Emission};
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
+use crate::engine::resolved_tx::{PartiallySignedCardanoTx, PartiallySignedTx};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
+use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex, OrderIndex};
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
-use crate::onchain::smart_farm::Gauge;
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -14,11 +15,10 @@ use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, Tran
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
-use cml_chain::certs::{Credential, StakeCredential};
-use cml_chain::plutus::ExUnits;
+use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionInput;
 use cml_chain::{RequiredSigners, Value};
-use cml_crypto::{RawBytesEncoding, ScriptHash};
+use cml_crypto::RawBytesEncoding;
 use log::{error, warn};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -78,8 +78,16 @@ pub struct HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex,
 
 #[async_trait]
 impl<Ctx, PositionIndex, OnChainIndex, Emiss>
-    BatchExecutor<TaskId, Harvesting<OutputRef>, SignedTxBuilder, ()>
-    for HarvestingFlow<OutputRef, FinalizedTxOut, SignedTxBuilder, Ctx, PositionIndex, OnChainIndex, Emiss>
+    BatchExecutor<TaskId, Harvesting<OutputRef>, PartiallySignedCardanoTx, ()>
+    for HarvestingFlow<
+        OutputRef,
+        FinalizedTxOut,
+        PartiallySignedCardanoTx,
+        Ctx,
+        PositionIndex,
+        OnChainIndex,
+        Emiss,
+    >
 where
     PositionIndex: Positions<OutputRef> + Send,
     OnChainIndex: BufferWalletIndex<OutputRef, FinalizedTxOut> + OrderIndex<OutputRef, FinalizedTxOut> + Send,
@@ -117,10 +125,11 @@ where
         {
             Ok(AccountState {
                 activated_at,
-                queried_at,
                 total_share_bps,
             }) => {
-                let emission = self.emission.total_emission_between(activated_at, queried_at);
+                let emission = self
+                    .emission
+                    .total_emission_between(activated_at, req.issued_at.0);
                 let payout = reward_amount(total_share_bps, emission);
                 if batch.can_accept(payout) {
                     if let Err(LockedByAnotherReq(concurrent_req)) = self
@@ -157,7 +166,7 @@ where
         Control::Next
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, SignedTxBuilder>, ()> {
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, PartiallySignedCardanoTx>, ()> {
         if let Some(batch) = self.batch.take() {
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
@@ -292,6 +301,15 @@ where
             tx_builder
                 .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
                 .unwrap();
+            let inputs = tx_builder
+                .get_inputs()
+                .clone()
+                .into_iter()
+                .map(|TransactionUnspentOutput { input, output }| {
+                    (OutputRef::new(input.transaction_id, input.index), output)
+                })
+                .collect();
+
             let output = tx_builder
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
@@ -300,18 +318,19 @@ where
             let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
             let task_id = TaskId::from(tx_hash);
 
+            let resolved_tx = PartiallySignedCardanoTx {
+                tx: output.build_unchecked(),
+                inputs,
+            };
+
             Ok(ExecutionResult {
-                executed_tasks: vec![task_id],
-                output,
+                executed_tasks: vec![task_id], //todo: tasks map to orders
+                output: resolved_tx,
             })
         } else {
             Err(())
         }
     }
-}
-
-fn reward_amount(share_bps: u64, interval_emission: u64) -> u64 {
-    (share_bps * interval_emission) / 10_000
 }
 
 pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex> {
@@ -322,8 +341,8 @@ pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex> {
 }
 
 #[async_trait]
-impl<GaugeId, Ctx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, SignedTxBuilder, ()>
-    for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, SignedTxBuilder, Ctx, OnChainIndex>
+impl<GaugeId, Ctx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedCardanoTx, ()>
+    for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, PartiallySignedCardanoTx, Ctx, OnChainIndex>
 where
     GaugeId: Display + Copy + Send + 'static,
     Ctx: Send
@@ -362,7 +381,7 @@ where
         Control::Next
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, SignedTxBuilder>, ()> {
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, PartiallySignedCardanoTx>, ()> {
         enum RefInputT {
             AuthManager,
             Gauge,
@@ -514,6 +533,14 @@ where
             tx_builder
                 .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
                 .unwrap();
+            let inputs = tx_builder
+                .get_inputs()
+                .clone()
+                .into_iter()
+                .map(|TransactionUnspentOutput { input, output }| {
+                    (OutputRef::new(input.transaction_id, input.index), output)
+                })
+                .collect();
             let output = tx_builder
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
@@ -522,9 +549,14 @@ where
             let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
             let task_id = TaskId::from(tx_hash);
 
+            let resolved_tx = PartiallySignedCardanoTx {
+                tx: output.build_unchecked(),
+                inputs,
+            };
+
             Ok(ExecutionResult {
-                executed_tasks: vec![task_id],
-                output,
+                executed_tasks: vec![task_id], // todo: return correct task ids
+                output: resolved_tx,
             })
         } else {
             Err(())
@@ -543,26 +575,65 @@ pub enum Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, PositionIndex, Em
     Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex>),
 }
 
-pub struct Executor<GaugeId, StateId, Bearer, Tx, Ctx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emission>
-{
+pub struct Executor<
+    GaugeId,
+    StateId,
+    Bearer,
+    Tx,
+    TxInputs,
+    Ctx,
+    TxErr,
+    PositionIndex,
+    OnChainIndex,
+    TxSubmit,
+    Emission,
+    Verifier,
+> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     tx_submit: TxSubmit,
     emission: Emission,
+    verifier: Verifier,
     flow: Option<Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, PositionIndex, Emission>>,
     ctx: Ctx,
-    pd: PhantomData<(Tx, TxErr)>,
+    pd: PhantomData<(Tx, TxInputs, TxErr)>,
 }
 
 #[async_trait]
-impl<GaugeId, StateId, Bearer, Tx, Ctx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emiss>
-    BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>
-    for Executor<GaugeId, StateId, Bearer, Tx, Ctx, TxErr, PositionIndex, OnChainIndex, TxSubmit, Emiss>
+impl<
+        GaugeId,
+        StateId,
+        Bearer,
+        Tx,
+        TxInputs,
+        Ctx,
+        TxErr,
+        PositionIndex,
+        OnChainIndex,
+        TxSubmit,
+        Emiss,
+        Verifier,
+    > BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>
+    for Executor<
+        GaugeId,
+        StateId,
+        Bearer,
+        Tx,
+        TxInputs,
+        Ctx,
+        TxErr,
+        PositionIndex,
+        OnChainIndex,
+        TxSubmit,
+        Emiss,
+        Verifier,
+    >
 where
     GaugeId: Copy + Send + Display + 'static,
     StateId: Send + Sync + Display + 'static,
     Bearer: Send,
     Tx: Send,
+    TxInputs: Send,
     TxErr: Send,
     PositionIndex: Positions<StateId> + Clone + Send,
     OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
@@ -572,10 +643,11 @@ where
         + Send,
     TxSubmit: Clone + Network<Tx, TxErr> + Send,
     Emiss: Emission + Clone + Send,
+    Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emiss>:
-        BatchExecutor<TaskId, Harvesting<StateId>, Tx, ()>,
+        BatchExecutor<TaskId, Harvesting<StateId>, PartiallySignedTx<Tx, TxInputs>, ()>,
     BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex>:
-        BatchExecutor<TaskId, GaugeBuffering<GaugeId>, Tx, ()>,
+        BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedTx<Tx, TxInputs>, ()>,
     Ctx: Send
         + Clone
         + Has<BufferWalletScript>
@@ -616,22 +688,32 @@ where
             Some(flow) => {
                 let ExecutionResult {
                     executed_tasks,
-                    output,
+                    output: local_tx,
                 } = match flow {
                     Flow::Harvesting(mut hf) => hf.execute().await?,
                     Flow::Buffering(mut bf) => bf.execute().await?,
                 };
-                match self.tx_submit.submit_tx(output).await {
-                    Ok(_) => {
-                        //todo!("DEX-892 index transaction io as unconfirmed changes to entities' states")
-                        Ok(ExecutionResult {
-                            executed_tasks,
-                            output: (),
-                        })
-                    }
-                    Err(_) => {
-                        //todo!("DEX-892 invalidate 'spent' states in the index")
-                        Err(())
+                loop {
+                    match self.verifier.try_approve(&local_tx).await {
+                        Ok(coop_tx) => {
+                            match self.tx_submit.submit_tx(coop_tx).await {
+                                Ok(_) => {
+                                    //todo!("DEX-892 index transaction io as unconfirmed changes to entities' states")
+                                    return Ok(ExecutionResult {
+                                        executed_tasks,
+                                        output: (),
+                                    });
+                                }
+                                Err(_) => {
+                                    //todo!("DEX-892 invalidate 'spent' states in the index")
+                                    return Err(());
+                                }
+                            }
+                        }
+                        Err(VerifierRejection::Unavailable) => continue, // todo: RestartVerifierWhenUnresponsive
+                        Err(VerifierRejection::InvalidWithdrawal) => {
+                            panic!() // todo: ShouldGoToIndexFaultMode; ShouldResyncOnMismatch
+                        }
                     }
                 }
             }

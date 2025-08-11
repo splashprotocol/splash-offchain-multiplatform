@@ -1,7 +1,11 @@
 mod batch;
 pub mod executor;
+mod prover;
 mod queue;
+mod resolved_tx;
 mod task;
+mod verifier;
+mod withdrawal;
 
 use crate::engine::executor::{BatchExecutor, Control};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};

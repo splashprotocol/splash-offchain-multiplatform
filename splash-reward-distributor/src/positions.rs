@@ -7,7 +7,6 @@ use serde::Deserialize;
 pub struct AccountState {
     pub total_share_bps: u64,
     pub activated_at: Slot,
-    pub queried_at: Slot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
