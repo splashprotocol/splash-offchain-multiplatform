@@ -43,9 +43,21 @@ impl<U, Q, E, I> Engine<U, Q, E, I> {
 
 impl<GaugeId, StateId, Bearer, U, Q, E, I> Future for Engine<U, Q, E, I>
 where
-    GaugeId: Copy + Unpin + 'static,
-    StateId: Copy + Into<TaskId> + Unpin + 'static,
-    Bearer: Unpin + Send + 'static,
+    GaugeId: Copy + Unpin + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    StateId: Copy
+        + Into<TaskId>
+        + Unpin
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Display
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + 'static,
+    Bearer: Serialize + DeserializeOwned + Unpin + Send + 'static,
+    I: Unpin + Send + Sync + Clone + HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer> + 'static,
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
@@ -89,8 +101,20 @@ async fn process_events<GaugeId, StateId, Bearer, Q, I>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy,
-    StateId: Copy + Into<TaskId>,
+    GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    StateId: Copy
+        + Into<TaskId>
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Display
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + 'static,
+    I: HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer>,
+    Bearer: Serialize + DeserializeOwned + 'static,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
     let commands = match events {
@@ -182,6 +206,18 @@ where
                                 harvest_order.id.into(),
                                 Task::new_harvesting(harvest_order.id),
                                 StrikeTime::Ready,
+                            ));
+                        }
+                    }
+
+                    OnChainEvent::BotGaugeBufferingAction {
+                        drained_gauges,
+                        buffer_wallet_update,
+                    } => {
+                        let prev_state_id = indexer
+                            .remove::<BufferWallet<_>>(
+                                BufferWalletId,
+                                buffer_wallet_update.created.0.state_id,
                             )
                         })
                         .collect(),
