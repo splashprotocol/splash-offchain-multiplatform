@@ -24,6 +24,7 @@ use crate::entity_index::{
     index_entities, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex,
 };
 use crate::events::OnChainEvent;
+use crate::indexer::OnChainIndex;
 
 pub async fn event_pipeline<U, Cx, Utxos, I>(
     upstream: U,

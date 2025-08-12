@@ -14,7 +14,9 @@ use crate::events::OnChainEvent;
 use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
-use std::fmt::Debug;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::hash::Hash;
 use std::ops::ControlFlow;
@@ -26,22 +28,21 @@ pub struct EngineConfig {
     buffering_threshold: u64,
 }
 
-pub struct Engine<U, Q, E, I> {
+pub struct Engine<U, Q, E> {
     event_stream: U,
     queue: Q,
-    indexer: I,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>>>>>,
     conf: EngineConfig,
 }
 
-impl<U, Q, E, I> Engine<U, Q, E, I> {
+impl<U, Q, E> Engine<U, Q, E> {
     fn block_on(&mut self, task: impl Future<Output = ControlFlow<(), ()>> + 'static) {
         self.current_task = Some(Box::pin(task));
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E, I> Future for Engine<U, Q, E, I>
+impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
     GaugeId: Into<TaskId>
         + Copy
@@ -67,7 +68,6 @@ where
         + DeserializeOwned
         + 'static,
     Bearer: Serialize + DeserializeOwned + Unpin + Send + 'static,
-    I: Unpin + Send + Sync + Clone + HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer> + 'static,
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
@@ -91,10 +91,9 @@ where
                 }
             }
             let queue = self.queue.clone();
-            let indexer = self.indexer.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
                 let conf = self.conf;
-                self.block_on(process_events(queue, events, indexer, tx, conf));
+                self.block_on(process_events(queue, events, tx, conf));
                 continue;
             }
             let executor = self.executor.clone();
@@ -104,10 +103,9 @@ where
     }
 }
 
-async fn process_events<GaugeId, StateId, Bearer, Q, I>(
+async fn process_events<GaugeId, StateId, Bearer, Q>(
     queue: Q,
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-    indexer: I,
     tx: TransactionHandle,
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
@@ -124,7 +122,6 @@ where
         + Serialize
         + DeserializeOwned
         + 'static,
-    I: HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer>,
     Bearer: Serialize + DeserializeOwned + 'static,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
@@ -217,18 +214,6 @@ where
                                 harvest_order.id.into(),
                                 Task::new_harvesting(harvest_order.id),
                                 StrikeTime::Ready,
-                            ));
-                        }
-                    }
-
-                    OnChainEvent::BotGaugeBufferingAction {
-                        drained_gauges,
-                        buffer_wallet_update,
-                    } => {
-                        let prev_state_id = indexer
-                            .remove::<BufferWallet<_>>(
-                                BufferWalletId,
-                                buffer_wallet_update.created.0.state_id,
                             )
                         })
                         .collect(),
