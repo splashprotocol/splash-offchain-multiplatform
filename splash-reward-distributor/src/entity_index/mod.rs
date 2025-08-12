@@ -28,11 +28,6 @@ pub trait BufferWalletIndex<StateId, Bearer> {
 }
 
 #[async_trait]
-pub trait OrderIndex<StateId, Bearer> {
-    async fn get_order(&self, id: StateId) -> Option<Bundled<HarvestOrder<StateId>, Bearer>>;
-}
-
-#[async_trait]
 pub trait GaugeIndex<GaugeId, StateId, Bearer> {
     async fn get_gauge(&self, id: GaugeId) -> Option<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
     async fn write_confirmed_gauge(

@@ -7,8 +7,8 @@ use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
 use crate::engine::resolved_tx::{PartiallySignedCardanoTx, PartiallySignedTx};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
-use crate::entity_index::AuthManagerIndex;
-use crate::entity_index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex, OrderIndex};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
+use crate::entity_index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex};
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
@@ -25,6 +25,8 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::{RequiredSigners, Value};
 use cml_crypto::RawBytesEncoding;
 use log::{error, warn};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -44,6 +46,7 @@ use splash_dao_offchain::protocol_config::{
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use std::fmt::Display;
+use std::hash::Hash;
 use std::marker::PhantomData;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -91,7 +94,8 @@ impl<Ctx, PositionIndex, OnChainIndex, Emiss>
     >
 where
     PositionIndex: Positions<OutputRef> + Send,
-    OnChainIndex: BufferWalletIndex<OutputRef, FinalizedTxOut> + OrderIndex<OutputRef, FinalizedTxOut> + Send,
+    OnChainIndex:
+        BufferWalletIndex<OutputRef, FinalizedTxOut> + HarvestOrderIndex<OutputRef, FinalizedTxOut> + Send,
     Emiss: Emission + Send,
     Ctx: Send
         + Has<BufferWalletScript>
@@ -103,7 +107,7 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
-        let order = if let Some(order) = self.onchain_index.get_order(task.order_id).await {
+        let order = if let Some(order) = self.onchain_index.read_harvest_order(task.order_id).await {
             order
         } else {
             return Control::Drop(task_id);
@@ -118,7 +122,10 @@ where
                 return Control::Stop;
             }
         };
-        let Bundled(req, _) = &order;
+        let (req, tx_out) = match order {
+            crate::entity_index::Mod::Confirmed(Bundled(req, tx_out))
+            | crate::entity_index::Mod::Predicted(Bundled(req, tx_out)) => (req.0, tx_out),
+        };
         match self
             .position_index
             .query_account(&Credential::new_pub_key(req.account))
@@ -146,7 +153,7 @@ where
                         );
                         return Control::Drop(task_id);
                     }
-                    batch.add_order(order, payout);
+                    batch.add_order(Bundled(req, tx_out), payout);
                 } else {
                     warn!(
                         "Buffer wallet is running out of funds, cannot process request {}",
@@ -632,14 +639,14 @@ impl<
     >
 where
     GaugeId: Copy + Send + Display + 'static,
-    StateId: Send + Sync + Display + 'static,
-    Bearer: Send,
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    Bearer: Send + Serialize + DeserializeOwned + 'static,
     Tx: Send,
     TxInputs: Send,
     TxErr: Send,
     PositionIndex: Positions<StateId> + Clone + Send,
     OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
-        + OrderIndex<StateId, Bearer>
+        + HarvestOrderIndex<StateId, Bearer>
         + BufferWalletIndex<StateId, Bearer>
         + Clone
         + Send,
