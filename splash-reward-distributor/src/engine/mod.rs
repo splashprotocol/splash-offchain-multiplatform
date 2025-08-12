@@ -52,7 +52,17 @@ impl<U, Q, E, I> Engine<U, Q, E, I> {
 
 impl<GaugeId, StateId, Bearer, U, Q, E, I> Future for Engine<U, Q, E, I>
 where
-    GaugeId: Copy + Unpin + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    GaugeId: Into<TaskId>
+        + Copy
+        + Unpin
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Display
+        + Serialize
+        + DeserializeOwned
+        + 'static,
     StateId: Copy
         + Into<TaskId>
         + Unpin
@@ -92,7 +102,8 @@ where
             let queue = self.queue.clone();
             let indexer = self.indexer.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
-                self.block_on(process_events(queue, events, tx));
+                let conf = self.conf;
+                self.block_on(process_events(queue, events, indexer, tx, conf));
                 continue;
             }
             let executor = self.executor.clone();
@@ -110,7 +121,7 @@ async fn process_events<GaugeId, StateId, Bearer, Q, I>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    GaugeId: Into<TaskId> + Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     StateId: Copy
         + Into<TaskId>
         + Eq
@@ -183,14 +194,24 @@ where
                         // Index drained gauges
                         for gauge_update in drained_gauges {
                             let prev_state_id = gauge_update.consumed;
-                            let (entity, bearer) = gauge_update.created;
-                            let bundled = Bundled(entity, bearer);
+                            let (gauge, bearer) = gauge_update.created;
+                            let task_id = gauge.id.into();
+                            let bundled = Bundled(gauge, bearer);
                             let traced = Traced::new(Confirmed(bundled), prev_state_id);
                             indexer.write_confirmed(traced).await;
+                            commands.push(QueueCmd::Done(task_id));
                         }
                     }
                     OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
                         for gauge_update in updated_gauges {
+                            if gauge_update.created.0.balance >= conf.buffering_threshold {
+                                let gauge_id = gauge_update.created.0.id;
+                                commands.push(QueueCmd::Schedule(
+                                    gauge_id.into(),
+                                    Task::new_gauge_buffering(gauge_id),
+                                    StrikeTime::Ready,
+                                ));
+                            }
                             let prev_state_id = gauge_update.consumed;
                             let (entity, bearer) = gauge_update.created;
                             let bundled = Bundled(entity, bearer);
@@ -266,6 +287,12 @@ where
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
 
                         for gauge_update in drained_gauges {
+                            let gauge_id = gauge_update.created.0.id;
+                            commands.push(QueueCmd::Schedule(
+                                gauge_id.into(),
+                                Task::new_gauge_buffering(gauge_id),
+                                StrikeTime::Ready,
+                            ));
                             let prev_state_id = indexer
                                 .remove::<Gauge<_, _>>(
                                     gauge_update.created.0.id,
@@ -278,6 +305,10 @@ where
 
                     OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
                         for gauge_update in updated_gauges {
+                            if gauge_update.created.0.balance >= conf.buffering_threshold {
+                                let task_id = gauge_update.created.0.id.into();
+                                commands.push(QueueCmd::Cancel(task_id));
+                            }
                             let prev_state_id = indexer
                                 .remove::<Gauge<_, _>>(
                                     gauge_update.created.0.id,
