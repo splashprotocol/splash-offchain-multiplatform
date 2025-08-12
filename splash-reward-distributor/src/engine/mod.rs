@@ -14,11 +14,8 @@ use crate::events::OnChainEvent;
 use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::future::Future;
-use std::hash::Hash;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -46,7 +43,7 @@ impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
     GaugeId: Copy + Into<TaskId> + Unpin + 'static,
     StateId: Copy + Into<TaskId> + Unpin + 'static,
-    Bearer: Serialize + DeserializeOwned + Unpin + Send + 'static,
+    Bearer: Unpin + Send + 'static,
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
@@ -89,9 +86,8 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Into<TaskId> + Copy,
+    GaugeId: Copy + Into<TaskId>,
     StateId: Copy + Into<TaskId>,
-    Bearer: Serialize + DeserializeOwned + 'static,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
     let commands = match events {
