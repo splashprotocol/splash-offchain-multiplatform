@@ -11,9 +11,19 @@ use crate::engine::executor::{BatchExecutor, Control};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
 use crate::events::OnChainEvent;
+use crate::indexer::{HarvestOrderIndex, OnChainIndex};
+use crate::onchain::auth_manager::{AuthManager, AuthManagerId};
+use crate::onchain::buffer_wallet::{BufferWallet, BufferWalletId};
+use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
+use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
-use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
+use rand::seq::index;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use spectrum_offchain::domain::event::{Confirmed, Traced};
+use spectrum_offchain::domain::EntitySnapshot;
+use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::hash::Hash;
 use std::ops::ControlFlow;
@@ -42,9 +52,21 @@ impl<U, Q, E, I> Engine<U, Q, E, I> {
 
 impl<GaugeId, StateId, Bearer, U, Q, E, I> Future for Engine<U, Q, E, I>
 where
-    GaugeId: Copy + Unpin + 'static,
-    StateId: Copy + Into<TaskId> + Unpin + 'static,
-    Bearer: Unpin + Send + 'static,
+    GaugeId: Copy + Unpin + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    StateId: Copy
+        + Into<TaskId>
+        + Unpin
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Display
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + 'static,
+    Bearer: Serialize + DeserializeOwned + Unpin + Send + 'static,
+    I: Unpin + Send + Sync + Clone + HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer> + 'static,
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
@@ -88,8 +110,20 @@ async fn process_events<GaugeId, StateId, Bearer, Q, I>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy,
-    StateId: Copy + Into<TaskId>,
+    GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    StateId: Copy
+        + Into<TaskId>
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Display
+        + Debug
+        + Serialize
+        + DeserializeOwned
+        + 'static,
+    I: HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer>,
+    Bearer: Serialize + DeserializeOwned + 'static,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
     let commands = match events {
@@ -179,44 +213,94 @@ where
         }
         BlockEvents::RollBackward {
             events, block_slot, ..
-        } => events
-            .into_iter()
-            .filter_map(|event| match event {
-                OnChainEvent::NewHarvestRequest(harvest, output) => {
-                    Some(vec![QueueCmd::Cancel(harvest.id.into())])
-                }
-                OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
-                    let cmds = harvest_ids
-                        .into_iter()
-                        .map(|harvest_id| {
-                            QueueCmd::Schedule(
+        } => {
+            let mut commands = vec![];
+            for event in events {
+                match event {
+                    OnChainEvent::NewHarvestRequest(harvest, output) => {
+                        indexer.remove_created_harvest_order(harvest.id).await;
+                        commands.push(QueueCmd::Cancel(harvest.id.into()));
+                    }
+                    OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
+                        for harvest_id in harvest_ids {
+                            indexer.unconsume_harvest_order(harvest_id).await;
+                            commands.push(QueueCmd::Schedule(
                                 harvest_id.into(),
                                 Task::new_harvesting(harvest_id),
                                 StrikeTime::Ready,
-                            )
-                        })
-                        .collect();
-                    Some(cmds)
-                }
+                            ));
+                        }
+                    }
 
-                OnChainEvent::BotHarvestingAction { payouts, .. } => {
-                    let cmds = payouts
-                        .into_iter()
-                        .map(|(harvest_order, _)| {
-                            QueueCmd::Schedule(
+                    OnChainEvent::BotHarvestingAction {
+                        payouts,
+                        buffer_wallet_update,
+                    } => {
+                        let prev_state_id = indexer
+                            .remove::<BufferWallet<_>>(
+                                BufferWalletId,
+                                buffer_wallet_update.created.0.state_id,
+                            )
+                            .await;
+                        assert_eq!(buffer_wallet_update.consumed, prev_state_id);
+                        for (harvest_order, _) in payouts {
+                            indexer.unconsume_harvest_order(harvest_order.id).await;
+                            commands.push(QueueCmd::Schedule(
                                 harvest_order.id.into(),
                                 Task::new_harvesting(harvest_order.id),
                                 StrikeTime::Ready,
+                            ));
+                        }
+                    }
+
+                    OnChainEvent::BotGaugeBufferingAction {
+                        drained_gauges,
+                        buffer_wallet_update,
+                    } => {
+                        let prev_state_id = indexer
+                            .remove::<BufferWallet<_>>(
+                                BufferWalletId,
+                                buffer_wallet_update.created.0.state_id,
                             )
-                        })
-                        .collect();
-                    Some(cmds)
+                            .await;
+                        assert_eq!(buffer_wallet_update.consumed, prev_state_id);
+
+                        for gauge_update in drained_gauges {
+                            let prev_state_id = indexer
+                                .remove::<Gauge<_, _>>(
+                                    gauge_update.created.0.id,
+                                    gauge_update.created.0.state_id,
+                                )
+                                .await;
+                            assert_eq!(gauge_update.consumed, prev_state_id);
+                        }
+                    }
+
+                    OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
+                        for gauge_update in updated_gauges {
+                            let prev_state_id = indexer
+                                .remove::<Gauge<_, _>>(
+                                    gauge_update.created.0.id,
+                                    gauge_update.created.0.state_id,
+                                )
+                                .await;
+                            assert_eq!(gauge_update.consumed, prev_state_id);
+                        }
+                    }
+                    OnChainEvent::AuthManagerUpdated(auth_update) => {
+                        let prev_state_id = indexer
+                            .remove::<AuthManager<GaugeId, StateId>>(
+                                AuthManagerId,
+                                auth_update.created.0.state_id,
+                            )
+                            .await;
+                        assert_eq!(auth_update.consumed, prev_state_id);
+                    }
                 }
-                _ => None,
-            })
-            .flatten()
-            .chain(vec![QueueCmd::DowngradeClocks(block_slot)])
-            .collect(),
+            }
+            commands.push(QueueCmd::DowngradeClocks(block_slot));
+            commands
+        }
     };
     queue.batch_execute(commands).await;
     tx.commit();

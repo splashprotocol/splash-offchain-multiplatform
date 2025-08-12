@@ -29,8 +29,8 @@ pub struct AuthManagerId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthManager<GaugeId, StateId> {
-    state_id: StateId,
-    suspended_gauges: Vec<GaugeId>,
+    pub state_id: StateId,
+    pub suspended_gauges: Vec<GaugeId>,
 }
 
 impl<GaugeId, StateId> Stable for AuthManager<GaugeId, StateId> {
