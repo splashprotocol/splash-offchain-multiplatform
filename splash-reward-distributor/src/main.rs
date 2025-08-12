@@ -3,7 +3,6 @@ mod emission;
 mod engine;
 mod entity_index;
 mod events;
-mod indexer;
 mod onchain;
 mod pipeline;
 mod positions;

@@ -540,8 +540,8 @@ mod tests {
     use splash_dao_offchain::routines::Slot;
 
     use crate::{
-        indexer::{HarvestOrder, HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex},
-        onchain::{buffer_wallet::BufferWallet, smart_farm::Gauge},
+        entity_index::rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex},
+        onchain::{buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge},
     };
 
     #[tokio::test]

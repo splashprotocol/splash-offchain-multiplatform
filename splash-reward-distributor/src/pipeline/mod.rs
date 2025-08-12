@@ -18,9 +18,9 @@ use splash_dao_offchain::protocol_config::{
 use std::collections::HashSet;
 
 use crate::config::HarvestLimits;
+use crate::entity_index::rocksdb::OnChainIndex;
 use crate::entity_index::{index_entities, HarvestOrderIndex};
 use crate::events::OnChainEvent;
-use crate::indexer::OnChainIndex;
 
 pub async fn event_pipeline<U, Cx, Utxos, I>(
     upstream: U,

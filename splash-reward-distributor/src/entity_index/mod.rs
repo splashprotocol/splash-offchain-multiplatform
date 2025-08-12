@@ -1,7 +1,9 @@
+pub(crate) mod rocksdb;
+
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::indexer::OnChainIndex;
+use crate::entity_index::rocksdb::OnChainIndex;
 use crate::onchain::auth_manager::AuthManagerId;
 use crate::onchain::buffer_wallet::{BufferWallet, BufferWalletId};
 use crate::onchain::harvest_order::HarvestOrder;
