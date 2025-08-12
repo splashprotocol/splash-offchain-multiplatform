@@ -43,7 +43,17 @@ impl<U, Q, E, I> Engine<U, Q, E, I> {
 
 impl<GaugeId, StateId, Bearer, U, Q, E, I> Future for Engine<U, Q, E, I>
 where
-    GaugeId: Copy + Unpin + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    GaugeId: Into<TaskId>
+        + Copy
+        + Unpin
+        + Eq
+        + Hash
+        + Send
+        + Sync
+        + Display
+        + Serialize
+        + DeserializeOwned
+        + 'static,
     StateId: Copy
         + Into<TaskId>
         + Unpin
@@ -83,7 +93,8 @@ where
             let queue = self.queue.clone();
             let indexer = self.indexer.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
-                self.block_on(process_events(queue, events, tx));
+                let conf = self.conf;
+                self.block_on(process_events(queue, events, indexer, tx, conf));
                 continue;
             }
             let executor = self.executor.clone();
@@ -101,7 +112,7 @@ async fn process_events<GaugeId, StateId, Bearer, Q, I>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+    GaugeId: Into<TaskId> + Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     StateId: Copy
         + Into<TaskId>
         + Eq
