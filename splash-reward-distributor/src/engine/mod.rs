@@ -44,29 +44,8 @@ impl<U, Q, E> Engine<U, Q, E> {
 
 impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
-    GaugeId: Into<TaskId>
-        + Copy
-        + Unpin
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + Display
-        + Serialize
-        + DeserializeOwned
-        + 'static,
-    StateId: Copy
-        + Into<TaskId>
-        + Unpin
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + Display
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + 'static,
+    GaugeId: Copy + Into<TaskId> + Unpin + 'static,
+    StateId: Copy + Into<TaskId> + Unpin + 'static,
     Bearer: Serialize + DeserializeOwned + Unpin + Send + 'static,
     U: Stream<
             Item = (
@@ -110,18 +89,8 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Into<TaskId> + Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
-    StateId: Copy
-        + Into<TaskId>
-        + Eq
-        + Hash
-        + Send
-        + Sync
-        + Display
-        + Debug
-        + Serialize
-        + DeserializeOwned
-        + 'static,
+    GaugeId: Into<TaskId> + Copy,
+    StateId: Copy + Into<TaskId>,
     Bearer: Serialize + DeserializeOwned + 'static,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
 {
