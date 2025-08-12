@@ -92,6 +92,8 @@ where
 
         let num_consumed_gauges = consumed_gauges.len();
 
+        // `outputs[0]`` contains buffer_wallet_output, `outputs.last` contains change UTxO, the rest
+        // are gauge outputs.
         if num_consumed_gauges > 0 && repr.outputs.len() == num_consumed_gauges + 2 {
             let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, TransactionOutput>> = vec![];
             for ((gauge_in, successor_ix), (output_ix, tx_output)) in consumed_gauges
@@ -101,7 +103,7 @@ where
                 if successor_ix != output_ix as u64 {
                     return None;
                 }
-                let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, successor_ix as u64), slot);
+                let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, successor_ix), slot);
                 if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
                     if gauge_out.id == gauge_in.id {
                         res.push(EntityUpdated {
