@@ -12,9 +12,8 @@ use crate::{events::OnChainEvent, onchain::auth_manager::AuthManager};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
-use futures::Stream;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use spectrum_offchain::domain::event::{Confirmed, Traced};
+use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
 
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {
@@ -36,7 +35,7 @@ pub trait GaugeIndex<GaugeId, StateId, Bearer> {
         prev_state_id: Option<StateId>,
     );
     async fn remove_gauge(&self, gauge_id: GaugeId, state_id: StateId) -> Option<StateId>;
-    fn stream_gauges(&self) -> impl Stream<Item = Bundled<Gauge<GaugeId, StateId>, Bearer>>;
+    fn get_all_gauges(&self) -> Vec<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
 }
 
 #[async_trait]
@@ -222,5 +221,109 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                 }
             }
         }
+    }
+}
+
+#[async_trait]
+impl<StateId, Bearer, T> BufferWalletIndex<StateId, Bearer> for T
+where
+    T: OnChainIndex<Bearer> + Send + Sync,
+    StateId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
+    Bearer: Serialize + DeserializeOwned + Send + 'static,
+{
+    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>> {
+        self.read::<BufferWallet<_>>(BufferWalletId)
+            .await
+            .map(|bw| match bw {
+                AnyMod::Confirmed(Traced {
+                    state: Confirmed(b), ..
+                })
+                | AnyMod::Predicted(Traced {
+                    state: Predicted(b), ..
+                }) => b,
+            })
+    }
+
+    async fn write_confirmed_buffer_wallet(
+        &self,
+        bundled: Bundled<BufferWallet<StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    ) {
+        let traced = Traced::new(Confirmed(bundled), prev_state_id);
+        self.write_confirmed(traced).await;
+    }
+
+    async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId> {
+        self.remove::<BufferWallet<_>>(BufferWalletId, id).await
+    }
+}
+
+#[async_trait]
+impl<GaugeId, StateId, Bearer, T> GaugeIndex<GaugeId, StateId, Bearer> for T
+where
+    T: OnChainIndex<Bearer> + Send + Sync,
+    GaugeId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
+    StateId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
+    Bearer: Serialize + DeserializeOwned + Send + 'static,
+{
+    async fn get_gauge(&self, id: GaugeId) -> Option<Bundled<Gauge<GaugeId, StateId>, Bearer>> {
+        self.read::<Gauge<_, _>>(id).await.map(|bw| match bw {
+            AnyMod::Confirmed(Traced {
+                state: Confirmed(b), ..
+            })
+            | AnyMod::Predicted(Traced {
+                state: Predicted(b), ..
+            }) => b,
+        })
+    }
+    async fn write_confirmed_gauge(
+        &self,
+        bundled: Bundled<Gauge<GaugeId, StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    ) {
+        let traced = Traced::new(Confirmed(bundled), prev_state_id);
+        self.write_confirmed(traced).await;
+    }
+    async fn remove_gauge(&self, gauge_id: GaugeId, state_id: StateId) -> Option<StateId> {
+        self.remove::<Gauge<_, _>>(gauge_id, state_id).await
+    }
+    fn get_all_gauges(&self) -> Vec<Bundled<Gauge<GaugeId, StateId>, Bearer>> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl<GaugeId, StateId, Bearer, T> AuthManagerIndex<GaugeId, StateId, Bearer> for T
+where
+    T: OnChainIndex<Bearer> + Send + Sync,
+    GaugeId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
+    StateId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
+    Bearer: Serialize + DeserializeOwned + Send + 'static,
+{
+    async fn get_auth_manager(&self) -> Option<Bundled<AuthManager<GaugeId, StateId>, Bearer>> {
+        self.read::<AuthManager<_, _>>(AuthManagerId)
+            .await
+            .map(|bw| match bw {
+                AnyMod::Confirmed(Traced {
+                    state: Confirmed(b), ..
+                })
+                | AnyMod::Predicted(Traced {
+                    state: Predicted(b), ..
+                }) => b,
+            })
+    }
+
+    async fn write_confirmed_auth_manager(
+        &self,
+        bundled: Bundled<AuthManager<GaugeId, StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    ) {
+        let traced = Traced::new(Confirmed(bundled), prev_state_id);
+        self.write_confirmed(traced).await;
+    }
+
+    async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId> {
+        self.remove::<AuthManager<GaugeId, StateId>>(AuthManagerId, state_id)
+            .await
     }
 }
