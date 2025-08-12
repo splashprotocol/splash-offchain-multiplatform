@@ -19,6 +19,12 @@ use spectrum_offchain::domain::event::{Confirmed, Traced};
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {
     async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>>;
+    async fn write_confirmed_buffer_wallet(
+        &self,
+        bundle: Bundled<BufferWallet<StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    );
+    async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId>;
 }
 
 #[async_trait]
@@ -29,10 +35,25 @@ pub trait OrderIndex<StateId, Bearer> {
 #[async_trait]
 pub trait GaugeIndex<GaugeId, StateId, Bearer> {
     async fn get_gauge(&self, id: GaugeId) -> Option<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
-    async fn get_auth_manager(&self) -> Option<Bundled<AuthManager<GaugeId, StateId>, Bearer>>;
+    async fn write_confirmed_gauge(
+        &self,
+        bundle: Bundled<Gauge<GaugeId, StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    );
+    async fn remove_gauge(&self, gauge_id: GaugeId, state_id: StateId) -> Option<StateId>;
     fn stream_gauges(&self) -> impl Stream<Item = Bundled<Gauge<GaugeId, StateId>, Bearer>>;
 }
 
+#[async_trait]
+pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
+    async fn get_auth_manager(&self) -> Option<Bundled<AuthManager<GaugeId, StateId>, Bearer>>;
+    async fn write_confirmed_auth_manager(
+        &self,
+        bundle: Bundled<AuthManager<GaugeId, StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    );
+    async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId>;
+}
 #[async_trait]
 pub trait FundingBoxIndex<Bearer> {
     async fn get_funding_boxes(&self, lovelaces: u64) -> Vec<Bearer>;
@@ -77,7 +98,10 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
 ) where
     GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     StateId: Copy + Eq + Hash + Send + Sync + Display + Debug + Serialize + DeserializeOwned + 'static,
-    I: HarvestOrderIndex<StateId, Bearer> + OnChainIndex<Bearer>,
+    I: HarvestOrderIndex<StateId, Bearer>
+        + BufferWalletIndex<StateId, Bearer>
+        + GaugeIndex<GaugeId, StateId, Bearer>
+        + AuthManagerIndex<GaugeId, StateId, Bearer>,
     Bearer: Serialize + DeserializeOwned + 'static,
 {
     match events {
@@ -92,8 +116,9 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                         let prev_state_id = buffer_wallet_update.consumed;
                         let (entity, bearer) = buffer_wallet_update.created;
                         let bundled = Bundled(entity, bearer);
-                        let traced = Traced::new(Confirmed(bundled), prev_state_id);
-                        indexer.write_confirmed(traced).await;
+                        indexer
+                            .write_confirmed_buffer_wallet(bundled, prev_state_id)
+                            .await;
 
                         for (harvest_order, _) in payouts {
                             indexer
@@ -109,16 +134,16 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                         let prev_state_id = buffer_wallet_update.consumed;
                         let (entity, bearer) = buffer_wallet_update.created;
                         let bundled = Bundled(entity, bearer);
-                        let traced = Traced::new(Confirmed(bundled), prev_state_id);
-                        indexer.write_confirmed(traced).await;
+                        indexer
+                            .write_confirmed_buffer_wallet(bundled, prev_state_id)
+                            .await;
 
                         // Index drained gauges
                         for gauge_update in drained_gauges {
                             let prev_state_id = gauge_update.consumed;
                             let (gauge, bearer) = gauge_update.created;
                             let bundled = Bundled(gauge, bearer);
-                            let traced = Traced::new(Confirmed(bundled), prev_state_id);
-                            indexer.write_confirmed(traced).await;
+                            indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
                     }
                     OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
@@ -126,16 +151,14 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                             let prev_state_id = gauge_update.consumed;
                             let (entity, bearer) = gauge_update.created;
                             let bundled = Bundled(entity, bearer);
-                            let traced = Traced::new(Confirmed(bundled), prev_state_id);
-                            indexer.write_confirmed(traced).await;
+                            indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
                     }
                     OnChainEvent::AuthManagerUpdated(auth_update) => {
                         let prev_state_id = auth_update.consumed;
                         let (entity, bearer) = auth_update.created;
                         let bundled = Bundled(entity, bearer);
-                        let traced = Traced::new(Confirmed(bundled), prev_state_id);
-                        indexer.write_confirmed(traced).await;
+                        indexer.write_confirmed_auth_manager(bundled, prev_state_id).await;
                     }
                     OnChainEvent::NewHarvestRequest(harvest, output) => {
                         let order = Confirmed(Bundled(harvest, output));
@@ -157,10 +180,7 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                         buffer_wallet_update,
                     } => {
                         let prev_state_id = indexer
-                            .remove::<BufferWallet<_>>(
-                                BufferWalletId,
-                                buffer_wallet_update.created.0.state_id,
-                            )
+                            .remove_buffer_wallet(buffer_wallet_update.created.0.state_id)
                             .await;
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
                         for (harvest_order, _) in payouts {
@@ -172,17 +192,14 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                         buffer_wallet_update,
                     } => {
                         let prev_state_id = indexer
-                            .remove::<BufferWallet<_>>(
-                                BufferWalletId,
-                                buffer_wallet_update.created.0.state_id,
-                            )
+                            .remove_buffer_wallet(buffer_wallet_update.created.0.state_id)
                             .await;
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
 
                         for gauge_update in drained_gauges {
                             let gauge_id = gauge_update.created.0.id;
                             let prev_state_id = indexer
-                                .remove::<Gauge<_, _>>(gauge_id, gauge_update.created.0.state_id)
+                                .remove_gauge(gauge_id, gauge_update.created.0.state_id)
                                 .await;
                             assert_eq!(gauge_update.consumed, prev_state_id);
                         }
@@ -190,21 +207,13 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                     OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
                         for gauge_update in updated_gauges {
                             let prev_state_id = indexer
-                                .remove::<Gauge<_, _>>(
-                                    gauge_update.created.0.id,
-                                    gauge_update.created.0.state_id,
-                                )
+                                .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)
                                 .await;
                             assert_eq!(gauge_update.consumed, prev_state_id);
                         }
                     }
                     OnChainEvent::AuthManagerUpdated(auth_update) => {
-                        let prev_state_id = indexer
-                            .remove::<AuthManager<GaugeId, StateId>>(
-                                AuthManagerId,
-                                auth_update.created.0.state_id,
-                            )
-                            .await;
+                        let prev_state_id = indexer.remove_auth_manager(auth_update.created.0.state_id).await;
                         assert_eq!(auth_update.consumed, prev_state_id);
                     }
                     OnChainEvent::NewHarvestRequest(harvest_order, _) => {

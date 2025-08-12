@@ -19,7 +19,9 @@ use std::collections::HashSet;
 
 use crate::config::HarvestLimits;
 use crate::entity_index::rocksdb::OnChainIndex;
-use crate::entity_index::{index_entities, HarvestOrderIndex};
+use crate::entity_index::{
+    index_entities, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex,
+};
 use crate::events::OnChainEvent;
 
 pub async fn event_pipeline<U, Cx, Utxos, I>(
@@ -45,7 +47,11 @@ pub async fn event_pipeline<U, Cx, Utxos, I>(
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>,
-    I: HarvestOrderIndex<OutputRef, TransactionOutput> + OnChainIndex<TransactionOutput> + Clone,
+    I: HarvestOrderIndex<OutputRef, TransactionOutput>
+        + BufferWalletIndex<OutputRef, TransactionOutput>
+        + GaugeIndex<FarmId, OutputRef, TransactionOutput>
+        + AuthManagerIndex<FarmId, OutputRef, TransactionOutput>
+        + Clone,
 {
     upstream
         .then(|(block, tx_handle)| {

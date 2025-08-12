@@ -1,8 +1,13 @@
+use crate::constants::{
+    GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
+    HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
+};
 use crate::emission::{reward_amount, Emission};
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
 use crate::engine::resolved_tx::{PartiallySignedCardanoTx, PartiallySignedTx};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
+use crate::entity_index::AuthManagerIndex;
 use crate::entity_index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex, OrderIndex};
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
@@ -38,10 +43,6 @@ use splash_dao_offchain::protocol_config::{
     HarvestOrderScriptHash, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
-use splash_reward_distributor::constants::{
-    GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
-    HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
-};
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -354,6 +355,7 @@ where
         + Has<OperatorCreds>
         + Has<SplashPolicy>,
     OnChainIndex: GaugeIndex<GaugeId, OutputRef, FinalizedTxOut>
+        + AuthManagerIndex<GaugeId, OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
         + FundingBoxIndex<FinalizedTxOut>
         + Send,
