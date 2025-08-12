@@ -4,6 +4,7 @@ use std::hash::Hash;
 use cml_chain::transaction::TransactionOutput;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    output::FinalizedTxOut,
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
     value::ValueExtension,
@@ -63,7 +64,7 @@ pub struct UpdatedGauges<FarmId, StateId, Bearer>(
     pub Vec<EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>>,
 );
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for UpdatedGauges<FarmId, OutputRef, TransactionOutput>
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for UpdatedGauges<FarmId, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
@@ -95,7 +96,7 @@ where
         // `outputs[0]`` contains buffer_wallet_output, `outputs.last` contains change UTxO, the rest
         // are gauge outputs.
         if num_consumed_gauges > 0 && repr.outputs.len() == num_consumed_gauges + 2 {
-            let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, TransactionOutput>> = vec![];
+            let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, FinalizedTxOut>> = vec![];
             for ((gauge_in, successor_ix), (output_ix, tx_output)) in consumed_gauges
                 .into_iter()
                 .zip(repr.outputs.iter().enumerate().skip(1).take(num_consumed_gauges))
@@ -108,7 +109,10 @@ where
                     if gauge_out.id == gauge_in.id {
                         res.push(EntityUpdated {
                             consumed: Some(gauge_in.state_id),
-                            created: (gauge_out, tx_output.clone()),
+                            created: (
+                                gauge_out,
+                                FinalizedTxOut(tx_output.clone(), output_ref.output_ref),
+                            ),
                         });
                     }
                 } else {

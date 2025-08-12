@@ -4,6 +4,7 @@ use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
+use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -43,7 +44,7 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SplashPayout(pub u64);
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent<FarmId, OutputRef, TransactionOutput>
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent<FarmId, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
@@ -57,8 +58,8 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        type BufferWalletUpdate = EntityUpdated<BufferWallet<OutputRef>, OutputRef, TransactionOutput>;
-        type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, TransactionOutput>;
+        type BufferWalletUpdate = EntityUpdated<BufferWallet<OutputRef>, OutputRef, FinalizedTxOut>;
+        type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, FinalizedTxOut>;
         let network_id = ctx.select::<NetworkId>();
 
         let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());

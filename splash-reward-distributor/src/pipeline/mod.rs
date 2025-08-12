@@ -4,6 +4,7 @@ use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{FutureExt, Stream, StreamExt};
+use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
@@ -47,16 +48,16 @@ pub async fn event_pipeline<U, Cx, Utxos, I>(
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>,
-    I: HarvestOrderIndex<OutputRef, TransactionOutput>
-        + BufferWalletIndex<OutputRef, TransactionOutput>
-        + GaugeIndex<FarmId, OutputRef, TransactionOutput>
-        + AuthManagerIndex<FarmId, OutputRef, TransactionOutput>
+    I: HarvestOrderIndex<OutputRef, FinalizedTxOut>
+        + BufferWalletIndex<OutputRef, FinalizedTxOut>
+        + GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
+        + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
         + Clone,
 {
     upstream
         .then(|(block, tx_handle)| {
             let indexer = indexer.clone();
-            read_events::<OnChainEvent<FarmId, OutputRef, TransactionOutput>, _, _>(
+            read_events::<OnChainEvent<FarmId, OutputRef, FinalizedTxOut>, _, _>(
                 block,
                 &context,
                 &utxos,

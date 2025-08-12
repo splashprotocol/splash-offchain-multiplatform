@@ -7,6 +7,7 @@ use cml_chain::{
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    output::FinalizedTxOut,
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
@@ -110,14 +111,14 @@ impl IntoPlutusData for HarvestOrderAction {
 pub(crate) fn try_new_harvest_request<C>(
     repr: &TxViewPartiallyResolved,
     ctx: &C,
-) -> Option<(HarvestOrder<OutputRef>, TransactionOutput)>
+) -> Option<(HarvestOrder<OutputRef>, FinalizedTxOut)>
 where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
         try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
-            .map(|order| (order, output.clone()))
+            .map(|order| (order, FinalizedTxOut(output.clone(), output_ref)))
     })
 }
 

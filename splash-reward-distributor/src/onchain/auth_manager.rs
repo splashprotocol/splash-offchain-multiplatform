@@ -5,6 +5,7 @@ use cml_chain::transaction::TransactionOutput;
 use derive_more::From;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    output::FinalizedTxOut,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
     OutputRef,
 };
@@ -57,15 +58,19 @@ where
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>
-    for EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, TransactionOutput>
+    for EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let created = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
             let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(repr.slot));
-            try_extract_auth_manager(output, output_ref, ctx)
-                .map(|auth_manager| (auth_manager, output.clone()))
+            try_extract_auth_manager(output, output_ref, ctx).map(|auth_manager| {
+                (
+                    auth_manager,
+                    FinalizedTxOut(output.clone(), output_ref.output_ref),
+                )
+            })
         })?;
         let consumed = repr.inputs.iter().find_map(|(tx_input, output)| {
             if let Some(TimedOutput { output, .. }) = output {
