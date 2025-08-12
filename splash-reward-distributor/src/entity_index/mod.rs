@@ -35,7 +35,6 @@ pub trait GaugeIndex<GaugeId, StateId, Bearer> {
         prev_state_id: Option<StateId>,
     );
     async fn remove_gauge(&self, gauge_id: GaugeId, state_id: StateId) -> Option<StateId>;
-    fn get_all_gauges(&self) -> Vec<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
 }
 
 #[async_trait]
@@ -286,9 +285,6 @@ where
     }
     async fn remove_gauge(&self, gauge_id: GaugeId, state_id: StateId) -> Option<StateId> {
         self.remove::<Gauge<_, _>>(gauge_id, state_id).await
-    }
-    fn get_all_gauges(&self) -> Vec<Bundled<Gauge<GaugeId, StateId>, Bearer>> {
-        todo!()
     }
 }
 
