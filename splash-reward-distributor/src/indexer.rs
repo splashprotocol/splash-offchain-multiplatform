@@ -18,6 +18,7 @@ use spectrum_offchain::domain::{
 };
 use tokio::task::spawn_blocking;
 
+use crate::entity_index::{HarvestOrderIndex, HarvestOrderStatus, Mod};
 use crate::onchain::{
     auth_manager::AuthManager, buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge,
 };
@@ -48,39 +49,6 @@ where
         T: unique_ids::UniqueId + EntitySnapshot + Send + Clone + Serialize + DeserializeOwned + 'static,
         T::StableId: Serialize + DeserializeOwned + 'static,
         T::Version: Debug + Eq + PartialEq;
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Mod<T> {
-    Confirmed(T),
-    Predicted(T),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum HarvestOrderStatus {
-    Spent,
-    Unspent,
-    Refunded,
-}
-
-#[async_trait::async_trait]
-pub trait HarvestOrderIndex<StateId, Bearer>
-where
-    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
-    Bearer: Serialize + DeserializeOwned + 'static,
-{
-    async fn read_harvest_order(
-        &self,
-        id: StateId,
-    ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
-    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn write_predicted_spend_harvest_order(&self, id: StateId);
-    async fn write_confirmed_spend_harvest_order(&self, id: StateId);
-    async fn write_confirmed_refund_harvest_order(&self, id: StateId);
-    /// Used on rollback of a spent or refunded order
-    async fn unconsume_harvest_order(&self, id: StateId);
-    /// Used on rollback of an unspent order
-    async fn remove_created_harvest_order(&self, id: StateId);
 }
 
 pub struct IndexerDB {

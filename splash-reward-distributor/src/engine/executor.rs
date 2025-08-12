@@ -3,7 +3,7 @@ use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
 use crate::engine::resolved_tx::{PartiallySignedCardanoTx, PartiallySignedTx};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
-use crate::index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex, OrderIndex};
+use crate::entity_index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex, OrderIndex};
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;

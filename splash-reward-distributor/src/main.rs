@@ -1,8 +1,8 @@
 mod config;
 mod emission;
 mod engine;
+mod entity_index;
 mod events;
-mod index;
 mod indexer;
 mod onchain;
 mod pipeline;

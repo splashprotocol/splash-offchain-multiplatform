@@ -18,11 +18,14 @@ use splash_dao_offchain::protocol_config::{
 use std::collections::HashSet;
 
 use crate::config::HarvestLimits;
+use crate::entity_index::{index_entities, HarvestOrderIndex};
 use crate::events::OnChainEvent;
+use crate::indexer::OnChainIndex;
 
-pub async fn event_pipeline<U, Cx, Utxos>(
+pub async fn event_pipeline<U, Cx, Utxos, I>(
     upstream: U,
     context: Cx,
+    indexer: I,
     utxos: Utxos,
     utxo_filter: HashSet<ScriptHash>,
 ) where
@@ -42,17 +45,22 @@ pub async fn event_pipeline<U, Cx, Utxos>(
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>,
+    I: HarvestOrderIndex<OutputRef, TransactionOutput> + OnChainIndex<TransactionOutput> + Clone,
 {
     upstream
         .then(|(block, tx_handle)| {
+            let indexer = indexer.clone();
             read_events::<OnChainEvent<FarmId, OutputRef, TransactionOutput>, _, _>(
                 block,
                 &context,
                 &utxos,
                 &utxo_filter,
             )
-            .map(|batch| (batch, tx_handle))
+            .map(|batch| async {
+                index_entities(batch, indexer).await;
+                tx_handle
+            })
         })
-        .for_each(|(_, tx_handle)| async move { tx_handle.commit() })
+        .for_each(|tx_handle| async move { tx_handle.await.commit() })
         .await
 }
