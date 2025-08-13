@@ -6,6 +6,7 @@ use cml_crypto::ScriptHash;
 use derive_more::From;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    output::FinalizedTxOut,
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
     AssetName, OutputRef,
@@ -38,7 +39,7 @@ use crate::events::EntityUpdated;
 )]
 pub struct BufferWalletId;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BufferWallet<StateId> {
     pub state_id: StateId,
     pub balance: u64,
@@ -71,7 +72,7 @@ where
 pub struct BufferWalletAuthToken(ScriptHash);
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>
-    for EntityUpdated<BufferWallet<OutputRef>, OutputRef, TransactionOutput>
+    for EntityUpdated<BufferWallet<OutputRef>, OutputRef, FinalizedTxOut>
 where
     Cx: Has<BufferWalletScript> + Has<SplashPolicy>,
 {
@@ -79,7 +80,7 @@ where
         let created = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
             let output_ref = OutputRef::new(repr.hash, ix as u64);
             try_extract_buffer_wallet(output, output_ref, ctx)
-                .map(|buffer_wallet| (buffer_wallet, output.clone()))
+                .map(|buffer_wallet| (buffer_wallet, FinalizedTxOut(output.clone(), output_ref)))
         })?;
         let consumed = repr.inputs.iter().find_map(|(tx_input, output)| {
             if let Some(TimedOutput { output, .. }) = output {

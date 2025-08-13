@@ -107,6 +107,7 @@ async fn main() {
         pool_validation: validation_rules.pool,
         harvest_limits: config.harvest_limits,
         splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
+        network_id: config.network_id,
     };
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");

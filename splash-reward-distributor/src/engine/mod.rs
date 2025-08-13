@@ -10,9 +10,11 @@ mod withdrawal;
 use crate::engine::executor::{BatchExecutor, Control};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
-use crate::events::{EntityUpdated, OnChainEvent};
+use crate::events::OnChainEvent;
+use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
+use std::fmt::Debug;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
@@ -94,24 +96,58 @@ where
         } => events
             .into_iter()
             .filter_map(|event| match event {
-                OnChainEvent::NewHarvestRequest(harvest) => Some(QueueCmd::Schedule(
-                    harvest.id.into(),
-                    Task::new_harvesting(harvest.id),
-                    StrikeTime::Ready,
-                )),
-                OnChainEvent::HarvestRequestCancelled(harvest_id) => {
-                    Some(QueueCmd::Cancel(harvest_id.into()))
+                OnChainEvent::NewHarvestRequest(harvest, _) => {
+                    let harvest_id = harvest.id;
+                    let task_id = harvest_id.into();
+                    Some(vec![QueueCmd::Schedule(
+                        task_id,
+                        Task::new_harvesting(harvest_id),
+                        StrikeTime::Ready,
+                    )])
                 }
-                OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Done(harvest_order.id.into())),
-                OnChainEvent::GaugeUpdated(EntityUpdated {
-                    created: (gauge, _), ..
-                }) if gauge.balance >= conf.buffering_threshold => Some(QueueCmd::Schedule(
-                    gauge.id.into(),
-                    Task::new_gauge_buffering(gauge.id),
-                    StrikeTime::Ready,
-                )),
-                _ => None,
+                OnChainEvent::HarvestRequestCancelled(harvest_ids) => Some(
+                    harvest_ids
+                        .into_iter()
+                        .map(|id| {
+                            let task_id: TaskId = id.into();
+                            QueueCmd::Cancel(task_id)
+                        })
+                        .collect(),
+                ),
+                OnChainEvent::BotHarvestingAction { payouts, .. } => Some(
+                    payouts
+                        .into_iter()
+                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into()))
+                        .collect(),
+                ),
+                OnChainEvent::BotGaugeBufferingAction { drained_gauges, .. } => Some(
+                    drained_gauges
+                        .into_iter()
+                        .map(|gauge_update| {
+                            let task_id = gauge_update.created.0.id.into();
+                            QueueCmd::Done(task_id)
+                        })
+                        .collect(),
+                ),
+                OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
+                    updated_gauges
+                        .into_iter()
+                        .filter_map(|gauge_update| {
+                            if gauge_update.created.0.balance >= conf.buffering_threshold {
+                                let gauge_id = gauge_update.created.0.id;
+                                return Some(QueueCmd::Schedule(
+                                    gauge_id.into(),
+                                    Task::new_gauge_buffering(gauge_id),
+                                    StrikeTime::Ready,
+                                ));
+                            }
+                            None
+                        })
+                        .collect(),
+                ),
+                OnChainEvent::AuthManagerUpdated(_) => None,
             })
+            .flatten()
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
             .collect(),
         BlockEvents::RollBackward {
@@ -119,20 +155,64 @@ where
         } => events
             .into_iter()
             .filter_map(|event| match event {
-                OnChainEvent::NewHarvestRequest(harvest) => Some(QueueCmd::Cancel(harvest.id.into())),
-                OnChainEvent::HarvestRequestCancelled(harvest_id) => Some(QueueCmd::Schedule(
-                    harvest_id.into(),
-                    Task::new_harvesting(harvest_id),
-                    StrikeTime::Ready,
-                )),
+                OnChainEvent::NewHarvestRequest(harvest, _) => {
+                    Some(vec![QueueCmd::Cancel(harvest.id.into())])
+                }
+                OnChainEvent::HarvestRequestCancelled(harvest_ids) => Some(
+                    harvest_ids
+                        .into_iter()
+                        .map(|harvest_id| {
+                            QueueCmd::Schedule(
+                                harvest_id.into(),
+                                Task::new_harvesting(harvest_id),
+                                StrikeTime::Ready,
+                            )
+                        })
+                        .collect(),
+                ),
 
-                OnChainEvent::Harvested(harvest_order) => Some(QueueCmd::Schedule(
-                    harvest_order.id.into(),
-                    Task::new_harvesting(harvest_order.id),
-                    StrikeTime::Ready,
-                )),
-                _ => None,
+                OnChainEvent::BotHarvestingAction { payouts, .. } => Some(
+                    payouts
+                        .into_iter()
+                        .map(|(harvest_order, _)| {
+                            QueueCmd::Schedule(
+                                harvest_order.id.into(),
+                                Task::new_harvesting(harvest_order.id),
+                                StrikeTime::Ready,
+                            )
+                        })
+                        .collect(),
+                ),
+
+                OnChainEvent::BotGaugeBufferingAction { drained_gauges, .. } => Some(
+                    drained_gauges
+                        .into_iter()
+                        .map(|gauge_update| {
+                            let gauge_id = gauge_update.created.0.id;
+                            QueueCmd::Schedule(
+                                gauge_id.into(),
+                                Task::new_gauge_buffering(gauge_id),
+                                StrikeTime::Ready,
+                            )
+                        })
+                        .collect(),
+                ),
+
+                OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
+                    updated_gauges
+                        .into_iter()
+                        .filter_map(|gauge_update| {
+                            if gauge_update.created.0.balance >= conf.buffering_threshold {
+                                let task_id = gauge_update.created.0.id.into();
+                                return Some(QueueCmd::Cancel(task_id));
+                            }
+                            None
+                        })
+                        .collect(),
+                ),
+                OnChainEvent::AuthManagerUpdated(_) => None,
             })
+            .flatten()
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])
             .collect(),
     };

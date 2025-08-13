@@ -18,6 +18,7 @@ use spectrum_offchain::domain::{
 };
 use tokio::task::spawn_blocking;
 
+use crate::entity_index::{HarvestOrderIndex, HarvestOrderStatus, Mod};
 use crate::onchain::{
     auth_manager::AuthManager, buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge,
 };
@@ -48,24 +49,6 @@ where
         T: unique_ids::UniqueId + EntitySnapshot + Send + Clone + Serialize + DeserializeOwned + 'static,
         T::StableId: Serialize + DeserializeOwned + 'static,
         T::Version: Debug + Eq + PartialEq;
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Mod<T> {
-    Confirmed(T),
-    Predicted(T),
-}
-
-#[async_trait::async_trait]
-pub trait HarvestOrderIndex<StateId, Bearer>
-where
-    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
-    Bearer: Serialize + DeserializeOwned + 'static,
-{
-    async fn read_harvest_order(&self, id: StateId) -> Option<Mod<Bundled<HarvestOrder<StateId>, Bearer>>>;
-    async fn write_predicted_harvest_order(&self, order: Predicted<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn remove_harvest_order(&self, id: StateId) -> Option<StateId>;
 }
 
 pub struct IndexerDB {
@@ -275,53 +258,175 @@ where
     StateId: Copy + Eq + Hash + Send + Sync + Debug + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Send + Serialize + DeserializeOwned + 'static,
 {
-    async fn read_harvest_order(&self, id: StateId) -> Option<Mod<Bundled<HarvestOrder<StateId>, Bearer>>> {
+    async fn read_harvest_order(
+        &self,
+        id: StateId,
+    ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>> {
         let wrapped = self.read::<HarvestOrderWrap<StateId>>(id).await;
 
         wrapped.map(|h| match h {
             AnyMod::Confirmed(t) => {
-                let harvest_order = t.state.0 .0 .0;
+                let harvest_order = t.state.0 .0.order;
+                let status = t.state.0 .0.status;
                 let bearer = t.state.0 .1;
-                Mod::Confirmed(Bundled(harvest_order, bearer))
+                Mod::Confirmed(Bundled((harvest_order, status), bearer))
             }
             AnyMod::Predicted(t) => {
-                let harvest_order = t.state.0 .0 .0;
+                let harvest_order = t.state.0 .0.order;
+                let status = t.state.0 .0.status;
                 let bearer = t.state.0 .1;
-                Mod::Predicted(Bundled(harvest_order, bearer))
+                Mod::Predicted(Bundled((harvest_order, status), bearer))
             }
         })
     }
 
-    async fn write_predicted_harvest_order(&self, order: Predicted<Bundled<HarvestOrder<StateId>, Bearer>>) {
-        let id = order.0 .0.id;
-        let prev_state_id = self.read::<HarvestOrderWrap<StateId>>(id).await.and_then(
-            |o: AnyMod<Bundled<HarvestOrderWrap<StateId>, Bearer>>| match o {
-                AnyMod::Confirmed(Traced { prev_state_id, .. })
-                | AnyMod::Predicted(Traced { prev_state_id, .. }) => prev_state_id,
-            },
-        );
-        let harvest_order = HarvestOrderWrap(order.0 .0);
-        let bearer = order.0 .1;
-        let state = Predicted(Bundled(harvest_order, bearer));
-        self.write_predicted(Traced { state, prev_state_id }).await;
+    async fn write_predicted_spend_harvest_order(&self, id: StateId) {
+        if let Some(AnyMod::Confirmed(Traced {
+            prev_state_id,
+            state: Confirmed(Bundled(mut harvest_order, bearer)),
+        })) = self.read::<HarvestOrderWrap<StateId>>(id).await
+        {
+            assert!(matches!(harvest_order.status, HarvestOrderStatus::Unspent));
+            harvest_order.status = HarvestOrderStatus::Spent;
+
+            let state: Predicted<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                Predicted(Bundled(harvest_order, bearer));
+            self.write_predicted(Traced { state, prev_state_id }).await;
+        }
+    }
+
+    async fn write_confirmed_spend_harvest_order(&self, id: StateId) {
+        if let Some(any_mod) = self.read::<HarvestOrderWrap<StateId>>(id).await {
+            match any_mod {
+                AnyMod::Confirmed(Traced {
+                    prev_state_id,
+                    state: Confirmed(Bundled(mut harvest_order, bearer)),
+                }) => {
+                    assert!(matches!(harvest_order.status, HarvestOrderStatus::Unspent));
+                    harvest_order.status = HarvestOrderStatus::Spent;
+
+                    let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                        Confirmed(Bundled(harvest_order, bearer));
+                    self.write_confirmed(Traced { state, prev_state_id }).await;
+                }
+                AnyMod::Predicted(Traced {
+                    prev_state_id,
+                    state: Predicted(Bundled(mut harvest_order, bearer)),
+                }) => {
+                    assert!(matches!(harvest_order.status, HarvestOrderStatus::Spent));
+                    harvest_order.status = HarvestOrderStatus::Spent;
+
+                    let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                        Confirmed(Bundled(harvest_order, bearer));
+                    self.write_confirmed(Traced { state, prev_state_id }).await;
+                }
+            }
+        }
+    }
+
+    async fn write_confirmed_refund_harvest_order(&self, id: StateId) {
+        if let Some(any_mod) = self.read::<HarvestOrderWrap<StateId>>(id).await {
+            match any_mod {
+                AnyMod::Confirmed(Traced {
+                    prev_state_id,
+                    state: Confirmed(Bundled(mut harvest_order, bearer)),
+                }) => {
+                    harvest_order.status = HarvestOrderStatus::Refunded;
+                    assert!(prev_state_id.is_none());
+
+                    let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                        Confirmed(Bundled(harvest_order, bearer));
+                    self.write_confirmed(Traced { state, prev_state_id }).await;
+                }
+                AnyMod::Predicted(Traced {
+                    prev_state_id,
+                    state: Predicted(Bundled(mut harvest_order, bearer)),
+                }) => {
+                    harvest_order.status = HarvestOrderStatus::Refunded;
+                    assert!(prev_state_id.is_none());
+
+                    let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                        Confirmed(Bundled(harvest_order, bearer));
+                    self.write_confirmed(Traced { state, prev_state_id }).await;
+                }
+            }
+        }
     }
 
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
         let id = order.0 .0.id;
-        let prev_state_id = self.read::<HarvestOrderWrap<StateId>>(id).await.and_then(
-            |o: AnyMod<Bundled<HarvestOrderWrap<StateId>, Bearer>>| match o {
-                AnyMod::Confirmed(Traced { prev_state_id, .. })
-                | AnyMod::Predicted(Traced { prev_state_id, .. }) => prev_state_id,
-            },
+        assert!(
+            <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id)
+                .await
+                .is_none()
         );
-        let harvest_order = HarvestOrderWrap(order.0 .0);
+        let harvest_order = HarvestOrderWrap {
+            order: order.0 .0,
+            status: HarvestOrderStatus::Unspent,
+        };
         let bearer = order.0 .1;
         let state = Confirmed(Bundled(harvest_order, bearer));
-        self.write_confirmed(Traced { state, prev_state_id }).await;
+        self.write_confirmed(Traced {
+            state,
+            prev_state_id: None,
+        })
+        .await;
     }
 
-    async fn remove_harvest_order(&self, id: StateId) -> Option<StateId> {
-        <IndexerDB as OnChainIndex<Bearer>>::remove::<'_, '_, HarvestOrderWrap<StateId>>(self, id, id).await
+    async fn unconsume_harvest_order(&self, id: StateId) {
+        if let Some(any_mod) = self.read::<HarvestOrderWrap<StateId>>(id).await {
+            match any_mod {
+                AnyMod::Confirmed(Traced {
+                    prev_state_id,
+                    state: Confirmed(Bundled(mut harvest_order, bearer)),
+                }) => {
+                    assert!(matches!(
+                        harvest_order.status,
+                        HarvestOrderStatus::Spent | HarvestOrderStatus::Refunded
+                    ));
+                    harvest_order.status = HarvestOrderStatus::Unspent;
+                    assert!(prev_state_id.is_none());
+
+                    let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                        Confirmed(Bundled(harvest_order, bearer));
+                    self.write_confirmed(Traced { state, prev_state_id }).await;
+                }
+                AnyMod::Predicted(Traced {
+                    prev_state_id,
+                    state: Predicted(Bundled(mut harvest_order, bearer)),
+                }) => {
+                    assert!(matches!(harvest_order.status, HarvestOrderStatus::Spent));
+                    harvest_order.status = HarvestOrderStatus::Unspent;
+                    assert!(prev_state_id.is_none());
+
+                    let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
+                        Confirmed(Bundled(harvest_order, bearer));
+                    self.write_confirmed(Traced { state, prev_state_id }).await;
+                }
+            }
+        }
+    }
+
+    async fn remove_created_harvest_order(&self, id: StateId) {
+        let r = <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id).await;
+        assert!(matches!(
+            r,
+            Some(AnyMod::Confirmed(Traced {
+                state: Confirmed(Bundled(
+                    HarvestOrderWrap {
+                        status: HarvestOrderStatus::Unspent,
+                        ..
+                    },
+                    _
+                )),
+                ..
+            }))
+        ));
+        assert!(
+            <IndexerDB as OnChainIndex<Bearer>>::remove::<HarvestOrderWrap<StateId>>(self, id, id)
+                .await
+                .is_none()
+        );
     }
 }
 
@@ -329,7 +434,10 @@ where
 /// This wrapper type exists to allow `HarvestOrder`s to be treated as an `EntitySnapshot`. This
 /// simplifies the implementation of IndexerDB, as we'd otherwise need custom logic just for
 /// `HarvestOrder`.
-pub struct HarvestOrderWrap<StateId>(HarvestOrder<StateId>);
+pub struct HarvestOrderWrap<StateId> {
+    order: HarvestOrder<StateId>,
+    status: HarvestOrderStatus,
+}
 
 impl<StateId> Stable for HarvestOrderWrap<StateId>
 where
@@ -338,7 +446,7 @@ where
     type StableId = StateId;
 
     fn stable_id(&self) -> Self::StableId {
-        self.0.id
+        self.order.id
     }
 
     fn is_quasi_permanent(&self) -> bool {
@@ -353,7 +461,7 @@ where
     type Version = StateId;
 
     fn version(&self) -> Self::Version {
-        self.0.id
+        self.order.id
     }
 }
 
@@ -432,39 +540,75 @@ mod tests {
     use splash_dao_offchain::routines::Slot;
 
     use crate::{
-        indexer::{HarvestOrder, HarvestOrderIndex, IndexerDB, Mod, OnChainIndex},
-        onchain::{buffer_wallet::BufferWallet, smart_farm::Gauge},
+        entity_index::rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex},
+        onchain::{buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge},
     };
 
     #[tokio::test]
     async fn test_state_harvest_orders() {
         let db = spawn_db();
         let mut orders = vec![];
-        for i in 0..20 {
-            let h = predicted(mk_harvest_order(i), i);
+        let n = 20;
+        for i in 0..n {
+            let h = confirmed(mk_harvest_order(i), i);
             orders.push(h.0.clone());
-            db.write_predicted_harvest_order(h).await;
+            db.write_confirmed_harvest_order(h).await;
         }
 
-        for i in 0..20 {
-            let p: Mod<Bundled<HarvestOrder<u32>, _>> = db.read_harvest_order(i).await.unwrap();
-            assert_eq!(Mod::Predicted(orders[i as usize].clone()), p);
+        for i in 0..n {
+            let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
+                db.read_harvest_order(i).await.unwrap();
+            let Bundled(order, bearer) = orders[i as usize].clone();
+            let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Unspent), bearer));
+            assert_eq!(expected, p);
         }
 
+        // Spend
         for h in &orders {
             let id = h.1;
-            let conf = confirmed(h.0.clone(), id);
-            db.write_confirmed_harvest_order(conf).await;
-            let p: Mod<Bundled<HarvestOrder<u32>, _>> = db.read_harvest_order(id).await.unwrap();
-            assert_eq!(Mod::Confirmed(h.clone()), p);
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_predicted_spend_harvest_order(&db, id).await;
+            let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>> =
+                db.read_harvest_order(id).await.unwrap();
+            let Mod::Predicted(Bundled((order, status), bearer)) = p else {
+                panic!()
+            };
+            assert_eq!((order, status), (h.0.clone(), HarvestOrderStatus::Spent));
+            assert_eq!(h.1, bearer);
         }
 
-        for i in 0..20 {
-            assert!(
-                <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_harvest_order(&db, i)
-                    .await
-                    .is_none()
-            );
+        let unconsume_orders = || async {
+            for i in 0..n {
+                <IndexerDB as HarvestOrderIndex<u32, u32>>::unconsume_harvest_order(&db, i).await;
+                let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
+                    db.read_harvest_order(i).await.unwrap();
+                let Bundled(order, bearer) = orders[i as usize].clone();
+                let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Unspent), bearer));
+                assert_eq!(expected, p);
+            }
+        };
+
+        // Undo the spending
+        unconsume_orders().await;
+
+        // Refund
+        for i in 0..n {
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(&db, i).await;
+            let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
+                db.read_harvest_order(i).await.unwrap();
+            let Bundled(order, bearer) = orders[i as usize].clone();
+            let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Refunded), bearer));
+            assert_eq!(expected, p);
+        }
+
+        // Undo the refunds
+        unconsume_orders().await;
+
+        // Remove the orders
+        for i in 0..n {
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i).await;
+            let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
+                db.read_harvest_order(i).await;
+            assert!(p.is_none());
         }
     }
 

@@ -1,14 +1,18 @@
 use crate::onchain::buffer_wallet::BufferWallet;
 use crate::onchain::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
-use crate::onchain::smart_farm::Gauge;
+use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
+use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::protocol_config::{BufferWalletScript, SplashPolicy};
 use splash_dao_offchain::routines::Slot;
 use splash_dao_offchain::{
@@ -21,23 +25,31 @@ use splash_dao_offchain::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettledEvent<GaugeId, StateId, Bearer>(OnChainEvent<GaugeId, StateId, Bearer>, Slot);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OnChainEvent<GaugeId, StateId, Bearer> {
-    NewHarvestRequest(HarvestOrder<StateId>),
-    HarvestRequestCancelled(StateId),
-    Harvested(HarvestOrder<StateId>),
-    BufferWalletUpdated(EntityUpdated<BufferWallet<StateId>, StateId, Bearer>),
-    GaugeUpdated(EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>),
+    BotHarvestingAction {
+        payouts: Vec<(HarvestOrder<StateId>, SplashPayout)>,
+        buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+    },
+    BotGaugeBufferingAction {
+        drained_gauges: Vec<EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>>,
+        buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+    },
+    UpdatedGauges(UpdatedGauges<GaugeId, StateId, Bearer>),
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
+    NewHarvestRequest(HarvestOrder<StateId>, Bearer),
+    HarvestRequestCancelled(Vec<StateId>),
 }
 
-pub struct OnChainEvents<GaugeId, StateId, Bearer>(pub Vec<OnChainEvent<GaugeId, StateId, Bearer>>);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SplashPayout(pub u64);
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvents<FarmId, OutputRef, TransactionOutput>
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent<FarmId, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<HarvestLimits>
+        + Has<NetworkId>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
@@ -46,50 +58,69 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        type BufferWalletUpdate = EntityUpdated<BufferWallet<OutputRef>, OutputRef, TransactionOutput>;
-        type GaugeUpdate = EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, TransactionOutput>;
-        type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, TransactionOutput>;
+        type BufferWalletUpdate = EntityUpdated<BufferWallet<OutputRef>, OutputRef, FinalizedTxOut>;
+        type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, FinalizedTxOut>;
+        let network_id = ctx.select::<NetworkId>();
 
-        let mut events = vec![];
-        let mut buffer_wallet_found = false;
-
-        if let Some(buffer_wallet_update) = BufferWalletUpdate::try_from_ledger(repr, ctx) {
-            events.push(OnChainEvent::BufferWalletUpdated(buffer_wallet_update));
-            buffer_wallet_found = true;
-        }
+        let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
+        let splash_policy = ctx.select::<SplashPolicy>().0;
+        let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
 
         let consumed_harvest_orders = get_consumed_harvest_orders(repr, ctx);
 
         // Make sure to process inputs first for harvest orders
-        if buffer_wallet_found {
-            // Batch harvest TX
-            for output_ref in consumed_harvest_orders {
-                events.push(OnChainEvent::Harvested(output_ref));
+        if let Some(buffer_wallet_update) = BufferWalletUpdate::try_from_ledger(repr, ctx) {
+            if !consumed_harvest_orders.is_empty() {
+                // Batch harvesting tx
+                let mut payouts = vec![];
+
+                for harvest_order in consumed_harvest_orders {
+                    let address = harvest_order.address(network_id);
+                    if let Some(payout_output) = &repr
+                        .outputs
+                        .iter()
+                        .find(|tx_output| *tx_output.address() == address)
+                    {
+                        let splash_payout =
+                            SplashPayout(payout_output.value().amount_of(splash_asset_class)?);
+                        payouts.push((harvest_order, splash_payout));
+                    }
+                }
+                Some(OnChainEvent::BotHarvestingAction {
+                    payouts,
+                    buffer_wallet_update,
+                })
+            } else {
+                // gauge-buffering tx
+                let Some(gauge_updates) = UpdatedGauges::try_from_ledger(repr, ctx) else {
+                    unreachable!("Can't update buffer wallet with no harvest orders nor any gauge updates");
+                };
+                Some(OnChainEvent::BotGaugeBufferingAction {
+                    drained_gauges: gauge_updates.0,
+                    buffer_wallet_update,
+                })
             }
+        } else if !consumed_harvest_orders.is_empty() {
+            // Harvest order is refunded in this TX iff BufferWallet isn't present. Note that there
+            // exists an edge case where some of these harvest orders might not even be known to the
+            // bot. This is because if the bot witnesses multiple-created harvest orders in a single
+            // TX, only the first one is acknowledged.
+            let res = consumed_harvest_orders
+                .into_iter()
+                .map(|order| order.id)
+                .collect();
+            Some(OnChainEvent::HarvestRequestCancelled(res))
+        } else if let Some((new_harvest_order, output)) = try_new_harvest_request(repr, ctx) {
+            Some(OnChainEvent::NewHarvestRequest(new_harvest_order, output))
+        } else if let Some(updated_gauges) = UpdatedGauges::try_from_ledger(repr, ctx) {
+            Some(OnChainEvent::UpdatedGauges(updated_gauges))
         } else {
-            // Harvest order is refunded in this TX iff BufferWallet isn't present.
-            for order in consumed_harvest_orders {
-                events.push(OnChainEvent::HarvestRequestCancelled(order.id));
-            }
+            AuthManagerUpdate::try_from_ledger(repr, ctx).map(OnChainEvent::AuthManagerUpdated)
         }
-
-        if let Some(new_harvest_order) = try_new_harvest_request(repr, ctx) {
-            events.push(OnChainEvent::NewHarvestRequest(new_harvest_order));
-        }
-
-        if let Some(gauge) = GaugeUpdate::try_from_ledger(repr, ctx) {
-            events.push(OnChainEvent::GaugeUpdated(gauge));
-        }
-
-        if let Some(auth) = AuthManagerUpdate::try_from_ledger(repr, ctx) {
-            events.push(OnChainEvent::AuthManagerUpdated(auth));
-        }
-
-        Some(OnChainEvents(events))
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityUpdated<Entity, StateId, Bearer> {
     pub consumed: Option<StateId>,
     pub created: (Entity, Bearer),

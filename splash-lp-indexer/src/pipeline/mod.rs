@@ -14,7 +14,7 @@ use either::Either;
 use futures::FutureExt;
 use futures::{Stream, StreamExt};
 use spectrum_cardano_lib::tx_view::TimedOutput;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::persistent_index::PersistentIndex;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
@@ -68,6 +68,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
+        + Has<NetworkId>
         + Has<HarvestLimits>
         + 'static,
 {

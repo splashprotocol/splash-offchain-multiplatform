@@ -1,4 +1,5 @@
 use cml_chain::{
+    address::{Address, BaseAddress, EnterpriseAddress},
     certs::{Credential, StakeCredential},
     plutus::ConstrPlutusData,
     transaction::TransactionOutput,
@@ -6,11 +7,12 @@ use cml_chain::{
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    output::FinalizedTxOut,
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
     types::TryFromPData,
-    OutputRef,
+    NetworkId, OutputRef,
 };
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
@@ -24,6 +26,17 @@ pub struct HarvestOrder<OrderId> {
     pub account: Ed25519KeyHash,
     pub issued_at: Slot,
     pub owner_stake_credential: Option<StakeCredential>,
+}
+
+impl<OrderId> HarvestOrder<OrderId> {
+    pub fn address(&self, network_id: NetworkId) -> Address {
+        let payment_cred = Credential::new_pub_key(self.account);
+        if let Some(ref stake_cred) = self.owner_stake_credential {
+            BaseAddress::new(network_id.into(), payment_cred, stake_cred.clone()).to_address()
+        } else {
+            EnterpriseAddress::new(network_id.into(), payment_cred).to_address()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,13 +111,14 @@ impl IntoPlutusData for HarvestOrderAction {
 pub(crate) fn try_new_harvest_request<C>(
     repr: &TxViewPartiallyResolved,
     ctx: &C,
-) -> Option<HarvestOrder<OutputRef>>
+) -> Option<(HarvestOrder<OutputRef>, FinalizedTxOut)>
 where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
         try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
+            .map(|order| (order, FinalizedTxOut(output.clone(), output_ref)))
     })
 }
 
