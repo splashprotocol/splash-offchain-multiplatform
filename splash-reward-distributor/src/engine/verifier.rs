@@ -94,7 +94,7 @@ where
                 activated_at,
             }) = self
                 .index
-                .query_account(&Credential::new_pub_key(order.account))
+                .query_account(&Credential::new_pub_key(order.account_key))
                 .await
             {
                 let emission = self

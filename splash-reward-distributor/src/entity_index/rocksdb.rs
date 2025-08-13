@@ -533,6 +533,7 @@ mod tests {
     use bloom_offchain::execution_engine::bundled::Bundled;
     use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
     use rand::{Rng, RngCore};
+    use spectrum_cardano_lib::address::{PlutusAddress, PlutusCredential};
     use spectrum_offchain::domain::{
         event::{AnyMod, Confirmed, Predicted, Traced},
         EntitySnapshot, Stable,
@@ -726,11 +727,16 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut array = [0u8; 28];
         rng.fill(&mut array);
+        let account_key = Ed25519KeyHash::from_raw_bytes(&array).unwrap();
+        let reward_receiver = PlutusAddress {
+            payment_cred: PlutusCredential::PubKey(account_key),
+            stake_cred: None,
+        };
         HarvestOrder {
             id,
-            account: Ed25519KeyHash::from_raw_bytes(&array).unwrap(),
+            account_key,
             issued_at: Slot(100),
-            owner_stake_credential: None,
+            reward_receiver,
         }
     }
 

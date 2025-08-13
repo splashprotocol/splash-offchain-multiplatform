@@ -128,7 +128,7 @@ where
         };
         match self
             .position_index
-            .query_account(&Credential::new_pub_key(req.account))
+            .query_account(&Credential::new_pub_key(req.account_key))
             .await
         {
             Ok(AccountState {
@@ -142,12 +142,12 @@ where
                 if batch.can_accept(payout) {
                     if let Err(LockedByAnotherReq(concurrent_req)) = self
                         .position_index
-                        .lock_account(&req.id, &Credential::new_pub_key(req.account))
+                        .lock_account(&req.id, &Credential::new_pub_key(req.account_key))
                         .await
                     {
                         warn!(
                             "Account {} is already locked by another request {}, dropping request {}",
-                            hex::encode(req.account.to_raw_bytes()),
+                            hex::encode(req.account_key.to_raw_bytes()),
                             concurrent_req,
                             req.id
                         );
@@ -165,7 +165,7 @@ where
             Err(_not_found) => {
                 warn!(
                     "Account {} not found, dropping request {}",
-                    hex::encode(req.account.to_raw_bytes()),
+                    hex::encode(req.account_key.to_raw_bytes()),
                     req.id
                 );
                 return Control::Drop(task_id);
@@ -191,23 +191,17 @@ where
                 harvest_order_redeemer,
             );
             let ex_units = Some(DaoScriptData::global().harvest_order.ex_units.clone());
+            let network_id = self.ctx.select::<NetworkId>();
             let mut sorted_inputs: Vec<_> = batch
                 .orders
                 .into_iter()
                 .map(
                     |OrderWithPayout {
-                         order:
-                             Bundled(
-                        HarvestOrder {
-                            account,
-                            owner_stake_credential,
-                            ..
-                        },
-                        tx_out,
-                    ),
+                         order: Bundled(HarvestOrder { reward_receiver, .. }, tx_out),
                          payout,
                      }| {
-                        accounts.push((account, owner_stake_credential, payout, tx_out.0.value().coin));
+                        let reward_receiver = reward_receiver.to_address(network_id);
+                        accounts.push((reward_receiver, payout, tx_out.0.value().coin));
                         let harvest_order_input =
                             SingleInputBuilder::new(TransactionInput::from(tx_out.1), tx_out.0)
                                 .plutus_script_inline_datum(
@@ -235,7 +229,6 @@ where
             sorted_inputs.sort_by_key(|(input, _)| input.input.clone());
 
             // Outputs
-            let network_id = self.ctx.select::<NetworkId>();
 
             let mut bw_out = bw_tx_out;
 
@@ -252,14 +245,7 @@ where
 
             let mut outputs = vec![buffer_wallet_output];
 
-            for (key_hash, owner_stake_credential, payout, coin) in accounts {
-                let payment_cred = Credential::new_pub_key(key_hash);
-                let user_addr = if let Some(stake_cred) = owner_stake_credential {
-                    BaseAddress::new(network_id.into(), payment_cred, stake_cred).to_address()
-                } else {
-                    EnterpriseAddress::new(network_id.into(), payment_cred).to_address()
-                };
-
+            for (reward_receiver, payout, coin) in accounts {
                 let mut user_value = Value::from(coin);
                 // The TX fee is shared equally among all accounts receiving a payout.
                 let reduction = HARVESTING_TX_ASSUMED_BASE_FEE / num_payouts;
@@ -268,7 +254,7 @@ where
                 user_value.add_unsafe(splash_asset_class, payout);
 
                 let user_payout_output = TransactionOutputBuilder::new()
-                    .with_address(user_addr)
+                    .with_address(reward_receiver)
                     .next()
                     .unwrap()
                     .with_value(user_value)

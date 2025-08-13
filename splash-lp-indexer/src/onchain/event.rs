@@ -354,7 +354,7 @@ where
                     if issued_at > most_recent_slot {
                         most_recent_slot = issued_at;
                     }
-                    Credential::new_pub_key(harvest_order.account)
+                    Credential::new_pub_key(harvest_order.account_key)
                 })
                 .collect();
 

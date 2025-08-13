@@ -2,8 +2,6 @@ use crate::onchain::buffer_wallet::BufferWallet;
 use crate::onchain::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
 use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
-use cml_chain::transaction::TransactionOutput;
-use cml_crypto::Ed25519KeyHash;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
@@ -19,7 +17,6 @@ use splash_dao_offchain::{
     deployment::ProtocolValidator as DaoProtocolValidator,
     entities::onchain::smart_farm::FarmId,
     protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy},
-    routines::TimedOutputRef,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +72,7 @@ where
                 let mut payouts = vec![];
 
                 for harvest_order in consumed_harvest_orders {
-                    let address = harvest_order.address(network_id);
+                    let address = harvest_order.reward_receiver.to_address(network_id);
                     if let Some(payout_output) = &repr
                         .outputs
                         .iter()
