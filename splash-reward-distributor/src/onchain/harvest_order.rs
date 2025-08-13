@@ -1,12 +1,13 @@
 use cml_chain::{
     address::{Address, BaseAddress, EnterpriseAddress},
     certs::{Credential, StakeCredential},
-    plutus::ConstrPlutusData,
+    plutus::{ConstrPlutusData, PlutusData},
     transaction::TransactionOutput,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    address::PlutusAddress,
     output::FinalizedTxOut,
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
@@ -23,20 +24,11 @@ use crate::config::HarvestLimits;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
-    pub account: Ed25519KeyHash,
+    /// Key that signs harvest
+    pub account_key: Ed25519KeyHash,
     pub issued_at: Slot,
-    pub owner_stake_credential: Option<StakeCredential>,
-}
-
-impl<OrderId> HarvestOrder<OrderId> {
-    pub fn address(&self, network_id: NetworkId) -> Address {
-        let payment_cred = Credential::new_pub_key(self.account);
-        if let Some(ref stake_cred) = self.owner_stake_credential {
-            BaseAddress::new(network_id.into(), payment_cred, stake_cred.clone()).to_address()
-        } else {
-            EnterpriseAddress::new(network_id.into(), payment_cred).to_address()
-        }
-    }
+    /// Where the reward should be sent
+    pub reward_receiver: PlutusAddress,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,48 +36,29 @@ pub struct HarvestOrderCredential(Credential);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrderDatum {
-    refund_key: Ed25519KeyHash,
-    owner_stake_credential: Option<StakeCredential>,
+    /// Key that signs harvest
+    account_key: Ed25519KeyHash,
+    /// Where the reward should be sent
+    reward_receiver: PlutusAddress,
     distribution_agent_key: Ed25519KeyHash,
 }
 
 impl TryFromPData for HarvestOrderDatum {
-    fn try_from_pd(data: cml_chain::plutus::PlutusData) -> Option<Self> {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let refund_key = cpd
+        let account_key = cpd
             .take_field(0)?
             .into_bytes()
             .map(|bytes| Ed25519KeyHash::from_raw_bytes(&bytes).ok())??;
 
-        let mut option_cpd = cpd.take_field(1)?.into_constr_pd()?;
-        let owner_stake_credential = if option_cpd.alternative == 1 {
-            None
-        } else {
-            let mut referenced_cpd = option_cpd.take_field(0)?.into_constr_pd()?;
-            // Looking for Referenced::Inline(..)
-            if referenced_cpd.alternative == 0 {
-                let mut stake_cred_cpd = referenced_cpd.take_field(0)?.into_constr_pd()?;
-                // Expecting key hash
-                if stake_cred_cpd.alternative == 0 {
-                    let key_hash =
-                        Ed25519KeyHash::from_raw_bytes(&stake_cred_cpd.take_field(0)?.into_bytes()?).ok()?;
-                    Some(StakeCredential::new_pub_key(key_hash))
-                } else {
-                    // Script not supported
-                    return None;
-                }
-            } else {
-                // Referenced::Pointer { .. } not supported
-                return None;
-            }
-        };
+        let reward_receiver = PlutusAddress::try_from_pd(cpd.take_field(1)?)?;
         let distribution_agent_key = cpd
             .take_field(2)?
             .into_bytes()
             .map(|bytes| Ed25519KeyHash::from_raw_bytes(&bytes).ok())??;
         Some(Self {
-            refund_key,
-            owner_stake_credential,
+            account_key,
+            reward_receiver,
             distribution_agent_key,
         })
     }
@@ -97,12 +70,12 @@ pub enum HarvestOrderAction {
 }
 
 impl IntoPlutusData for HarvestOrderAction {
-    fn into_pd(self) -> cml_chain::plutus::PlutusData {
+    fn into_pd(self) -> PlutusData {
         let alternative = match self {
             HarvestOrderAction::Refund => 0,
             HarvestOrderAction::Harvest => 1,
         };
-        cml_chain::plutus::PlutusData::ConstrPlutusData(ConstrPlutusData::new(alternative, vec![]))
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(alternative, vec![]))
     }
 }
 
@@ -156,15 +129,15 @@ where
     if test_address(output.address(), ctx) && lovelaces >= harvest_limit {
         let datum = output.datum()?;
         let HarvestOrderDatum {
-            refund_key,
-            owner_stake_credential,
+            account_key,
+            reward_receiver,
             ..
         } = datum.into_pd().map(HarvestOrderDatum::try_from_pd)??;
         let harvest_order = HarvestOrder {
             id: output_ref,
-            account: refund_key,
+            account_key,
             issued_at,
-            owner_stake_credential,
+            reward_receiver,
         };
         return Some(harvest_order);
     }
