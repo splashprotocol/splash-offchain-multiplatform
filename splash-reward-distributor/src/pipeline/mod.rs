@@ -13,8 +13,10 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::event_pipeline::read_events::read_events;
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
+use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    WPFactoryAuthPolicy,
 };
 use std::collections::HashSet;
 
@@ -25,10 +27,11 @@ use crate::entity_index::{
 };
 use crate::events::OnChainEvent;
 
-pub async fn event_pipeline<U, Cx, Utxos, I>(
+pub async fn event_pipeline<U, Cx, Utxos, I, F>(
     upstream: U,
     context: Cx,
     indexer: I,
+    funding: F,
     utxos: Utxos,
     utxo_filter: HashSet<ScriptHash>,
 ) where
@@ -45,6 +48,7 @@ pub async fn event_pipeline<U, Cx, Utxos, I>(
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<HarvestLimits>
         + Has<NetworkId>
+        + Has<OperatorCreds>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>,
@@ -53,10 +57,12 @@ pub async fn event_pipeline<U, Cx, Utxos, I>(
         + GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
         + Clone,
+    F: FundingRepo + Clone,
 {
     upstream
         .then(|(block, tx_handle)| {
             let indexer = indexer.clone();
+            let funding = funding.clone();
             read_events::<OnChainEvent<FarmId, OutputRef, FinalizedTxOut>, _, _>(
                 block,
                 &context,
@@ -64,7 +70,7 @@ pub async fn event_pipeline<U, Cx, Utxos, I>(
                 &utxo_filter,
             )
             .map(|batch| async {
-                index_entities(batch, indexer).await;
+                index_entities(batch, indexer, funding).await;
                 tx_handle
             })
         })

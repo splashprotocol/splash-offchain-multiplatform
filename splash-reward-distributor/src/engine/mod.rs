@@ -145,7 +145,7 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::AuthManagerUpdated(_) => None,
+                OnChainEvent::AuthManagerUpdated(_) | OnChainEvent::Funding { .. } => None,
             })
             .flatten()
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
@@ -210,7 +210,7 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::AuthManagerUpdated(_) => None,
+                OnChainEvent::AuthManagerUpdated(_) | OnChainEvent::Funding { .. } => None,
             })
             .flatten()
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])

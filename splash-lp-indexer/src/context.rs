@@ -1,4 +1,5 @@
-use cml_crypto::ScriptHash;
+use cml_chain::address::EnterpriseAddress;
+use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
@@ -7,7 +8,8 @@ use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolDeployme
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    WPFactoryAuthPolicy,
 };
 use splash_reward_distributor::config::HarvestLimits;
 use type_equalities::IsEqual;
@@ -171,5 +173,18 @@ impl Has<BufferWalletScript> for Context {
 impl Has<NetworkId> for Context {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
+    }
+}
+
+impl Has<OperatorCreds> for Context {
+    fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
+        // Need this since we use existing code in `splash-reward-distributor` to parse
+        // `HarvestOrder`s (the reward bot uses these credentials to work with funding UTxOs).
+        let dummy_key_hash = Ed25519KeyHash::from([0_u8; 28]);
+        let dummy_address = cml_chain::address::Address::Enterprise(EnterpriseAddress::new(
+            self.network_id.into(),
+            cml_chain::certs::Credential::new_pub_key(dummy_key_hash),
+        ));
+        OperatorCreds(dummy_key_hash, dummy_address)
     }
 }
