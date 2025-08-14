@@ -1,4 +1,5 @@
 use crate::onchain::buffer_wallet::BufferWallet;
+use crate::onchain::funding_box::ConfirmedFundingBoxChanges;
 use crate::onchain::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
 use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
 use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
@@ -11,7 +12,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::protocol_config::{BufferWalletScript, SplashPolicy};
+use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::Slot;
 use splash_dao_offchain::{
     deployment::ProtocolValidator as DaoProtocolValidator,
@@ -36,6 +37,7 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
     NewHarvestRequest(HarvestOrder<StateId>, Bearer),
     HarvestRequestCancelled(Vec<StateId>),
+    Funding(ConfirmedFundingBoxChanges),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +50,7 @@ where
         + Has<HarvestLimits>
         + Has<NetworkId>
         + Has<SplashPolicy>
+        + Has<OperatorCreds>
         + Has<PermManagerAuthPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<BufferWalletScript>
@@ -111,8 +114,10 @@ where
             Some(OnChainEvent::NewHarvestRequest(new_harvest_order, output))
         } else if let Some(updated_gauges) = UpdatedGauges::try_from_ledger(repr, ctx) {
             Some(OnChainEvent::UpdatedGauges(updated_gauges))
+        } else if let Some(updated_auth_manager) = AuthManagerUpdate::try_from_ledger(repr, ctx) {
+            Some(OnChainEvent::AuthManagerUpdated(updated_auth_manager))
         } else {
-            AuthManagerUpdate::try_from_ledger(repr, ctx).map(OnChainEvent::AuthManagerUpdated)
+            ConfirmedFundingBoxChanges::try_from_ledger(repr, ctx).map(OnChainEvent::Funding)
         }
     }
 }

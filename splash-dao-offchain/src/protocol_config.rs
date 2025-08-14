@@ -156,6 +156,7 @@ pub struct BufferWalletScript(pub NativeScript);
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
 
+#[derive(Clone)]
 pub struct OperatorCreds(pub Ed25519KeyHash, pub Address);
 
 pub trait NotOutputRefNorSlotNumber {}

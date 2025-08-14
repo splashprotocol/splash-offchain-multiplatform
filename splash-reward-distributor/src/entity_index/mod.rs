@@ -6,6 +6,7 @@ use std::hash::Hash;
 use crate::entity_index::rocksdb::OnChainIndex;
 use crate::onchain::auth_manager::AuthManagerId;
 use crate::onchain::buffer_wallet::{BufferWallet, BufferWalletId};
+use crate::onchain::funding_box::ConfirmedFundingBoxChanges;
 use crate::onchain::harvest_order::HarvestOrder;
 use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
 use crate::{events::OnChainEvent, onchain::auth_manager::AuthManager};
@@ -14,6 +15,7 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
+use splash_dao_offchain::funding::FundingRepo;
 
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {
@@ -46,10 +48,6 @@ pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
         prev_state_id: Option<StateId>,
     );
     async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId>;
-}
-#[async_trait]
-pub trait FundingBoxIndex<Bearer> {
-    async fn get_funding_boxes(&self, lovelaces: u64) -> Vec<Bearer>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,9 +83,10 @@ where
     async fn remove_created_harvest_order(&self, id: StateId);
 }
 
-pub async fn index_entities<GaugeId, StateId, Bearer, I>(
+pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
     indexer: I,
+    mut funding: F,
 ) where
     GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     StateId: Copy + Eq + Hash + Send + Sync + Display + Debug + Serialize + DeserializeOwned + 'static,
@@ -96,6 +95,7 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
         + GaugeIndex<GaugeId, StateId, Bearer>
         + AuthManagerIndex<GaugeId, StateId, Bearer>,
     Bearer: Serialize + DeserializeOwned + 'static,
+    F: FundingRepo + Clone,
 {
     match events {
         BlockEvents::RollForward { events, .. } => {
@@ -162,6 +162,16 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                             indexer.write_confirmed_refund_harvest_order(id).await;
                         }
                     }
+                    OnChainEvent::Funding(funding_updates) => {
+                        let ConfirmedFundingBoxChanges { consumed, created } = funding_updates;
+                        for id in consumed {
+                            funding.spend_confirmed(id).await;
+                        }
+
+                        for f in created {
+                            funding.put_confirmed(Confirmed(f)).await;
+                        }
+                    }
                 }
             }
         }
@@ -215,6 +225,16 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I>(
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for harvest_id in harvest_ids {
                             indexer.unconsume_harvest_order(harvest_id).await;
+                        }
+                    }
+                    OnChainEvent::Funding(funding_updates) => {
+                        let ConfirmedFundingBoxChanges { consumed, created } = funding_updates;
+                        for id in consumed {
+                            funding.unspend_confirmed(id).await;
+                        }
+
+                        for f in created {
+                            funding.eliminate_confirmed(f.id).await;
                         }
                     }
                 }

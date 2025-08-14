@@ -8,7 +8,7 @@ use crate::engine::resolved_tx::{PartiallySignedCardanoTx, PartiallySignedTx};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
-use crate::entity_index::{BufferWalletIndex, FundingBoxIndex, GaugeIndex};
+use crate::entity_index::{BufferWalletIndex, GaugeIndex};
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
@@ -40,6 +40,7 @@ use spectrum_offchain::network::Network;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::entities::onchain::smart_farm;
+use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput,
     HarvestOrderScriptHash, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
@@ -327,19 +328,30 @@ where
     }
 }
 
-pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex> {
+pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex> {
     onchain_index: OnChainIndex,
+    funding_index: FundingIndex,
     batch: Option<BufferingBatch<GaugeId, StateId, Bearer>>,
     ctx: Ctx,
     pd: PhantomData<Tx>,
 }
 
 #[async_trait]
-impl<GaugeId, Ctx, OnChainIndex> BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedCardanoTx, ()>
-    for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, PartiallySignedCardanoTx, Ctx, OnChainIndex>
+impl<GaugeId, Ctx, OnChainIndex, FundingIndex>
+    BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedCardanoTx, ()>
+    for BufferingFlow<
+        GaugeId,
+        OutputRef,
+        FinalizedTxOut,
+        PartiallySignedCardanoTx,
+        Ctx,
+        OnChainIndex,
+        FundingIndex,
+    >
 where
     GaugeId: Display + Copy + Send + 'static,
     Ctx: Send
+        + Clone
         + Has<BufferWalletScript>
         + Has<Collateral>
         + Has<PermManagerBoxRefScriptOutput>
@@ -350,8 +362,8 @@ where
     OnChainIndex: GaugeIndex<GaugeId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<GaugeId, OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
-        + FundingBoxIndex<FinalizedTxOut>
         + Send,
+    FundingIndex: FundingRepo + Send + Clone,
 {
     async fn feed(&mut self, task_id: TaskId, task: GaugeBuffering<GaugeId>) -> Control<TaskId> {
         let batch = if let Some(ref mut batch) = self.batch {
@@ -377,6 +389,7 @@ where
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, PartiallySignedCardanoTx>, ()> {
+        use spectrum_offchain::ledger::IntoLedger;
         enum RefInputT {
             AuthManager,
             Gauge,
@@ -417,16 +430,35 @@ where
                 .collect();
 
             let funding_boxes = self
-                .onchain_index
-                .get_funding_boxes(GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE)
+                .funding_index
+                .collect()
                 .await
-                .into_iter()
-                .map(|t| {
-                    let input = SingleInputBuilder::new(TransactionInput::from(t.1), t.0)
-                        .payment_key()
-                        .unwrap();
-                    (InputT::FundingBox(input), t.1)
-                });
+                .map(|available_boxes| {
+                    assert!(
+                        available_boxes.total_lovelaces() > GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE
+                    );
+                    let AvailableFundingBoxes { confirmed, predicted } = available_boxes;
+                    let mut boxes = vec![];
+
+                    let mut value = 0;
+                    for f in confirmed.into_iter().chain(predicted) {
+                        value += f.value.coin;
+                        let output_ref = f.id.into();
+                        let tx_output = f.into_ledger(self.ctx.clone());
+                        let input = SingleInputBuilder::new(TransactionInput::from(output_ref), tx_output)
+                            .payment_key()
+                            .unwrap();
+                        boxes.push((InputT::FundingBox(input), output_ref));
+
+                        if value > GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE {
+                            break;
+                        }
+                    }
+
+                    boxes
+                })
+                .unwrap()
+                .into_iter();
 
             enum InputT<S> {
                 Gauge(S),
@@ -565,9 +597,9 @@ fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {
     splash_tokens_value
 }
 
-pub enum Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, PositionIndex, Emission> {
+pub enum Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission> {
     Harvesting(HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emission>),
-    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex>),
+    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex>),
 }
 
 pub struct Executor<
@@ -580,16 +612,19 @@ pub struct Executor<
     TxErr,
     PositionIndex,
     OnChainIndex,
+    FundingIndex,
     TxSubmit,
     Emission,
     Verifier,
 > {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
+    funding_index: FundingIndex,
     tx_submit: TxSubmit,
     emission: Emission,
     verifier: Verifier,
-    flow: Option<Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, PositionIndex, Emission>>,
+    flow:
+        Option<Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission>>,
     ctx: Ctx,
     pd: PhantomData<(Tx, TxInputs, TxErr)>,
 }
@@ -605,6 +640,7 @@ impl<
         TxErr,
         PositionIndex,
         OnChainIndex,
+        FundingIndex,
         TxSubmit,
         Emiss,
         Verifier,
@@ -619,6 +655,7 @@ impl<
         TxErr,
         PositionIndex,
         OnChainIndex,
+        FundingIndex,
         TxSubmit,
         Emiss,
         Verifier,
@@ -636,12 +673,13 @@ where
         + BufferWalletIndex<StateId, Bearer>
         + Clone
         + Send,
+    FundingIndex: FundingRepo + Clone + Send,
     TxSubmit: Clone + Network<Tx, TxErr> + Send,
     Emiss: Emission + Clone + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emiss>:
         BatchExecutor<TaskId, Harvesting<StateId>, PartiallySignedTx<Tx, TxInputs>, ()>,
-    BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex>:
+    BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex>:
         BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedTx<Tx, TxInputs>, ()>,
     Ctx: Send
         + Clone
@@ -655,6 +693,7 @@ where
             None => match task {
                 Task::GaugeBuffering(_) => self.flow.insert(Flow::Buffering(BufferingFlow {
                     onchain_index: self.onchain_index.clone(),
+                    funding_index: self.funding_index.clone(),
                     batch: None,
                     ctx: self.ctx.clone(),
                     pd: PhantomData,

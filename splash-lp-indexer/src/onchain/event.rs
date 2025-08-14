@@ -20,7 +20,8 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_reward_distributor::config::HarvestLimits;
@@ -68,6 +69,7 @@ where
         + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
+        + Has<OperatorCreds>
         + Has<NetworkId>
         + Has<HarvestLimits>,
 {
@@ -336,6 +338,7 @@ where
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<HarvestLimits>
+        + Has<OperatorCreds>
         + Has<NetworkId>
         + Has<BufferWalletScript>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
