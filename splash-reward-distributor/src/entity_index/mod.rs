@@ -49,10 +49,6 @@ pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
     );
     async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId>;
 }
-#[async_trait]
-pub trait FundingBoxIndex<Bearer> {
-    async fn get_funding_boxes(&self, lovelaces: u64) -> Vec<Bearer>;
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Mod<T> {
