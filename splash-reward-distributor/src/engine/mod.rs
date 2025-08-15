@@ -232,10 +232,10 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>,
+    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ()>,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();

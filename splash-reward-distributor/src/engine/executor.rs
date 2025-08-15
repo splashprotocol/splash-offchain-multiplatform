@@ -9,7 +9,10 @@ use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
 use crate::entity_index::{BufferWalletIndex, GaugeIndex};
+use crate::events::EntityUpdated;
+use crate::onchain::buffer_wallet::BufferWallet;
 use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
+use crate::onchain::smart_farm::Gauge;
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -35,17 +38,20 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{ex_units, AssetClass, AssetName, NetworkId, OutputRef, Token};
+use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::deployment::DaoScriptData;
-use splash_dao_offchain::entities::onchain::smart_farm;
+use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
+use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput,
     HarvestOrderScriptHash, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
+use splash_dao_offchain::routines::FundingBoxChanges;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -61,15 +67,19 @@ pub enum Control<TaskId> {
 }
 
 #[derive(Debug)]
-pub struct ExecutionResult<TaskId, Out> {
+pub struct ExecutionResult<GaugeId, StateId, Bearer, TaskId, Out> {
     pub executed_tasks: Vec<TaskId>,
     pub output: Out,
+    pub predicted_harvest_order_spends: Vec<StateId>,
+    pub predicted_buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+    pub predicted_gauge_updates: Vec<EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>>,
+    pub funding_box_changes: Option<FundingBoxChanges>,
 }
 
 #[async_trait]
-pub trait BatchExecutor<TaskId, Task, Out, Err> {
+pub trait BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task, Out, Err> {
     async fn feed(&mut self, task_id: TaskId, task: Task) -> Control<TaskId>;
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
+    async fn execute(&mut self) -> Result<ExecutionResult<GaugeId, StateId, Bearer, TaskId, Out>, Err>;
 }
 
 #[derive(Clone)]
@@ -167,7 +177,10 @@ where
         Control::Next
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, PartiallySignedCardanoTx>, ()> {
+    async fn execute(
+        &mut self,
+    ) -> Result<ExecutionResult<GaugeId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
+    {
         if let Some(batch) = self.batch.take() {
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
@@ -185,6 +198,7 @@ where
             );
             let ex_units = Some(DaoScriptData::global().harvest_order.ex_units.clone());
             let network_id = self.ctx.select::<NetworkId>();
+            let mut predicted_harvest_order_spends = vec![];
             let mut sorted_inputs: Vec<_> = batch
                 .orders
                 .into_iter()
@@ -203,15 +217,17 @@ where
                                 )
                                 .unwrap();
 
+                        predicted_harvest_order_spends.push(tx_out.1);
+
                         (harvest_order_input, ex_units.clone())
                     },
                 )
                 .collect();
 
-            let Bundled(_, FinalizedTxOut(bw_tx_out, output_ref)) = batch.buffer_wallet;
+            let Bundled(buffer_wallet_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
 
             let buffer_wallet_input =
-                SingleInputBuilder::new(TransactionInput::from(output_ref), bw_tx_out.clone())
+                SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
                     .native_script(
                         buffer_wallet_script.clone(),
                         NativeScriptWitnessInfo::num_signatures(2),
@@ -234,7 +250,7 @@ where
                 .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
                 .is_ok());
 
-            let buffer_wallet_output = SingleOutputBuilderResult::new(bw_out);
+            let buffer_wallet_output = SingleOutputBuilderResult::new(bw_out.clone());
 
             let mut outputs = vec![buffer_wallet_output];
 
@@ -302,17 +318,33 @@ where
                 .unwrap();
 
             let tx_body = output.body();
-            let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
-            let task_id = TaskId::from(tx_hash);
+            let tx_hash = hash_transaction_canonical(&tx_body);
+            let tx_hash_bytes = <[u8; 32]>::from(tx_hash);
+            let task_id = TaskId::from(tx_hash_bytes);
 
             let resolved_tx = PartiallySignedCardanoTx {
                 tx: output.build_unchecked(),
                 inputs,
             };
 
+            let mut buffer_wallet = buffer_wallet_in.clone();
+            buffer_wallet.balance -= batch.total_payout;
+            let buffer_wallet_out_output_ref = OutputRef::new(tx_hash, 0);
+            buffer_wallet.state_id = buffer_wallet_out_output_ref;
+            let buffer_wallet_bearer = FinalizedTxOut(bw_out, buffer_wallet_out_output_ref);
+
+            let predicted_buffer_wallet_update = EntityUpdated {
+                consumed: Some(bw_in_output_ref),
+                created: (buffer_wallet, buffer_wallet_bearer),
+            };
+
             Ok(ExecutionResult {
                 executed_tasks: vec![task_id], //todo: tasks map to orders
                 output: resolved_tx,
+                predicted_harvest_order_spends,
+                predicted_buffer_wallet_update,
+                predicted_gauge_updates: vec![],
+                funding_box_changes: None,
             })
         } else {
             Err(())
@@ -372,7 +404,10 @@ where
         Control::Next
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, PartiallySignedCardanoTx>, ()> {
+    async fn execute(
+        &mut self,
+    ) -> Result<ExecutionResult<GaugeId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
+    {
         use spectrum_offchain::ledger::IntoLedger;
         enum RefInputT {
             AuthManager,
@@ -380,9 +415,9 @@ where
         }
         if let Some(batch) = self.batch.take() {
             let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
-            let Bundled(_, FinalizedTxOut(bw_tx_out, bw_output_ref)) = batch.buffer_wallet;
+            let Bundled(_, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
             let buffer_wallet_input =
-                SingleInputBuilder::new(TransactionInput::from(bw_output_ref), bw_tx_out.clone())
+                SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
                     .native_script(
                         buffer_wallet_script.clone(),
                         NativeScriptWitnessInfo::num_signatures(2),
@@ -413,6 +448,8 @@ where
                 .map(|(_, tx_unspent_output)| tx_unspent_output)
                 .collect();
 
+            let mut spent_predicted = vec![];
+            let mut spent_confirmed = vec![];
             let funding_boxes = self
                 .funding_index
                 .collect()
@@ -424,10 +461,25 @@ where
                     let AvailableFundingBoxes { confirmed, predicted } = available_boxes;
                     let mut boxes = vec![];
 
+                    enum Mod {
+                        Confirmed,
+                        Predicted,
+                    }
+
+                    let confirmed = confirmed.into_iter().map(|f| (Mod::Confirmed, f));
+                    let predicted = predicted.into_iter().map(|f| (Mod::Predicted, f));
+
                     let mut value = 0;
-                    for f in confirmed.into_iter().chain(predicted) {
+                    for (m, f) in confirmed.into_iter().chain(predicted) {
                         value += f.value.coin;
                         let output_ref = f.id.into();
+
+                        if let Mod::Confirmed = m {
+                            spent_confirmed.push(f.id);
+                        } else {
+                            spent_predicted.push(f.id);
+                        }
+
                         let tx_output = f.into_ledger(self.ctx.clone());
                         let input = SingleInputBuilder::new(TransactionInput::from(output_ref), tx_output)
                             .payment_key()
@@ -457,9 +509,20 @@ where
                     (InputT::Gauge(g), output_ref)
                 })
                 .chain(funding_boxes)
-                .chain([(InputT::BufferWallet(buffer_wallet_input), bw_output_ref)])
+                .chain([(InputT::BufferWallet(buffer_wallet_input), bw_in_output_ref)])
                 .collect();
             typed_inputs.sort_by_key(|(_, input)| *input);
+
+            // Now extract gauge inputs in sorted order
+            let sorted_gauge_inputs: Vec<_> = typed_inputs
+                .iter()
+                .filter_map(|(typ, e)| {
+                    if let InputT::Gauge(Bundled(g, _)) = typ {
+                        return Some(g.clone());
+                    }
+                    None
+                })
+                .collect();
 
             let mut total_splash_to_deposit = 0;
             let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
@@ -519,11 +582,15 @@ where
                 })
                 .collect();
 
-            let outputs: Vec<_> = std::iter::once(buffer_wallet_out)
-                .chain(gauge_outputs)
+            let buffer_wallet_out_balance = buffer_wallet_out.value().amount_of(splash_asset_class).unwrap();
+
+            let outputs: Vec<_> = std::iter::once(buffer_wallet_out.clone())
+                .chain(gauge_outputs.clone())
                 .map(SingleOutputBuilderResult::new)
                 .collect();
             let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
+
+            let change_output_ix = outputs.len() as u64;
             let blueprint = DaoTxBlueprint {
                 reference_inputs,
                 sorted_inputs,
@@ -539,6 +606,8 @@ where
                 ..
             } = blueprint.compute_estimated_fee_and_change_output();
 
+            assert!(!change_output.output.value().has_multiassets());
+            let change_output_value = change_output.output.value().clone();
             // Bot will pocket the change-output, since it's paying the TX fee
             let mut tx_builder = blueprint.build(estimated_fee, Some(change_output));
             tx_builder
@@ -557,17 +626,69 @@ where
                 .unwrap();
 
             let tx_body = output.body();
-            let tx_hash = <[u8; 32]>::from(hash_transaction_canonical(&tx_body));
-            let task_id = TaskId::from(tx_hash);
+            let tx_hash = hash_transaction_canonical(&tx_body);
+            let tx_hash_bytes = <[u8; 32]>::from(tx_hash);
+            let task_id = TaskId::from(tx_hash_bytes);
 
             let resolved_tx = PartiallySignedCardanoTx {
                 tx: output.build_unchecked(),
                 inputs,
             };
 
+            // Gather predicted buffer_wallet update
+            let buffer_wallet_out_output_ref = OutputRef::new(tx_hash, 0);
+            let buffer_wallet = BufferWallet {
+                state_id: buffer_wallet_out_output_ref,
+                balance: buffer_wallet_out_balance,
+            };
+            let buffer_wallet_bearer = FinalizedTxOut(buffer_wallet_out, buffer_wallet_out_output_ref);
+
+            let predicted_buffer_wallet_update = EntityUpdated {
+                consumed: Some(bw_in_output_ref),
+                created: (buffer_wallet, buffer_wallet_bearer),
+            };
+
+            // Gather predicted gauge updates
+            assert_eq!(sorted_gauge_inputs.len(), gauge_outputs.len());
+            let predicted_gauge_updates = sorted_gauge_inputs
+                .into_iter()
+                .zip(gauge_outputs.into_iter())
+                .enumerate()
+                .map(|(ix, (gauge_in, gauge_output))| {
+                    let output_ref = OutputRef::new(tx_hash, (ix as u64) + 1);
+                    let gauge_out_bearer = FinalizedTxOut(gauge_output, output_ref);
+                    let gauge_out = Gauge {
+                        id: gauge_in.id,
+                        state_id: output_ref,
+                        balance: 0,
+                    };
+                    EntityUpdated {
+                        consumed: Some(gauge_in.state_id),
+                        created: (gauge_out, gauge_out_bearer),
+                    }
+                })
+                .collect();
+
+            // Funding box changes
+            let funding_id = FundingBoxId::from(OutputRef::new(tx_hash, change_output_ix));
+            let created_funding_box = vec![Predicted(FundingBox {
+                value: change_output_value,
+                id: funding_id,
+            })];
+
+            let funding_box_changes = Some(FundingBoxChanges {
+                spent_predicted,
+                spent_confirmed,
+                created: created_funding_box,
+            });
+
             Ok(ExecutionResult {
                 executed_tasks: vec![task_id], // todo: return correct task ids
                 output: resolved_tx,
+                predicted_harvest_order_spends: vec![],
+                predicted_buffer_wallet_update,
+                predicted_gauge_updates,
+                funding_box_changes,
             })
         } else {
             Err(())
@@ -684,7 +805,7 @@ impl<
         TxSubmit,
         Emiss,
         Verifier,
-    > BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>
+    > BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ()>
     for Executor<
         GaugeId,
         StateId,
@@ -701,9 +822,9 @@ impl<
         Verifier,
     >
 where
-    GaugeId: Copy + Send + Display + 'static,
+    GaugeId: Copy + Send + Sync + Display + 'static,
     StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
-    Bearer: Send + Serialize + DeserializeOwned + 'static,
+    Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     Tx: Send,
     TxInputs: Send,
     TxErr: Send,
@@ -758,26 +879,80 @@ where
         match self.blocked_on.take() {
             None => Err(()),
             Some(flow) => {
-                let ExecutionResult {
-                    executed_tasks,
-                    output: local_tx,
-                } = match flow {
+                let res = match flow {
                     Flow::Harvesting(mut hf) => hf.execute().await?,
                     Flow::Buffering(mut bf) => bf.execute().await?,
                 };
                 loop {
-                    match self.verifier.try_approve(&local_tx).await {
+                    match self.verifier.try_approve(&res.output).await {
                         Ok(coop_tx) => {
+                            // Only index predicted-writes if TX is successfully submitted
                             match self.tx_submit.submit_tx(coop_tx).await {
                                 Ok(_) => {
-                                    //todo!("DEX-892 index transaction io as unconfirmed changes to entities' states")
+                                    let ExecutionResult {
+                                        executed_tasks,
+                                        predicted_harvest_order_spends,
+                                        predicted_buffer_wallet_update,
+                                        predicted_gauge_updates,
+                                        funding_box_changes,
+                                        ..
+                                    } = res;
+                                    for output_ref in &predicted_harvest_order_spends {
+                                        self.onchain_index
+                                            .write_predicted_spend_harvest_order(*output_ref)
+                                            .await;
+                                    }
+
+                                    let EntityUpdated {
+                                        consumed,
+                                        created: (buffer_wallet, bearer),
+                                    } = predicted_buffer_wallet_update.clone();
+                                    self.onchain_index
+                                        .write_predicted_buffer_wallet(
+                                            Bundled(buffer_wallet, bearer),
+                                            consumed,
+                                        )
+                                        .await;
+
+                                    for gauge_update in &predicted_gauge_updates {
+                                        let EntityUpdated {
+                                            consumed,
+                                            created: (gauge, bearer),
+                                        } = gauge_update.clone();
+                                        self.onchain_index
+                                            .write_predicted_gauge(Bundled(gauge, bearer), consumed)
+                                            .await;
+                                    }
+
+                                    if let Some(FundingBoxChanges {
+                                        spent_predicted,
+                                        spent_confirmed,
+                                        created,
+                                    }) = &funding_box_changes
+                                    {
+                                        for id in spent_predicted {
+                                            self.funding_index.spend_predicted(*id).await;
+                                        }
+
+                                        for id in spent_confirmed {
+                                            self.funding_index.spend_confirmed(*id).await;
+                                        }
+
+                                        for funding_box in created {
+                                            self.funding_index.put_predicted(funding_box.clone()).await;
+                                        }
+                                    }
+
                                     return Ok(ExecutionResult {
                                         executed_tasks,
                                         output: (),
+                                        predicted_harvest_order_spends,
+                                        predicted_buffer_wallet_update,
+                                        predicted_gauge_updates,
+                                        funding_box_changes,
                                     });
                                 }
                                 Err(_) => {
-                                    //todo!("DEX-892 invalidate 'spent' states in the index")
                                     return Err(());
                                 }
                             }
