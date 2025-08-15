@@ -23,8 +23,19 @@ use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment,
 };
 use std::sync::Arc;
+use cml_chain::transaction::Transaction;
+use futures::channel::mpsc;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
+use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
+use splash_dao_offchain::funding::FundingRepoRocksDB;
+use crate::engine::executor::Executor;
+use crate::engine::queue::RocksDB;
+use crate::entity_index::rocksdb::IndexerDB;
+use crate::positions::PositionIndex;
+use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
+use crate::engine::verifier::HttpVerifier;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -64,6 +75,36 @@ async fn main() {
         Box::pin(chain_sync_stream(chain_sync, state_synced)),
         chain_sync_cache,
     );
+
+    let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
+    let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
+    let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
+    let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
+        confirmed_txs_recv,
+        failed_txs_snd,
+        config.tx_submission_buffer_size,
+        max_confirmation_delay_blocks,
+    );
+    let (tx_submission_agent, tx_submission_channel) =
+        TxSubmissionAgent::<CONWAY_ERA_ID, Transaction, _>::new(
+            tx_tracker_channel.clone(),
+            config.node.clone(),
+            config.tx_submission_buffer_size,
+        )
+            .await
+            .expect("LocalTxSubmission initialization failed");
+    let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
+
+    let position_index = PositionIndex::new();
+    let onchain_index = IndexerDB::new(config.onchain_index_db_path);
+    let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
+    let verifier = HttpVerifier::new(config.verifier_url);
+    let ctx = ();
+    let executor = Executor::new(position_index, onchain_index, funding_index, tx_submission_channel, config.emission, verifier, ctx);
+
+    let queue = RocksDB::new(config.persistent_queue_db_path);
+    let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
+    let engine = engine::Engine::new(engine_mailbox, queue, executor, config.engine);
 
     // let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
     // let bind_addr = SocketAddr::new(ip_addr, args.port);

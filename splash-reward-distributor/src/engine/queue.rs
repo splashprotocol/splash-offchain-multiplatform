@@ -28,11 +28,6 @@ pub trait TaskQueue<TaskId, Task> {
     fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin;
 }
 
-#[derive(Clone)]
-pub struct RocksDB {
-    db: Arc<TransactionDB>,
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum StrikeTime {
     Ready,
@@ -68,6 +63,11 @@ struct Tables<'a> {
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
+}
+
+#[derive(Clone)]
+pub struct RocksDB {
+    db: Arc<TransactionDB>,
 }
 
 impl RocksDB {

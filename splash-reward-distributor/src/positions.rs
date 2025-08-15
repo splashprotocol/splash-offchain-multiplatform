@@ -24,3 +24,22 @@ pub trait Positions<RequestId> {
         account: &Credential,
     ) -> Result<(), LockedByAnotherReq<RequestId>>;
 }
+
+pub struct PositionIndex {}
+
+impl PositionIndex {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[async_trait]
+impl<RequestId> Positions<RequestId> for PositionIndex {
+    async fn query_account(&self, account: &Credential) -> Result<AccountState, NotFound> {
+        todo!("DEX-914")
+    }
+
+    async fn lock_account(&self, request_id: &RequestId, account: &Credential) -> Result<(), LockedByAnotherReq<RequestId>> {
+        todo!("DEX-914")
+    }
+}

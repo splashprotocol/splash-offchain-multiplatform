@@ -15,11 +15,9 @@ name = "splash-reward-distributor"
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }
-rdkafka = { version = "0.37.0", features = ["cmake-build"] }
 async-primitives = { version = "0.1.0", path = "../concurrent-primitives" }
 spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
-bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }

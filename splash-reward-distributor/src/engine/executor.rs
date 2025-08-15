@@ -623,10 +623,64 @@ pub struct Executor<
     tx_submit: TxSubmit,
     emission: Emission,
     verifier: Verifier,
-    flow:
-        Option<Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission>>,
     ctx: Ctx,
+    blocked_on:
+        Option<Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission>>,
     pd: PhantomData<(Tx, TxInputs, TxErr)>,
+}
+
+impl<
+    GaugeId,
+    StateId,
+    Bearer,
+    Tx,
+    TxInputs,
+    Ctx,
+    TxErr,
+    PositionIndex,
+    OnChainIndex,
+    FundingIndex,
+    TxSubmit,
+    Emission,
+    Verifier,
+>
+Executor<
+    GaugeId,
+    StateId,
+    Bearer,
+    Tx,
+    TxInputs,
+    Ctx,
+    TxErr,
+    PositionIndex,
+    OnChainIndex,
+    FundingIndex,
+    TxSubmit,
+    Emission,
+    Verifier,
+>
+{
+    pub fn new(
+        position_index: PositionIndex,
+        onchain_index: OnChainIndex,
+        funding_index: FundingIndex,
+        tx_submit: TxSubmit,
+        emission: Emission,
+        verifier: Verifier,
+        ctx: Ctx,
+    ) -> Self {
+        Self {
+            position_index,
+            onchain_index,
+            funding_index,
+            tx_submit,
+            emission,
+            verifier,
+            ctx,
+            blocked_on: None,
+            pd: PhantomData,
+        }
+    }
 }
 
 #[async_trait]
@@ -689,16 +743,16 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
-        let flow = match self.flow {
+        let flow = match self.blocked_on {
             None => match task {
-                Task::GaugeBuffering(_) => self.flow.insert(Flow::Buffering(BufferingFlow {
+                Task::GaugeBuffering(_) => self.blocked_on.insert(Flow::Buffering(BufferingFlow {
                     onchain_index: self.onchain_index.clone(),
                     funding_index: self.funding_index.clone(),
                     batch: None,
                     ctx: self.ctx.clone(),
                     pd: PhantomData,
                 })),
-                Task::Harvesting(_) => self.flow.insert(Flow::Harvesting(HarvestingFlow {
+                Task::Harvesting(_) => self.blocked_on.insert(Flow::Harvesting(HarvestingFlow {
                     position_index: self.position_index.clone(),
                     onchain_index: self.onchain_index.clone(),
                     emission: self.emission.clone(),
@@ -717,7 +771,7 @@ where
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, ()>, ()> {
-        match self.flow.take() {
+        match self.blocked_on.take() {
             None => Err(()),
             Some(flow) => {
                 let ExecutionResult {

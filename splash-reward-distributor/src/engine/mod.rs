@@ -1,10 +1,10 @@
 mod batch;
 pub mod executor;
 mod prover;
-mod queue;
+pub mod queue;
 mod resolved_tx;
 mod task;
-mod verifier;
+pub mod verifier;
 mod withdrawal;
 
 use crate::engine::executor::{BatchExecutor, Control};
@@ -34,6 +34,16 @@ pub struct Engine<U, Q, E> {
 }
 
 impl<U, Q, E> Engine<U, Q, E> {
+    pub fn new(event_stream: U, queue: Q, executor: E, conf: EngineConfig) -> Self {
+        Self {
+            event_stream,
+            queue,
+            executor,
+            current_task: None,
+            conf,
+        }
+    }
+
     fn block_on(&mut self, task: impl Future<Output = ControlFlow<(), ()>> + 'static) {
         self.current_task = Some(Box::pin(task));
     }
