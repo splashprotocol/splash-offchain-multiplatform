@@ -179,7 +179,7 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<ExecutionResult<GaugeId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
+    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
     {
         if let Some(batch) = self.batch.take() {
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
@@ -365,7 +365,6 @@ impl<GaugeId, Ctx, OnChainIndex, FundingIndex>
     BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedCardanoTx, ()>
     for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
-    GaugeId: Display + Copy + Send + 'static,
     Ctx: Send
         + Clone
         + Has<BufferWalletScript>
@@ -375,13 +374,13 @@ where
         + Has<FarmAuthPolicy>
         + Has<OperatorCreds>
         + Has<SplashPolicy>,
-    OnChainIndex: GaugeIndex<GaugeId, OutputRef, FinalizedTxOut>
-        + AuthManagerIndex<GaugeId, OutputRef, FinalizedTxOut>
+    OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
+        + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
         + Send,
     FundingIndex: FundingRepo + Send + Clone,
 {
-    async fn feed(&mut self, task_id: TaskId, task: GaugeBuffering<GaugeId>) -> Control<TaskId> {
+    async fn feed(&mut self, task_id: TaskId, task: GaugeBuffering<FarmId>) -> Control<TaskId> {
         let batch = if let Some(ref mut batch) = self.batch {
             batch
         } else if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
@@ -406,7 +405,7 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<ExecutionResult<GaugeId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
+    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
     {
         use spectrum_offchain::ledger::IntoLedger;
         enum RefInputT {
