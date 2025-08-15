@@ -1,15 +1,9 @@
 use cml_core::Slot;
 
-use bloom_offchain::execution_engine::liquidity_book;
-use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
-use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-
-use spectrum_offchain_cardano::data::pool::PoolValidation;
-use splash_reward_distributor::config::HarvestLimits;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,3 +30,10 @@ pub struct ChainSyncConfig {
     pub disable_rollbacks_until: Slot,
     pub db_path: String,
 }
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarvestLimits {
+    pub minimal_lovelace_per_single_harvest: u64,
+}
+

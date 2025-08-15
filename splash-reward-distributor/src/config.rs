@@ -1,12 +1,12 @@
-use std::time::Duration;
 use cml_core::Slot;
+use std::time::Duration;
 
+use crate::emission::EmissionConfig;
+use crate::engine::EngineConfig;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-use crate::emission::EmissionConfig;
-use crate::engine::EngineConfig;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +18,7 @@ pub struct AppConfig {
     pub funding_index_db_path: String,
     pub onchain_index_db_path: String,
     pub persistent_queue_db_path: String,
+    pub utxo_index_db_path: String,
     pub confirmation_delay_blocks: u64,
     pub events_export_topic: String,
     pub bootstrap_servers: String,

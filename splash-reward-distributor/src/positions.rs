@@ -25,6 +25,7 @@ pub trait Positions<RequestId> {
     ) -> Result<(), LockedByAnotherReq<RequestId>>;
 }
 
+#[derive(Clone)]
 pub struct PositionIndex {}
 
 impl PositionIndex {
@@ -39,7 +40,11 @@ impl<RequestId> Positions<RequestId> for PositionIndex {
         todo!("DEX-914")
     }
 
-    async fn lock_account(&self, request_id: &RequestId, account: &Credential) -> Result<(), LockedByAnotherReq<RequestId>> {
+    async fn lock_account(
+        &self,
+        request_id: &RequestId,
+        account: &Credential,
+    ) -> Result<(), LockedByAnotherReq<RequestId>> {
         todo!("DEX-914")
     }
 }

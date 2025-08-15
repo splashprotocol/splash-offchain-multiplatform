@@ -26,8 +26,8 @@ use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
     WPFactoryAuthPolicy,
 };
-use splash_reward_distributor::config::HarvestLimits;
 use std::collections::HashSet;
+use crate::config::HarvestLimits;
 
 pub mod log_events;
 pub mod resolve_gauges;

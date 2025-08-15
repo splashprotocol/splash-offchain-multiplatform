@@ -4,10 +4,10 @@ version = "1.0.0"
 edition = "2021"
 rust-version = "1.80.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[lib]
-name = "splash_reward_distributor"  # Name for `extern crate my_project;`
-path = "src/lib.rs"  # Default, can be omitted if unchanged
+## See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+#[lib]
+#name = "splash_reward_distributor"  # Name for `extern crate my_project;`
+#path = "src/lib.rs"  # Default, can be omitted if unchanged
 
 # Binary target (main.rs)
 [[bin]]
@@ -18,7 +18,7 @@ reqwest = { version = "0.12", features = ["json"] }
 async-primitives = { version = "0.1.0", path = "../concurrent-primitives" }
 spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
-spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain", features = ["cml-chain"] }
 splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }

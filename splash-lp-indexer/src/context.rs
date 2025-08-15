@@ -11,8 +11,8 @@ use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
     WPFactoryAuthPolicy,
 };
-use splash_reward_distributor::config::HarvestLimits;
 use type_equalities::IsEqual;
+use crate::config::HarvestLimits;
 
 pub struct Context {
     pub dex_deployment: DexDeployment,

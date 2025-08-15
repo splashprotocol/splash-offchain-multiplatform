@@ -1,14 +1,20 @@
 mod config;
 mod constants;
-mod emission;
-mod engine;
+pub mod emission;
+pub mod engine;
 mod entity_index;
 mod events;
 mod onchain;
 mod pipeline;
 mod positions;
 
+use std::collections::HashSet;
 use crate::config::AppConfig;
+use crate::engine::executor::Executor;
+use crate::engine::queue::RocksDB;
+use crate::engine::verifier::HttpVerifier;
+use crate::entity_index::rocksdb::IndexerDB;
+use crate::positions::PositionIndex;
 use async_primitives::beacon::Beacon;
 use cardano_chain_sync::atomic_flow::atomic_block_flow;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
@@ -16,26 +22,23 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_explorer::AnyExplorer;
 use clap::Parser;
+use cml_chain::transaction::Transaction;
+use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use log::info;
+use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
+use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment,
 };
+use splash_dao_offchain::funding::FundingRepoRocksDB;
 use std::sync::Arc;
-use cml_chain::transaction::Transaction;
-use futures::channel::mpsc;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
-use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
-use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
-use splash_dao_offchain::funding::FundingRepoRocksDB;
-use crate::engine::executor::Executor;
-use crate::engine::queue::RocksDB;
-use crate::entity_index::rocksdb::IndexerDB;
-use crate::positions::PositionIndex;
-use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
-use crate::engine::verifier::HttpVerifier;
+use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
+use crate::pipeline::event_pipeline;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -91,8 +94,8 @@ async fn main() {
             config.node.clone(),
             config.tx_submission_buffer_size,
         )
-            .await
-            .expect("LocalTxSubmission initialization failed");
+        .await
+        .expect("LocalTxSubmission initialization failed");
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
     let position_index = PositionIndex::new();
@@ -100,7 +103,15 @@ async fn main() {
     let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
     let verifier = HttpVerifier::new(config.verifier_url);
     let ctx = ();
-    let executor = Executor::new(position_index, onchain_index, funding_index, tx_submission_channel, config.emission, verifier, ctx);
+    let executor = Executor::new(
+        position_index.clone(),
+        onchain_index.clone(),
+        funding_index.clone(),
+        tx_submission_channel,
+        config.emission,
+        verifier,
+        ctx,
+    );
 
     let queue = RocksDB::new(config.persistent_queue_db_path);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
@@ -114,6 +125,17 @@ async fn main() {
     let flow_driver_handle = tokio::spawn(flow_driver.run());
     processes.push(flow_driver_handle);
 
+    let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
+    let filter = HashSet::from([
+        dao_protocol_deployment.buffer_wallet.hash(),
+    ]);
+    
+    let event_pipeline_handle = tokio::spawn(event_pipeline(block_events, engine_mailbox_snd, ctx, onchain_index, funding_index, utxo_index, filter));
+    processes.push(event_pipeline_handle);
+
+    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+    processes.push(tx_submission_stream_handle);
+    
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default_panic(info);

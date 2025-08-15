@@ -19,8 +19,9 @@ use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {
     buffering_threshold: u64,
 }

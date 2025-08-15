@@ -51,6 +51,7 @@ where
         T::Version: Debug + Eq + PartialEq;
 }
 
+#[derive(Clone)]
 pub struct IndexerDB {
     pub db: Arc<TransactionDB>,
 }
