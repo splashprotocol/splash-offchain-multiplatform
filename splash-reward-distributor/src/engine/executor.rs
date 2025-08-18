@@ -26,8 +26,11 @@ use cml_chain::builders::witness_builder::{
 use cml_chain::certs::Credential;
 use cml_chain::transaction::{Transaction, TransactionInput};
 use cml_chain::{RequiredSigners, Value};
-use cml_crypto::RawBytesEncoding;
+use cml_crypto::{RawBytesEncoding, TransactionHash};
 use log::{error, warn};
+use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
+    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
+};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -41,6 +44,7 @@ use spectrum_cardano_lib::{ex_units, AssetClass, AssetName, NetworkId, OutputRef
 use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
+use spectrum_offchain_cardano::tx_submission::RejectReasons;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
@@ -179,8 +183,10 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
-    {
+    ) -> Result<
+        ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>,
+        Error<FarmId>,
+    > {
         if let Some(batch) = self.batch.take() {
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
@@ -327,7 +333,7 @@ where
                 inputs,
             };
 
-            let mut buffer_wallet = buffer_wallet_in.clone();
+            let mut buffer_wallet = buffer_wallet_in;
             buffer_wallet.balance -= batch.total_payout;
             let buffer_wallet_out_output_ref = OutputRef::new(tx_hash, 0);
             buffer_wallet.state_id = buffer_wallet_out_output_ref;
@@ -347,7 +353,7 @@ where
                 funding_box_changes: None,
             })
         } else {
-            Err(())
+            Err(Error::MissingHarvestBatch)
         }
     }
 }
@@ -405,8 +411,10 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, ()>
-    {
+    ) -> Result<
+        ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>,
+        Error<FarmId>,
+    > {
         use spectrum_offchain::ledger::IntoLedger;
         enum RefInputT {
             AuthManager,
@@ -690,7 +698,7 @@ where
                 funding_box_changes,
             })
         } else {
-            Err(())
+            Err(Error::MissingBufferingBatch)
         }
     }
 }
@@ -792,27 +800,25 @@ impl<
 #[async_trait]
 impl<
         GaugeId,
-        StateId,
         Bearer,
         Tx,
         TxInputs,
         Ctx,
-        TxErr,
         PositionIndex,
         OnChainIndex,
         FundingIndex,
         TxSubmit,
         Emiss,
         Verifier,
-    > BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ()>
+    > BatchExecutor<GaugeId, OutputRef, Bearer, TaskId, Task<GaugeId, OutputRef>, (), Error<GaugeId>>
     for Executor<
         GaugeId,
-        StateId,
+        OutputRef,
         Bearer,
         Tx,
         TxInputs,
         Ctx,
-        TxErr,
+        Error<GaugeId>,
         PositionIndex,
         OnChainIndex,
         FundingIndex,
@@ -822,19 +828,17 @@ impl<
     >
 where
     GaugeId: Copy + Send + Sync + Display + 'static,
-    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     Tx: Send,
     TxInputs: Send,
-    TxErr: Send,
-    PositionIndex: Positions<StateId> + Clone + Send,
-    OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
-        + HarvestOrderIndex<StateId, Bearer>
-        + BufferWalletIndex<StateId, Bearer>
+    PositionIndex: Positions<OutputRef> + Clone + Send,
+    OnChainIndex: GaugeIndex<GaugeId, OutputRef, Bearer>
+        + HarvestOrderIndex<OutputRef, Bearer>
+        + BufferWalletIndex<OutputRef, Bearer>
         + Clone
         + Send,
     FundingIndex: FundingRepo + Clone + Send,
-    TxSubmit: Clone + Network<Tx, TxErr> + Send,
+    TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
     Emiss: Emission + Clone + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>:
@@ -951,8 +955,75 @@ where
                                         funding_box_changes,
                                     });
                                 }
-                                Err(_) => {
-                                    return Err(());
+                                Err(e) => {
+                                    if let RejectReasons(Some(ApplyTxError { node_errors })) = &e {
+                                        if let Some(bad_inputs) = node_errors.iter().find_map(|err| {
+                                            if let ConwayLedgerPredFailure::UtxowFailure(
+                                                ConwayUtxowPredFailure::UtxoFailure(
+                                                    ConwayUtxoPredFailure::BadInputsUtxo(bad_inputs),
+                                                ),
+                                            ) = err
+                                            {
+                                                Some(
+                                                    bad_inputs
+                                                        .iter()
+                                                        .map(|TxInput { tx_hash, index }| {
+                                                            OutputRef::new(
+                                                                TransactionHash::from_raw_bytes(
+                                                                    tx_hash.as_slice(),
+                                                                )
+                                                                .unwrap(),
+                                                                *index,
+                                                            )
+                                                        })
+                                                        .collect::<Vec<_>>(),
+                                                )
+                                            } else {
+                                                None
+                                            }
+                                        }) {
+                                            let ExecutionResult {
+                                                predicted_harvest_order_spends,
+                                                predicted_buffer_wallet_update,
+                                                predicted_gauge_updates,
+                                                ..
+                                            } = res;
+
+                                            let spent_harvest_orders = predicted_harvest_order_spends
+                                                .iter()
+                                                .filter(|id| bad_inputs.contains(id))
+                                                .cloned()
+                                                .collect::<Vec<_>>();
+
+                                            let spent_buffer_wallet = predicted_buffer_wallet_update
+                                                .consumed
+                                                .filter(|&buffer_wallet_input| {
+                                                    bad_inputs.contains(&buffer_wallet_input)
+                                                });
+
+                                            let spent_gauges = predicted_gauge_updates
+                                                .iter()
+                                                .filter_map(|e| {
+                                                    if let Some(consumed_input) = e.consumed {
+                                                        if bad_inputs.contains(&consumed_input) {
+                                                            return Some((
+                                                                e.created.0.clone(),
+                                                                consumed_input,
+                                                            ));
+                                                        }
+                                                    }
+                                                    None
+                                                })
+                                                .collect::<Vec<_>>();
+
+                                            return Err(Error::InputsAlreadySpent {
+                                                buffer_wallet: spent_buffer_wallet,
+                                                gauges: spent_gauges,
+                                                harvest_orders: spent_harvest_orders,
+                                            });
+                                        }
+                                    }
+                                    return Err(Error::UnrecoverableNodeError);
                                 }
                             }
                         }
