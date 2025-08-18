@@ -2,7 +2,7 @@ mod batch;
 pub mod executor;
 mod prover;
 pub mod queue;
-mod resolved_tx;
+pub mod resolved_tx;
 mod task;
 pub mod verifier;
 mod withdrawal;
@@ -14,12 +14,12 @@ use crate::events::OnChainEvent;
 use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::{Stream, StreamExt};
+use serde::Deserialize;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {
@@ -30,7 +30,7 @@ pub struct Engine<U, Q, E> {
     event_stream: U,
     queue: Q,
     executor: E,
-    current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>>>>>,
+    current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
     conf: EngineConfig,
 }
 
@@ -45,15 +45,15 @@ impl<U, Q, E> Engine<U, Q, E> {
         }
     }
 
-    fn block_on(&mut self, task: impl Future<Output = ControlFlow<(), ()>> + 'static) {
+    fn block_on(&mut self, task: impl Future<Output = ControlFlow<(), ()>> + Send + 'static) {
         self.current_task = Some(Box::pin(task));
     }
 }
 
 impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
-    GaugeId: Copy + Into<TaskId> + Unpin + 'static,
-    StateId: Copy + Into<TaskId> + Unpin + 'static,
+    GaugeId: Copy + Into<TaskId> + Unpin + Send + 'static,
+    StateId: Copy + Into<TaskId> + Unpin + Send + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
             Item = (
@@ -61,8 +61,8 @@ where
                 TransactionHandle,
             ),
         > + Unpin,
-    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + 'static,
-    E: Clone + BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()> + Unpin + 'static,
+    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()> + Clone + Unpin + Send + 'static,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {

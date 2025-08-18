@@ -9,4 +9,6 @@ pub struct PartiallySignedTx<Tx, Inputs> {
     pub inputs: Inputs,
 }
 
-pub type PartiallySignedCardanoTx = PartiallySignedTx<Transaction, Vec<(OutputRef, TransactionOutput)>>;
+pub type CardanoTxInputs = Vec<(OutputRef, TransactionOutput)>;
+
+pub type PartiallySignedCardanoTx = PartiallySignedTx<Transaction, CardanoTxInputs>;

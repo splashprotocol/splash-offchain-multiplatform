@@ -532,3 +532,24 @@ impl ProtocolDeployment {
 pub trait RequiresValidator<Ctx> {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased;
 }
+
+#[macro_export]
+macro_rules! has_deployed_script_info {
+    ($validator:ident, $ctx:ident, $field_path:expr) => {
+        impl
+            spectrum_offchain::domain::Has<
+                spectrum_offchain_cardano::deployment::DeployedScriptInfo<{ $validator as u8 }>,
+            > for $ctx
+        {
+            fn select<
+                U: type_equalities::IsEqual<
+                    spectrum_offchain_cardano::deployment::DeployedScriptInfo<{ $validator as u8 }>,
+                >,
+            >(
+                &self,
+            ) -> spectrum_offchain_cardano::deployment::DeployedScriptInfo<{ $validator as u8 }> {
+                $field_path(self)
+            }
+        }
+    };
+}

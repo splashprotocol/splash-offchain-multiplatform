@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
@@ -27,7 +28,6 @@ use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_reward_distributor::events::OnChainEvent as RewardOnChainEvent;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
-use crate::config::HarvestLimits;
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]

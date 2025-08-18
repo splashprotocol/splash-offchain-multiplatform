@@ -36,4 +36,3 @@ pub struct ChainSyncConfig {
 pub struct HarvestLimits {
     pub minimal_lovelace_per_single_harvest: u64,
 }
-

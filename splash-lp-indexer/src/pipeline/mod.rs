@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use crate::pipeline::log_events::log_onchain_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
@@ -27,7 +28,6 @@ use splash_dao_offchain::protocol_config::{
     WPFactoryAuthPolicy,
 };
 use std::collections::HashSet;
-use crate::config::HarvestLimits;
 
 pub mod log_events;
 pub mod resolve_gauges;

@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+use spectrum_cardano_lib::OutputRef;
+use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use std::fmt::Display;
 
 #[derive(
@@ -11,7 +14,32 @@ impl Display for TaskId {
     }
 }
 
-#[derive(Copy, Clone)]
+impl AsRef<[u8]> for TaskId {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl TryFrom<Vec<u8>> for TaskId {
+    type Error = ();
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        <[u8; 32]>::try_from(&*value).map(Self).map_err(|_| ())
+    }
+}
+
+impl From<FarmId> for TaskId {
+    fn from(farm_id: FarmId) -> Self {
+        todo!()
+    }
+}
+
+impl From<OutputRef> for TaskId {
+    fn from(oref: OutputRef) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub enum Task<GaugeId, OrderId> {
     GaugeBuffering(GaugeBuffering<GaugeId>),
     Harvesting(Harvesting<OrderId>),
@@ -27,12 +55,12 @@ impl<GaugeId, OrderId> Task<GaugeId, OrderId> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct GaugeBuffering<GaugeId> {
     pub gauge_id: GaugeId,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct Harvesting<OrderId> {
     pub order_id: OrderId,
 }

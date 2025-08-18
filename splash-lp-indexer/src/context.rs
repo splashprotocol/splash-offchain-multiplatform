@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use cml_chain::address::EnterpriseAddress;
 use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use spectrum_cardano_lib::NetworkId;
@@ -12,7 +13,6 @@ use splash_dao_offchain::protocol_config::{
     WPFactoryAuthPolicy,
 };
 use type_equalities::IsEqual;
-use crate::config::HarvestLimits;
 
 pub struct Context {
     pub dex_deployment: DexDeployment,
@@ -22,30 +22,6 @@ pub struct Context {
     pub harvest_limits: HarvestLimits,
     pub splash_policy_id: ScriptHash,
     pub network_id: NetworkId,
-}
-
-impl Has<DeployedScriptInfo<{ WpFactory as u8 }>> for Context {
-    fn select<U: IsEqual<DeployedScriptInfo<{ WpFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ WpFactory as u8 }> {
-        DeployedScriptInfo::from(&self.dao_deployment.wp_factory)
-    }
-}
-
-impl Has<DeployedScriptInfo<{ SmartFarm as u8 }>> for Context {
-    fn select<U: IsEqual<DeployedScriptInfo<{ SmartFarm as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ SmartFarm as u8 }> {
-        (&self.dao_deployment.smart_farm).into()
-    }
-}
-
-impl Has<DeployedScriptInfo<{ PermManager as u8 }>> for Context {
-    fn select<U: IsEqual<DeployedScriptInfo<{ PermManager as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ PermManager as u8 }> {
-        (&self.dao_deployment.perm_manager).into()
-    }
 }
 
 impl Has<SplashPolicy> for Context {
