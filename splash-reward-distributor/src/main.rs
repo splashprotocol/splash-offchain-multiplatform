@@ -13,7 +13,6 @@ use crate::config::AppConfig;
 use crate::context::RuntimeContext;
 use crate::engine::executor::Executor;
 use crate::engine::queue::RocksDB;
-use crate::engine::resolved_tx::CardanoTxInputs;
 use crate::engine::verifier::HttpVerifier;
 use crate::entity_index::rocksdb::IndexerDB;
 use crate::pipeline::event_pipeline;
@@ -25,24 +24,19 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_explorer::AnyExplorer;
 use clap::Parser;
-use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_chain::transaction::Transaction;
 use cml_crypto::TransactionHash;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use log::info;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
-use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
-use spectrum_offchain_cardano::tx_submission::{
-    tx_submission_agent_stream, RejectReasons, TxSubmissionAgent,
-};
+use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment,
 };
-use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepoRocksDB;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -126,9 +120,6 @@ async fn main() {
     let queue = RocksDB::new(config.persistent_queue_db_path);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
     let engine = engine::Engine::new(engine_mailbox, queue, executor, config.engine);
-
-    // let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
-    // let bind_addr = SocketAddr::new(ip_addr, args.port);
 
     let processes = FuturesUnordered::new();
 
