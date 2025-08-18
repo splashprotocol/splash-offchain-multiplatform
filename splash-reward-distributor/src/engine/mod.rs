@@ -62,7 +62,11 @@ where
             ),
         > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()> + Clone + Unpin + Send + 'static,
+    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ()>
+        + Clone
+        + Unpin
+        + Send
+        + 'static,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {

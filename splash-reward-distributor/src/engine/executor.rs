@@ -86,6 +86,19 @@ pub trait BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<GaugeId, StateId, Bearer, TaskId, Out>, Err>;
 }
 
+pub enum Error<GaugeId> {
+    InputsAlreadySpent {
+        buffer_wallet: Option<OutputRef>,
+        gauges: Vec<(Gauge<GaugeId, OutputRef>, OutputRef)>,
+        harvest_orders: Vec<OutputRef>,
+    },
+    UnrecoverableNodeError,
+    MissingFlow,
+    MissingHarvestBatch,
+    MissingBufferingBatch,
+    Other,
+}
+
 #[derive(Clone)]
 pub struct HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emission> {
     position_index: PositionIndex,
@@ -97,8 +110,15 @@ pub struct HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emi
 
 #[async_trait]
 impl<Ctx, PositionIndex, OnChainIndex, Emiss>
-    BatchExecutor<TaskId, Harvesting<OutputRef>, PartiallySignedCardanoTx, ()>
-    for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
+    BatchExecutor<
+        FarmId,
+        OutputRef,
+        FinalizedTxOut,
+        TaskId,
+        Harvesting<OutputRef>,
+        PartiallySignedCardanoTx,
+        Error<FarmId>,
+    > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
     PositionIndex: Positions<OutputRef> + Send,
     OnChainIndex:
@@ -367,9 +387,16 @@ pub struct BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingInd
 }
 
 #[async_trait]
-impl<GaugeId, Ctx, OnChainIndex, FundingIndex>
-    BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedCardanoTx, ()>
-    for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
+impl<Ctx, OnChainIndex, FundingIndex>
+    BatchExecutor<
+        FarmId,
+        OutputRef,
+        FinalizedTxOut,
+        TaskId,
+        GaugeBuffering<FarmId>,
+        PartiallySignedCardanoTx,
+        Error<FarmId>,
+    > for BufferingFlow<FarmId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
     Ctx: Send
         + Clone
@@ -841,10 +868,24 @@ where
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
     Emiss: Emission + Clone + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
-    HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>:
-        BatchExecutor<TaskId, Harvesting<StateId>, PartiallySignedTx<Tx, TxInputs>, ()>,
-    BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>:
-        BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedTx<Tx, TxInputs>, ()>,
+    HarvestingFlow<OutputRef, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>: BatchExecutor<
+        GaugeId,
+        OutputRef,
+        Bearer,
+        TaskId,
+        Harvesting<OutputRef>,
+        PartiallySignedTx<Tx, TxInputs>,
+        Error<GaugeId>,
+    >,
+    BufferingFlow<GaugeId, OutputRef, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
+        GaugeId,
+        OutputRef,
+        Bearer,
+        TaskId,
+        GaugeBuffering<GaugeId>,
+        PartiallySignedTx<Tx, TxInputs>,
+        Error<GaugeId>,
+    >,
     Ctx: Send
         + Clone
         + Has<BufferWalletScript>
@@ -852,7 +893,7 @@ where
         + Has<HarvestOrderRefScriptOutput>
         + Has<NetworkId>,
 {
-    async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
+    async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, OutputRef>) -> Control<TaskId> {
         let flow = match self.blocked_on {
             None => match task {
                 Task::GaugeBuffering(_) => self.blocked_on.insert(Flow::Buffering(BufferingFlow {
@@ -878,9 +919,11 @@ where
         }
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, ()>, ()> {
+    async fn execute(
+        &mut self,
+    ) -> Result<ExecutionResult<GaugeId, OutputRef, Bearer, TaskId, ()>, Error<GaugeId>> {
         match self.blocked_on.take() {
-            None => Err(()),
+            None => Err(Error::MissingFlow),
             Some(flow) => {
                 let res = match flow {
                     Flow::Harvesting(mut hf) => hf.execute().await?,
