@@ -356,8 +356,13 @@ where
                 created: (buffer_wallet, buffer_wallet_bearer),
             };
 
+            let executed_tasks = predicted_harvest_order_spends
+                .iter()
+                .map(|id| (*id).into())
+                .collect();
+
             Ok(ExecutionResult {
-                executed_tasks: vec![task_id], //todo: tasks map to orders
+                executed_tasks,
                 output: resolved_tx,
                 predicted_harvest_order_spends,
                 predicted_buffer_wallet_update,
@@ -674,7 +679,7 @@ where
 
             // Gather predicted gauge updates
             assert_eq!(sorted_gauge_inputs.len(), gauge_outputs.len());
-            let predicted_gauge_updates = sorted_gauge_inputs
+            let predicted_gauge_updates: Vec<_> = sorted_gauge_inputs
                 .into_iter()
                 .zip(gauge_outputs.into_iter())
                 .enumerate()
@@ -706,8 +711,13 @@ where
                 created: created_funding_box,
             });
 
+            let executed_tasks: Vec<TaskId> = predicted_gauge_updates
+                .iter()
+                .map(|g| g.created.0.id.into())
+                .collect();
+
             Ok(ExecutionResult {
-                executed_tasks: vec![task_id], // todo: return correct task ids
+                executed_tasks,
                 output: resolved_tx,
                 predicted_harvest_order_spends: vec![],
                 predicted_buffer_wallet_update,
