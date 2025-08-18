@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use crate::pipeline::log_events::log_onchain_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
@@ -26,7 +27,6 @@ use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
     WPFactoryAuthPolicy,
 };
-use splash_reward_distributor::config::HarvestLimits;
 use std::collections::HashSet;
 
 pub mod log_events;

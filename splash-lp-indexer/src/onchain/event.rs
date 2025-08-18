@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
@@ -24,9 +25,7 @@ use splash_dao_offchain::protocol_config::{
     WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
-use splash_reward_distributor::config::HarvestLimits;
 use splash_reward_distributor::events::OnChainEvent as RewardOnChainEvent;
-use splash_reward_distributor::onchain::harvest_order::HarvestOrder;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 

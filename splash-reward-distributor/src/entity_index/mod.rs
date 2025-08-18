@@ -83,21 +83,22 @@ where
     async fn remove_created_harvest_order(&self, id: StateId);
 }
 
-pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
+pub async fn index_events<GaugeId, StateId, Bearer, I, F>(
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-    indexer: I,
-    mut funding: F,
-) where
+    indexer: &I,
+    funding: &F,
+) -> BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>
+where
     GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     StateId: Copy + Eq + Hash + Send + Sync + Display + Debug + Serialize + DeserializeOwned + 'static,
     I: HarvestOrderIndex<StateId, Bearer>
         + BufferWalletIndex<StateId, Bearer>
         + GaugeIndex<GaugeId, StateId, Bearer>
         + AuthManagerIndex<GaugeId, StateId, Bearer>,
-    Bearer: Serialize + DeserializeOwned + 'static,
+    Bearer: Clone + Serialize + DeserializeOwned + 'static,
     F: FundingRepo + Clone,
 {
-    match events {
+    match &events {
         BlockEvents::RollForward { events, .. } => {
             for event in events {
                 match event {
@@ -107,7 +108,7 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
-                        let (entity, bearer) = buffer_wallet_update.created;
+                        let (entity, bearer) = buffer_wallet_update.created.clone();
                         let bundled = Bundled(entity, bearer);
                         indexer
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
@@ -125,7 +126,7 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
-                        let (entity, bearer) = buffer_wallet_update.created;
+                        let (entity, bearer) = buffer_wallet_update.created.clone();
                         let bundled = Bundled(entity, bearer);
                         indexer
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
@@ -134,7 +135,7 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
                         // Index drained gauges
                         for gauge_update in drained_gauges {
                             let prev_state_id = gauge_update.consumed;
-                            let (gauge, bearer) = gauge_update.created;
+                            let (gauge, bearer) = gauge_update.created.clone();
                             let bundled = Bundled(gauge, bearer);
                             indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
@@ -142,34 +143,34 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
                     OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
                         for gauge_update in updated_gauges {
                             let prev_state_id = gauge_update.consumed;
-                            let (entity, bearer) = gauge_update.created;
+                            let (entity, bearer) = gauge_update.created.clone();
                             let bundled = Bundled(entity, bearer);
                             indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
                     }
                     OnChainEvent::AuthManagerUpdated(auth_update) => {
                         let prev_state_id = auth_update.consumed;
-                        let (entity, bearer) = auth_update.created;
+                        let (entity, bearer) = auth_update.created.clone();
                         let bundled = Bundled(entity, bearer);
                         indexer.write_confirmed_auth_manager(bundled, prev_state_id).await;
                     }
                     OnChainEvent::NewHarvestRequest(harvest, output) => {
-                        let order = Confirmed(Bundled(harvest, output));
+                        let order = Confirmed(Bundled(harvest.clone(), output.clone()));
                         indexer.write_confirmed_harvest_order(order).await;
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for id in harvest_ids {
-                            indexer.write_confirmed_refund_harvest_order(id).await;
+                            indexer.write_confirmed_refund_harvest_order(*id).await;
                         }
                     }
                     OnChainEvent::Funding(funding_updates) => {
                         let ConfirmedFundingBoxChanges { consumed, created } = funding_updates;
                         for id in consumed {
-                            funding.spend_confirmed(id).await;
+                            funding.spend_confirmed(*id).await;
                         }
 
                         for f in created {
-                            funding.put_confirmed(Confirmed(f)).await;
+                            funding.put_confirmed(Confirmed(f.clone())).await;
                         }
                     }
                 }
@@ -224,13 +225,13 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for harvest_id in harvest_ids {
-                            indexer.unconsume_harvest_order(harvest_id).await;
+                            indexer.unconsume_harvest_order(*harvest_id).await;
                         }
                     }
                     OnChainEvent::Funding(funding_updates) => {
                         let ConfirmedFundingBoxChanges { consumed, created } = funding_updates;
                         for id in consumed {
-                            funding.unspend_confirmed(id).await;
+                            funding.unspend_confirmed(id.clone()).await;
                         }
 
                         for f in created {
@@ -241,6 +242,7 @@ pub async fn index_entities<GaugeId, StateId, Bearer, I, F>(
             }
         }
     }
+    events
 }
 
 #[async_trait]

@@ -24,13 +24,8 @@ pub enum QueueCmd<TaskId, Task> {
 #[async_trait]
 pub trait TaskQueue<TaskId, Task> {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>);
-    fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin;
-    fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin;
-}
-
-#[derive(Clone)]
-pub struct RocksDB {
-    db: Arc<TransactionDB>,
+    fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
+    fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -70,6 +65,11 @@ struct Tables<'a> {
     clocks: &'a ColumnFamily,
 }
 
+#[derive(Clone)]
+pub struct RocksDB {
+    db: Arc<TransactionDB>,
+}
+
 impl RocksDB {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
@@ -103,7 +103,7 @@ impl RocksDB {
 #[async_trait]
 impl<TaskId, Task> TaskQueue<TaskId, Task> for RocksDB
 where
-    TaskId: Copy + TryFrom<Box<[u8]>> + AsRef<[u8]> + Send + 'static,
+    TaskId: Copy + TryFrom<Vec<u8>> + AsRef<[u8]> + Send + 'static,
     Task: Serialize + DeserializeOwned + Send + 'static,
 {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>) {
@@ -144,7 +144,7 @@ where
                         let task_id = &key[8..];
                         if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
                             if let Ok(None) = tx.get_cf(tables.done, task_id) {
-                                let task_id = key.try_into().ok().unwrap();
+                                let task_id = task_id.to_vec().try_into().ok().unwrap();
                                 let task = rmp_serde::from_slice(&task_bytes).unwrap();
                                 if let Err(_) = block_on(snd.send((task_id, task))) {
                                     break;
@@ -168,14 +168,14 @@ where
             let mut done_tasks = tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
             while let Some(Ok((task_id, _))) = done_tasks.next() {
                 if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, &task_id) {
-                    let task_id = task_id.try_into().ok().unwrap();
+                    let task_id = task_id.to_vec().try_into().ok().unwrap();
                     let task = rmp_serde::from_slice(&task_bytes).unwrap();
                     if let Err(_) = block_on(snd.send((task_id, task))) {
                         break;
                     }
                     continue;
                 }
-                tx.delete_cf(tables.pending, task_id).unwrap();
+                tx.delete_cf(tables.done, task_id).unwrap();
             }
         });
         recv
@@ -237,7 +237,6 @@ mod tests {
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
     use splash_testing::db_path::DBPath;
-    use std::array::TryFromSliceError;
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -248,10 +247,10 @@ mod tests {
             self.0.as_ref()
         }
     }
-    impl TryFrom<Box<[u8]>> for TaskId {
+    impl TryFrom<Vec<u8>> for TaskId {
         type Error = ();
-        fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
-            <[u8; 32]>::try_from(value.as_ref()).map(Self).map_err(|_| ())
+        fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+            <[u8; 32]>::try_from(&*value).map(Self).map_err(|_| ())
         }
     }
     #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]

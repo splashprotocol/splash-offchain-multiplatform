@@ -11,15 +11,15 @@ use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 #[async_trait]
 pub trait FundingRepo {
     /// Collect funding boxes that cover the specified `target`.
-    async fn collect(&mut self) -> Result<AvailableFundingBoxes, ()>;
-    async fn put_confirmed(&mut self, f: Confirmed<FundingBox>);
-    async fn put_predicted(&mut self, f: Predicted<FundingBox>);
-    async fn spend_confirmed(&mut self, f_id: FundingBoxId);
-    async fn unspend_confirmed(&mut self, f_id: FundingBoxId);
-    async fn spend_predicted(&mut self, f_id: FundingBoxId);
-    async fn unspend_predicted(&mut self, f_id: FundingBoxId);
-    async fn eliminate_predicted(&mut self, f_id: FundingBoxId);
-    async fn eliminate_confirmed(&mut self, f_id: FundingBoxId);
+    async fn collect(&self) -> Result<AvailableFundingBoxes, ()>;
+    async fn put_confirmed(&self, f: Confirmed<FundingBox>);
+    async fn put_predicted(&self, f: Predicted<FundingBox>);
+    async fn spend_confirmed(&self, f_id: FundingBoxId);
+    async fn unspend_confirmed(&self, f_id: FundingBoxId);
+    async fn spend_predicted(&self, f_id: FundingBoxId);
+    async fn unspend_predicted(&self, f_id: FundingBoxId);
+    async fn eliminate_predicted(&self, f_id: FundingBoxId);
+    async fn eliminate_confirmed(&self, f_id: FundingBoxId);
 }
 
 const STATE_PREFIX: &str = "s:";
@@ -58,7 +58,7 @@ impl AvailableFundingBoxes {
 
 #[async_trait::async_trait]
 impl FundingRepo for FundingRepoRocksDB {
-    async fn collect(&mut self) -> Result<AvailableFundingBoxes, ()> {
+    async fn collect(&self) -> Result<AvailableFundingBoxes, ()> {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             // Get confirmed boxes first
@@ -87,7 +87,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn put_confirmed(&mut self, Confirmed(f): Confirmed<FundingBox>) {
+    async fn put_confirmed(&self, Confirmed(f): Confirmed<FundingBox>) {
         trace!("FB.put_confirmed: {:?}", f);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f.id);
@@ -104,7 +104,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn put_predicted(&mut self, Predicted(f): Predicted<FundingBox>) {
+    async fn put_predicted(&self, Predicted(f): Predicted<FundingBox>) {
         trace!("FB.put_predicted: {:?}", f);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f.id);
@@ -115,7 +115,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn spend_confirmed(&mut self, f_id: FundingBoxId) {
+    async fn spend_confirmed(&self, f_id: FundingBoxId) {
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
@@ -140,7 +140,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn unspend_confirmed(&mut self, f_id: FundingBoxId) {
+    async fn unspend_confirmed(&self, f_id: FundingBoxId) {
         let db = self.db.clone();
         let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
         spawn_blocking(move || {
@@ -156,7 +156,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn spend_predicted(&mut self, f_id: FundingBoxId) {
+    async fn spend_predicted(&self, f_id: FundingBoxId) {
         trace!("FB.spend_predicted: {:?}", f_id);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
@@ -173,7 +173,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn unspend_predicted(&mut self, f_id: FundingBoxId) {
+    async fn unspend_predicted(&self, f_id: FundingBoxId) {
         trace!("FB.unspend_predicted: {:?}", f_id);
         let db = self.db.clone();
         let spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
@@ -189,7 +189,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn eliminate_predicted(&mut self, f_id: FundingBoxId) {
+    async fn eliminate_predicted(&self, f_id: FundingBoxId) {
         trace!("FB.eliminate_predicted: {:?}", f_id);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
@@ -199,7 +199,7 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn eliminate_confirmed(&mut self, f_id: FundingBoxId) {
+    async fn eliminate_confirmed(&self, f_id: FundingBoxId) {
         trace!("FB.eliminate_confirmed: {:?}", f_id);
         let db = self.db.clone();
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_funding_box() {
-        let mut db = spawn_db();
+        let db = spawn_db();
         let mut funding_boxes: Vec<_> = std::iter::repeat_with(gen_funding_box).take(20).collect();
 
         for f in &funding_boxes {
@@ -281,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unspend_predicted() {
-        let mut db = spawn_db();
+        let db = spawn_db();
         let fb = vec![gen_funding_box()];
         db.put_predicted(Predicted(fb[0].clone())).await;
         db.spend_predicted(fb[0].id).await;
@@ -291,7 +291,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unspend_confirmed() {
-        let mut db = spawn_db();
+        let db = spawn_db();
         let fb = vec![gen_funding_box()];
         db.put_confirmed(Confirmed(fb[0].clone())).await;
         db.spend_confirmed(fb[0].id).await;

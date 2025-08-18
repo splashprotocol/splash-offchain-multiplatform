@@ -1,9 +1,13 @@
+use crate::config::HarvestLimits;
+use crate::entity_index::{index_events, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex};
+use crate::events::OnChainEvent;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
-use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_chain::transaction::Transaction;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
-use futures::{FutureExt, Stream, StreamExt};
+use futures::stream::FusedStream;
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -16,19 +20,12 @@ use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
-    WPFactoryAuthPolicy,
 };
 use std::collections::HashSet;
 
-use crate::config::HarvestLimits;
-use crate::entity_index::rocksdb::OnChainIndex;
-use crate::entity_index::{
-    index_entities, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex,
-};
-use crate::events::OnChainEvent;
-
-pub async fn event_pipeline<U, Cx, Utxos, I, F>(
-    upstream: U,
+pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
+    mut upstream: U,
+    mut sink: S,
     context: Cx,
     indexer: I,
     funding: F,
@@ -36,11 +33,17 @@ pub async fn event_pipeline<U, Cx, Utxos, I, F>(
     utxo_filter: HashSet<ScriptHash>,
 ) where
     U: Stream<
-        Item = (
-            BlockEvents<Either<BabbageTransaction, Transaction>>,
+            Item = (
+                BlockEvents<Either<BabbageTransaction, Transaction>>,
+                TransactionHandle,
+            ),
+        > + FusedStream
+        + Unpin,
+    S: Sink<(
+            BlockEvents<OnChainEvent<FarmId, OutputRef, FinalizedTxOut>>,
             TransactionHandle,
-        ),
-    >,
+        )> + Unpin
+        + Clone,
     Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
@@ -59,21 +62,10 @@ pub async fn event_pipeline<U, Cx, Utxos, I, F>(
         + Clone,
     F: FundingRepo + Clone,
 {
-    upstream
-        .then(|(block, tx_handle)| {
-            let indexer = indexer.clone();
-            let funding = funding.clone();
-            read_events::<OnChainEvent<FarmId, OutputRef, FinalizedTxOut>, _, _>(
-                block,
-                &context,
-                &utxos,
-                &utxo_filter,
-            )
-            .map(|batch| async {
-                index_entities(batch, indexer, funding).await;
-                tx_handle
-            })
-        })
-        .for_each(|tx_handle| async move { tx_handle.await.commit() })
-        .await
+    loop {
+        let (block, tx_handle) = upstream.select_next_some().await;
+        let batch = read_events(block, &context, &utxos, &utxo_filter).await;
+        let batch = index_events(batch, &indexer, &funding).await;
+        let _ = sink.send((batch, tx_handle)).await;
+    }
 }

@@ -1,14 +1,12 @@
 use cml_core::Slot;
+use std::time::Duration;
 
-use bloom_offchain::execution_engine::liquidity_book;
-use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
+use crate::emission::EmissionConfig;
+use crate::engine::EngineConfig;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
-use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-
-use spectrum_offchain_cardano::data::pool::PoolValidation;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,13 +15,19 @@ pub struct AppConfig {
     pub node: NodeConfig,
     pub network_id: NetworkId,
     pub explorer: ExplorerConfig,
+    pub funding_index_db_path: String,
+    pub onchain_index_db_path: String,
+    pub persistent_queue_db_path: String,
     pub utxo_index_db_path: String,
-    pub accounts_db_path: String,
-    pub gauges_db_path: String,
     pub confirmation_delay_blocks: u64,
     pub events_export_topic: String,
     pub bootstrap_servers: String,
     pub harvest_limits: HarvestLimits,
+    pub engine: EngineConfig,
+    pub event_cache_ttl: Duration,
+    pub tx_submission_buffer_size: usize,
+    pub emission: EmissionConfig,
+    pub verifier_url: String,
 }
 
 #[derive(serde::Deserialize)]

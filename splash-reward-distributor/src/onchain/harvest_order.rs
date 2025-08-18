@@ -125,8 +125,8 @@ where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     let harvest_limit = ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest;
-    let lovelaces = output.value().coin;
-    if test_address(output.address(), ctx) && lovelaces >= harvest_limit {
+    let lovelace_amount = output.value().coin;
+    if test_address(output.address(), ctx) && lovelace_amount >= harvest_limit {
         let datum = output.datum()?;
         let HarvestOrderDatum {
             account_key,

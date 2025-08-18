@@ -21,7 +21,7 @@ use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
 use cml_chain::certs::Credential;
-use cml_chain::transaction::TransactionInput;
+use cml_chain::transaction::{Transaction, TransactionInput};
 use cml_chain::{RequiredSigners, Value};
 use cml_crypto::RawBytesEncoding;
 use log::{error, warn};
@@ -72,27 +72,19 @@ pub trait BatchExecutor<TaskId, Task, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
 }
 
-pub struct HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emission> {
+#[derive(Clone)]
+pub struct HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emission> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     emission: Emission,
     batch: Option<HarvestBatch<StateId, Bearer>>,
     ctx: Ctx,
-    pd: PhantomData<Tx>,
 }
 
 #[async_trait]
 impl<Ctx, PositionIndex, OnChainIndex, Emiss>
     BatchExecutor<TaskId, Harvesting<OutputRef>, PartiallySignedCardanoTx, ()>
-    for HarvestingFlow<
-        OutputRef,
-        FinalizedTxOut,
-        PartiallySignedCardanoTx,
-        Ctx,
-        PositionIndex,
-        OnChainIndex,
-        Emiss,
-    >
+    for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
     PositionIndex: Positions<OutputRef> + Send,
     OnChainIndex:
@@ -328,26 +320,18 @@ where
     }
 }
 
-pub struct BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex> {
+#[derive(Clone)]
+pub struct BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex> {
     onchain_index: OnChainIndex,
     funding_index: FundingIndex,
     batch: Option<BufferingBatch<GaugeId, StateId, Bearer>>,
     ctx: Ctx,
-    pd: PhantomData<Tx>,
 }
 
 #[async_trait]
 impl<GaugeId, Ctx, OnChainIndex, FundingIndex>
     BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedCardanoTx, ()>
-    for BufferingFlow<
-        GaugeId,
-        OutputRef,
-        FinalizedTxOut,
-        PartiallySignedCardanoTx,
-        Ctx,
-        OnChainIndex,
-        FundingIndex,
-    >
+    for BufferingFlow<GaugeId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
     GaugeId: Display + Copy + Send + 'static,
     Ctx: Send
@@ -597,11 +581,13 @@ fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {
     splash_tokens_value
 }
 
-pub enum Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission> {
-    Harvesting(HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emission>),
-    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex>),
+#[derive(Clone)]
+pub enum Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission> {
+    Harvesting(HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emission>),
+    Buffering(BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>),
 }
 
+#[derive(Clone)]
 pub struct Executor<
     GaugeId,
     StateId,
@@ -623,10 +609,64 @@ pub struct Executor<
     tx_submit: TxSubmit,
     emission: Emission,
     verifier: Verifier,
-    flow:
-        Option<Flow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission>>,
     ctx: Ctx,
+    blocked_on:
+        Option<Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission>>,
     pd: PhantomData<(Tx, TxInputs, TxErr)>,
+}
+
+impl<
+        GaugeId,
+        StateId,
+        Bearer,
+        Tx,
+        TxInputs,
+        Ctx,
+        TxErr,
+        PositionIndex,
+        OnChainIndex,
+        FundingIndex,
+        TxSubmit,
+        Emission,
+        Verifier,
+    >
+    Executor<
+        GaugeId,
+        StateId,
+        Bearer,
+        Tx,
+        TxInputs,
+        Ctx,
+        TxErr,
+        PositionIndex,
+        OnChainIndex,
+        FundingIndex,
+        TxSubmit,
+        Emission,
+        Verifier,
+    >
+{
+    pub fn new(
+        position_index: PositionIndex,
+        onchain_index: OnChainIndex,
+        funding_index: FundingIndex,
+        tx_submit: TxSubmit,
+        emission: Emission,
+        verifier: Verifier,
+        ctx: Ctx,
+    ) -> Self {
+        Self {
+            position_index,
+            onchain_index,
+            funding_index,
+            tx_submit,
+            emission,
+            verifier,
+            ctx,
+            blocked_on: None,
+            pd: PhantomData,
+        }
+    }
 }
 
 #[async_trait]
@@ -677,9 +717,9 @@ where
     TxSubmit: Clone + Network<Tx, TxErr> + Send,
     Emiss: Emission + Clone + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
-    HarvestingFlow<StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, Emiss>:
+    HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>:
         BatchExecutor<TaskId, Harvesting<StateId>, PartiallySignedTx<Tx, TxInputs>, ()>,
-    BufferingFlow<GaugeId, StateId, Bearer, Tx, Ctx, OnChainIndex, FundingIndex>:
+    BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>:
         BatchExecutor<TaskId, GaugeBuffering<GaugeId>, PartiallySignedTx<Tx, TxInputs>, ()>,
     Ctx: Send
         + Clone
@@ -689,22 +729,20 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
-        let flow = match self.flow {
+        let flow = match self.blocked_on {
             None => match task {
-                Task::GaugeBuffering(_) => self.flow.insert(Flow::Buffering(BufferingFlow {
+                Task::GaugeBuffering(_) => self.blocked_on.insert(Flow::Buffering(BufferingFlow {
                     onchain_index: self.onchain_index.clone(),
                     funding_index: self.funding_index.clone(),
                     batch: None,
                     ctx: self.ctx.clone(),
-                    pd: PhantomData,
                 })),
-                Task::Harvesting(_) => self.flow.insert(Flow::Harvesting(HarvestingFlow {
+                Task::Harvesting(_) => self.blocked_on.insert(Flow::Harvesting(HarvestingFlow {
                     position_index: self.position_index.clone(),
                     onchain_index: self.onchain_index.clone(),
                     emission: self.emission.clone(),
                     batch: None,
                     ctx: self.ctx.clone(),
-                    pd: PhantomData,
                 })),
             },
             Some(ref mut flow) => flow,
@@ -717,7 +755,7 @@ where
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, ()>, ()> {
-        match self.flow.take() {
+        match self.blocked_on.take() {
             None => Err(()),
             Some(flow) => {
                 let ExecutionResult {

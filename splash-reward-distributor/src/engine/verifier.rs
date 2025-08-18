@@ -27,6 +27,7 @@ struct VerificationResponse {
     approved: bool,
 }
 
+#[derive(Clone)]
 pub struct HttpVerifier {
     client: Client,
     verification_url: String,
