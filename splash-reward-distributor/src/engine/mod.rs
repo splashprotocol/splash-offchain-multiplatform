@@ -7,7 +7,7 @@ mod task;
 pub mod verifier;
 mod withdrawal;
 
-use crate::engine::executor::{BatchExecutor, Control};
+use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
 use crate::events::OnChainEvent;
@@ -62,7 +62,7 @@ where
             ),
         > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
-    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ()>
+    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ExecutorError>
         + Clone
         + Unpin
         + Send
@@ -239,7 +239,7 @@ where
 async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
-    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ()>,
+    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ExecutorError>,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
@@ -258,13 +258,20 @@ where
         }
         break;
     }
-    if let Ok(res) = executor.execute().await {
-        let commands = res
-            .executed_tasks
-            .into_iter()
-            .map(QueueCmd::Done)
-            .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
-        queue.batch_execute(commands.collect()).await;
+    match executor.execute().await {
+        Ok(res) => {
+            let commands = res
+                .executed_tasks
+                .into_iter()
+                .map(QueueCmd::Done)
+                .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
+            queue.batch_execute(commands.collect()).await;
+        }
+        Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {
+            let commands = failed_task_ids.into_iter().map(QueueCmd::Cancel).collect();
+            queue.batch_execute(commands).await;
+        }
+        Err(_) => (),
     }
     ControlFlow::Continue(())
 }

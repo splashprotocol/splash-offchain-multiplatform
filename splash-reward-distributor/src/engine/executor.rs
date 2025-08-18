@@ -86,12 +86,8 @@ pub trait BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<GaugeId, StateId, Bearer, TaskId, Out>, Err>;
 }
 
-pub enum Error<GaugeId> {
-    InputsAlreadySpent {
-        buffer_wallet: Option<OutputRef>,
-        gauges: Vec<(Gauge<GaugeId, OutputRef>, OutputRef)>,
-        harvest_orders: Vec<OutputRef>,
-    },
+pub enum Error {
+    TxInputsAlreadySpent { failed_task_ids: Vec<TaskId> },
     UnrecoverableNodeError,
     MissingFlow,
     MissingHarvestBatch,
@@ -117,7 +113,7 @@ impl<Ctx, PositionIndex, OnChainIndex, Emiss>
         TaskId,
         Harvesting<OutputRef>,
         PartiallySignedCardanoTx,
-        Error<FarmId>,
+        Error,
     > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
     PositionIndex: Positions<OutputRef> + Send,
@@ -141,13 +137,11 @@ where
         };
         let batch = if let Some(ref mut batch) = self.batch {
             batch
+        } else if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
+            self.batch.insert(HarvestBatch::new(bw))
         } else {
-            if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
-                self.batch.insert(HarvestBatch::new(bw))
-            } else {
-                error!("No buffer wallet found");
-                return Control::Stop;
-            }
+            error!("No buffer wallet found");
+            return Control::Stop;
         };
         let (req, tx_out) = match order {
             crate::entity_index::Mod::Confirmed(Bundled(req, tx_out))
@@ -203,10 +197,8 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<
-        ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>,
-        Error<FarmId>,
-    > {
+    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, Error>
+    {
         if let Some(batch) = self.batch.take() {
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
@@ -395,7 +387,7 @@ impl<Ctx, OnChainIndex, FundingIndex>
         TaskId,
         GaugeBuffering<FarmId>,
         PartiallySignedCardanoTx,
-        Error<FarmId>,
+        Error,
     > for BufferingFlow<FarmId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
     Ctx: Send
@@ -438,10 +430,8 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<
-        ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>,
-        Error<FarmId>,
-    > {
+    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, Error>
+    {
         use spectrum_offchain::ledger::IntoLedger;
         enum RefInputT {
             AuthManager,
@@ -837,7 +827,7 @@ impl<
         TxSubmit,
         Emiss,
         Verifier,
-    > BatchExecutor<GaugeId, OutputRef, Bearer, TaskId, Task<GaugeId, OutputRef>, (), Error<GaugeId>>
+    > BatchExecutor<GaugeId, OutputRef, Bearer, TaskId, Task<GaugeId, OutputRef>, (), Error>
     for Executor<
         GaugeId,
         OutputRef,
@@ -845,7 +835,7 @@ impl<
         Tx,
         TxInputs,
         Ctx,
-        Error<GaugeId>,
+        Error,
         PositionIndex,
         OnChainIndex,
         FundingIndex,
@@ -854,7 +844,7 @@ impl<
         Verifier,
     >
 where
-    GaugeId: Copy + Send + Sync + Display + 'static,
+    GaugeId: Into<TaskId> + Copy + Send + Sync + Display + 'static,
     Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     Tx: Send,
     TxInputs: Send,
@@ -875,7 +865,7 @@ where
         TaskId,
         Harvesting<OutputRef>,
         PartiallySignedTx<Tx, TxInputs>,
-        Error<GaugeId>,
+        Error,
     >,
     BufferingFlow<GaugeId, OutputRef, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
         GaugeId,
@@ -884,7 +874,7 @@ where
         TaskId,
         GaugeBuffering<GaugeId>,
         PartiallySignedTx<Tx, TxInputs>,
-        Error<GaugeId>,
+        Error,
     >,
     Ctx: Send
         + Clone
@@ -919,9 +909,7 @@ where
         }
     }
 
-    async fn execute(
-        &mut self,
-    ) -> Result<ExecutionResult<GaugeId, OutputRef, Bearer, TaskId, ()>, Error<GaugeId>> {
+    async fn execute(&mut self) -> Result<ExecutionResult<GaugeId, OutputRef, Bearer, TaskId, ()>, Error> {
         match self.blocked_on.take() {
             None => Err(Error::MissingFlow),
             Some(flow) => {
@@ -1027,43 +1015,45 @@ where
                                         }) {
                                             let ExecutionResult {
                                                 predicted_harvest_order_spends,
-                                                predicted_buffer_wallet_update,
                                                 predicted_gauge_updates,
                                                 ..
                                             } = res;
 
-                                            let spent_harvest_orders = predicted_harvest_order_spends
-                                                .iter()
-                                                .filter(|id| bad_inputs.contains(id))
-                                                .cloned()
-                                                .collect::<Vec<_>>();
+                                            let spent_harvest_orders: Vec<TaskId> =
+                                                predicted_harvest_order_spends
+                                                    .iter()
+                                                    .filter_map(|id| {
+                                                        if bad_inputs.contains(id) {
+                                                            return Some((*id).into());
+                                                        }
+                                                        None
+                                                    })
+                                                    .collect::<Vec<_>>();
 
-                                            let spent_buffer_wallet = predicted_buffer_wallet_update
-                                                .consumed
-                                                .filter(|&buffer_wallet_input| {
-                                                    bad_inputs.contains(&buffer_wallet_input)
-                                                });
+                                            // TODO: if buffer wallet was already spent, the reward
+                                            // bot ideally needs to wait until next block to get the
+                                            // latest version of the wallet. Not doing so will just
+                                            // lead to the next formed TX to be rejected right here
+                                            // again.
 
-                                            let spent_gauges = predicted_gauge_updates
+                                            let spent_gauges: Vec<TaskId> = predicted_gauge_updates
                                                 .iter()
                                                 .filter_map(|e| {
                                                     if let Some(consumed_input) = e.consumed {
                                                         if bad_inputs.contains(&consumed_input) {
-                                                            return Some((
-                                                                e.created.0.clone(),
-                                                                consumed_input,
-                                                            ));
+                                                            return Some(e.created.0.id.into());
                                                         }
                                                     }
                                                     None
                                                 })
                                                 .collect::<Vec<_>>();
 
-                                            return Err(Error::InputsAlreadySpent {
-                                                buffer_wallet: spent_buffer_wallet,
-                                                gauges: spent_gauges,
-                                                harvest_orders: spent_harvest_orders,
-                                            });
+                                            let failed_task_ids = spent_harvest_orders
+                                                .into_iter()
+                                                .chain(spent_gauges)
+                                                .collect();
+
+                                            return Err(Error::TxInputsAlreadySpent { failed_task_ids });
                                         }
                                     }
                                     return Err(Error::UnrecoverableNodeError);
