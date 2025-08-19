@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::OutputRef;
 
 /// Transaction with resolved inputs attached to it.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PartiallySignedTx<Tx, Inputs> {
     pub tx: Tx,
     pub inputs: Inputs,

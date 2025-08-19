@@ -7,16 +7,19 @@ mod task;
 pub mod verifier;
 mod withdrawal;
 
-use crate::engine::executor::{BatchExecutor, Control};
+use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
 use crate::events::OnChainEvent;
 use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
+use cml_crypto::TransactionHash;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
+use spectrum_offchain::tx_hash::CanonicalHash;
 use std::fmt::Debug;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -62,7 +65,11 @@ where
             ),
         > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()> + Clone + Unpin + Send + 'static,
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>
+        + Clone
+        + Unpin
+        + Send
+        + 'static,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -84,7 +91,7 @@ where
                 continue;
             }
             let executor = self.executor.clone();
-            self.block_on(process_tasks(queue, executor));
+            self.block_on(process_tasks::<_, Bearer, _, _, _>(queue, executor));
         }
         Poll::Pending
     }
@@ -232,10 +239,10 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, (), ()>,
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
@@ -254,13 +261,23 @@ where
         }
         break;
     }
-    if let Ok(res) = executor.execute().await {
-        let commands = res
-            .executed_tasks
-            .into_iter()
-            .map(QueueCmd::Done)
-            .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
-        queue.batch_execute(commands.collect()).await;
+    match executor.execute().await {
+        Ok(res) => {
+            // TODO: index this with executed tasks (DEX-919)
+            let _tx_hash = res.output;
+
+            let commands = res
+                .executed_tasks
+                .into_iter()
+                .map(QueueCmd::Done)
+                .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
+            queue.batch_execute(commands.collect()).await;
+        }
+        Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {
+            let commands = failed_task_ids.into_iter().map(QueueCmd::Cancel).collect();
+            queue.batch_execute(commands).await;
+        }
+        Err(_) => (),
     }
     ControlFlow::Continue(())
 }

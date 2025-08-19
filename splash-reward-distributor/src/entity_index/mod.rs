@@ -25,6 +25,11 @@ pub trait BufferWalletIndex<StateId, Bearer> {
         bundle: Bundled<BufferWallet<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     );
+    async fn write_predicted_buffer_wallet(
+        &self,
+        bundle: Bundled<BufferWallet<StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    );
     async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId>;
 }
 
@@ -32,6 +37,11 @@ pub trait BufferWalletIndex<StateId, Bearer> {
 pub trait GaugeIndex<GaugeId, StateId, Bearer> {
     async fn get_gauge(&self, id: GaugeId) -> Option<Bundled<Gauge<GaugeId, StateId>, Bearer>>;
     async fn write_confirmed_gauge(
+        &self,
+        bundle: Bundled<Gauge<GaugeId, StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    );
+    async fn write_predicted_gauge(
         &self,
         bundle: Bundled<Gauge<GaugeId, StateId>, Bearer>,
         prev_state_id: Option<StateId>,
@@ -274,6 +284,15 @@ where
         self.write_confirmed(traced).await;
     }
 
+    async fn write_predicted_buffer_wallet(
+        &self,
+        bundled: Bundled<BufferWallet<StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    ) {
+        let traced = Traced::new(Predicted(bundled), prev_state_id);
+        self.write_predicted(traced).await;
+    }
+
     async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId> {
         self.remove::<BufferWallet<_>>(BufferWalletId, id).await
     }
@@ -297,6 +316,7 @@ where
             }) => b,
         })
     }
+
     async fn write_confirmed_gauge(
         &self,
         bundled: Bundled<Gauge<GaugeId, StateId>, Bearer>,
@@ -305,6 +325,16 @@ where
         let traced = Traced::new(Confirmed(bundled), prev_state_id);
         self.write_confirmed(traced).await;
     }
+
+    async fn write_predicted_gauge(
+        &self,
+        bundled: Bundled<Gauge<GaugeId, StateId>, Bearer>,
+        prev_state_id: Option<StateId>,
+    ) {
+        let traced = Traced::new(Predicted(bundled), prev_state_id);
+        self.write_predicted(traced).await;
+    }
+
     async fn remove_gauge(&self, gauge_id: GaugeId, state_id: StateId) -> Option<StateId> {
         self.remove::<Gauge<_, _>>(gauge_id, state_id).await
     }
