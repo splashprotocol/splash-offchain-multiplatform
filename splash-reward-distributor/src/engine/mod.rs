@@ -17,8 +17,10 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::Transaction;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
+use spectrum_offchain::tx_hash::CanonicalHash;
 use std::fmt::Debug;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -28,15 +30,17 @@ pub struct EngineConfig {
     buffering_threshold: u64,
 }
 
-pub struct Engine<U, Q, E> {
+pub struct Engine<U, Q, E, Tx, TxInputs> {
     event_stream: U,
     queue: Q,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
     conf: EngineConfig,
+    tx_pd: PhantomData<Tx>,
+    tx_inputs_pd: PhantomData<TxInputs>,
 }
 
-impl<U, Q, E> Engine<U, Q, E> {
+impl<U, Q, E, Tx, TxInputs> Engine<U, Q, E, Tx, TxInputs> {
     pub fn new(event_stream: U, queue: Q, executor: E, conf: EngineConfig) -> Self {
         Self {
             event_stream,
@@ -44,6 +48,8 @@ impl<U, Q, E> Engine<U, Q, E> {
             executor,
             current_task: None,
             conf,
+            tx_pd: PhantomData::default(),
+            tx_inputs_pd: PhantomData::default(),
         }
     }
 
@@ -52,11 +58,14 @@ impl<U, Q, E> Engine<U, Q, E> {
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
+impl<GaugeId, StateId, Bearer, U, Q, E, Tx, TxInputs> Future for Engine<U, Q, E, Tx, TxInputs>
 where
     GaugeId: Copy + Into<TaskId> + Unpin + Send + 'static,
     StateId: Copy + Into<TaskId> + Unpin + Send + 'static,
     Bearer: Unpin + Send + 'static,
+    Tx: Send + Unpin + CanonicalHash + 'static,
+    <Tx as spectrum_offchain::tx_hash::CanonicalHash>::Hash: std::marker::Send,
+    TxInputs: Send + Unpin + 'static,
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
@@ -64,7 +73,7 @@ where
             ),
         > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, Transaction, CardanoTxInputs, (), ExecutorError>
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, Tx, TxInputs, (), ExecutorError>
         + Clone
         + Unpin
         + Send
@@ -90,7 +99,7 @@ where
                 continue;
             }
             let executor = self.executor.clone();
-            self.block_on(process_tasks::<_, Bearer, _, _, _>(queue, executor));
+            self.block_on(process_tasks::<_, Bearer, _, _, _, _, _>(queue, executor));
         }
         Poll::Pending
     }
@@ -238,10 +247,15 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, Bearer, StateId, Q, E, Tx, TxInputs>(
+    queue: Q,
+    mut executor: E,
+) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
-    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, Transaction, CardanoTxInputs, (), ExecutorError>,
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, Tx, TxInputs, (), ExecutorError>,
+    Tx: CanonicalHash + Send,
+    <Tx as spectrum_offchain::tx_hash::CanonicalHash>::Hash: std::marker::Send,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
@@ -262,6 +276,9 @@ where
     }
     match executor.execute().await {
         Ok(res) => {
+            // TODO: index this with executed tasks (DEX-919)
+            let _tx_hash = res.resolved_tx.tx.canonical_hash();
+
             let commands = res
                 .executed_tasks
                 .into_iter()
