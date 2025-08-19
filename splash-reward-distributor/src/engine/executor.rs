@@ -42,6 +42,7 @@ use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
+use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::deployment::DaoScriptData;
@@ -69,27 +70,28 @@ pub enum Control<TaskId> {
 }
 
 #[derive(Debug)]
-pub struct ExecutionResult<TaskId, Tx, TxInputs, Out> {
+pub struct ExecutionResult<TaskId, Out> {
     pub executed_tasks: Vec<TaskId>,
-    pub resolved_tx: PartiallySignedTx<Tx, TxInputs>,
     pub output: Out,
 }
 
-pub struct HarvestFlowEntityUpdates<StateId, Bearer> {
+pub struct HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs> {
     pub predicted_buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
     pub predicted_harvest_order_spends: Vec<StateId>,
+    pub resolved_tx: PartiallySignedTx<Tx, TxInputs>,
 }
 
-pub struct BufferingFlowEntityUpdates<StateId, GaugeId, Bearer> {
+pub struct BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs> {
     pub predicted_gauge_updates: Vec<EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>>,
     pub predicted_buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
     pub funding_box_changes: Option<FundingBoxChanges>,
+    pub resolved_tx: PartiallySignedTx<Tx, TxInputs>,
 }
 
 #[async_trait]
-pub trait BatchExecutor<TaskId, Task, Tx, TxInputs, Out, Err> {
+pub trait BatchExecutor<TaskId, Task, Out, Err> {
     async fn feed(&mut self, task_id: TaskId, task: Task) -> Control<TaskId>;
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx, TxInputs, Out>, Err>;
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
 }
 
 #[derive(Debug, Clone)]
@@ -112,9 +114,7 @@ impl<Ctx, PositionIndex, OnChainIndex, Emiss>
     BatchExecutor<
         TaskId,
         Harvesting<OutputRef>,
-        Transaction,
-        CardanoTxInputs,
-        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut>,
+        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, Transaction, CardanoTxInputs>,
         Error,
     > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
@@ -202,9 +202,7 @@ where
     ) -> Result<
         ExecutionResult<
             TaskId,
-            Transaction,
-            CardanoTxInputs,
-            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut>,
+            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, Transaction, CardanoTxInputs>,
         >,
         Error,
     > {
@@ -371,11 +369,11 @@ where
             let output = HarvestFlowEntityUpdates {
                 predicted_buffer_wallet_update,
                 predicted_harvest_order_spends,
+                resolved_tx,
             };
 
             Ok(ExecutionResult {
                 executed_tasks,
-                resolved_tx,
                 output,
             })
         } else {
@@ -397,9 +395,7 @@ impl<Ctx, OnChainIndex, FundingIndex>
     BatchExecutor<
         TaskId,
         GaugeBuffering<FarmId>,
-        Transaction,
-        CardanoTxInputs,
-        BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut>,
+        BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, Transaction, CardanoTxInputs>,
         Error,
     > for BufferingFlow<FarmId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
@@ -446,9 +442,7 @@ where
     ) -> Result<
         ExecutionResult<
             TaskId,
-            Transaction,
-            CardanoTxInputs,
-            BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut>,
+            BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, Transaction, CardanoTxInputs>,
         >,
         Error,
     > {
@@ -733,11 +727,11 @@ where
                 predicted_gauge_updates,
                 predicted_buffer_wallet_update,
                 funding_box_changes,
+                resolved_tx,
             };
 
             Ok(ExecutionResult {
                 executed_tasks,
-                resolved_tx,
                 output,
             })
         } else {
@@ -854,7 +848,7 @@ impl<
         TxSubmit,
         Emiss,
         Verifier,
-    > BatchExecutor<TaskId, Task<GaugeId, StateId>, Tx, TxInputs, (), Error>
+    > BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, Error>
     for Executor<
         GaugeId,
         StateId,
@@ -875,8 +869,8 @@ where
     StateId:
         Into<OutputRef> + Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
-    Tx: Send,
-    TxInputs: Send,
+    Tx: Send + Clone + CanonicalHash<Hash = TransactionHash>,
+    TxInputs: Send + Clone,
     PositionIndex: Positions<StateId> + Clone + Send,
     OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
         + HarvestOrderIndex<StateId, Bearer>
@@ -891,17 +885,13 @@ where
     HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>: BatchExecutor<
         TaskId,
         Harvesting<StateId>,
-        Tx,
-        TxInputs,
-        HarvestFlowEntityUpdates<StateId, Bearer>,
+        HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs>,
         Error,
     >,
     BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
         TaskId,
         GaugeBuffering<GaugeId>,
-        Tx,
-        TxInputs,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer>,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs>,
         Error,
     >,
     Ctx: Send
@@ -937,19 +927,21 @@ where
         }
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx, TxInputs, ()>, Error> {
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, TransactionHash>, Error> {
         match self.blocked_on.take() {
             Some(flow) => {
                 let (typed_result, resolved_tx, executed_tasks) = match flow {
                     Flow::Harvesting(mut hf) => {
                         let res = hf.execute().await?;
+                        let resolved_tx = res.output.resolved_tx.clone();
                         let typed_res = TypedExecutionUpdate::Harvesting(res.output);
-                        (typed_res, res.resolved_tx, res.executed_tasks)
+                        (typed_res, resolved_tx, res.executed_tasks)
                     }
                     Flow::Buffering(mut bf) => {
                         let res = bf.execute().await?;
+                        let resolved_tx = res.output.resolved_tx.clone();
                         let typed_res = TypedExecutionUpdate::Buffering(res.output);
-                        (typed_res, res.resolved_tx, res.executed_tasks)
+                        (typed_res, resolved_tx, res.executed_tasks)
                     }
                 };
 
@@ -961,8 +953,7 @@ where
                                     .await;
                                 return Ok(ExecutionResult {
                                     executed_tasks,
-                                    resolved_tx,
-                                    output: (),
+                                    output: resolved_tx.tx.canonical_hash(),
                                 });
                             }
 
@@ -992,10 +983,10 @@ enum TypedExecutionUpdate<HarvestOut, BufferingOut> {
     Buffering(BufferingOut),
 }
 
-async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, FundingIndex>(
+async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, FundingIndex, Tx, TxInputs>(
     update: TypedExecutionUpdate<
-        HarvestFlowEntityUpdates<StateId, Bearer>,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer>,
+        HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs>,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs>,
     >,
     onchain_index: &OnChainIndex,
     funding_index: &FundingIndex,
@@ -1015,6 +1006,7 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
         TypedExecutionUpdate::Harvesting(HarvestFlowEntityUpdates {
             predicted_buffer_wallet_update,
             predicted_harvest_order_spends,
+            ..
         }) => {
             for output_ref in &predicted_harvest_order_spends {
                 onchain_index
@@ -1034,6 +1026,7 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
             predicted_gauge_updates,
             predicted_buffer_wallet_update,
             funding_box_changes,
+            ..
         }) => {
             for gauge_update in &predicted_gauge_updates {
                 let EntityUpdated {
@@ -1076,10 +1069,10 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
 }
 
 /// Returns `TaskId`s of inputs that have been already spent on-chain.
-fn extract_failed_task_ids<StateId, GaugeId, Bearer>(
+fn extract_failed_task_ids<StateId, GaugeId, Bearer, Tx, TxInputs>(
     update: TypedExecutionUpdate<
-        HarvestFlowEntityUpdates<StateId, Bearer>,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer>,
+        HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs>,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs>,
     >,
     reject_reasons: RejectReasons,
 ) -> Option<Vec<TaskId>>
@@ -1106,11 +1099,9 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            // TODO: if buffer wallet was already spent, the reward
-            // bot ideally needs to wait until next block to get the
-            // latest version of the wallet. Not doing so will just
-            // lead to the next formed TX to be rejected right here
-            // again.
+            // TODO (DEX-920): if buffer wallet was already spent, the reward bot ideally needs to
+            // wait until next block to get the latest version of the wallet. Not doing so will just
+            // lead to the next formed TX to be rejected right here again.
             Some(failed_task_ids)
         }
         TypedExecutionUpdate::Buffering(BufferingFlowEntityUpdates {
