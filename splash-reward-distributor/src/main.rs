@@ -28,6 +28,7 @@ use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use log::info;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
+use spectrum_offchain::kv_store::KVStoreRocksDB;
 use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
@@ -117,7 +118,8 @@ async fn main() {
 
     let queue = RocksDB::new(config.persistent_queue_db_path);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
-    let engine = engine::Engine::new(engine_mailbox, queue, executor, config.engine);
+    let kv_store = KVStoreRocksDB::new(config.task_id_by_tx_hash_db_path);
+    let engine = engine::Engine::new(engine_mailbox, queue, executor, kv_store, config.engine);
 
     let processes = FuturesUnordered::new();
 

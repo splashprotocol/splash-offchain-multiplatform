@@ -14,10 +14,9 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
-use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain::kv_store::KvStore;
 use std::fmt::Debug;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -29,22 +28,24 @@ pub struct EngineConfig {
     buffering_threshold: u64,
 }
 
-pub struct Engine<U, Q, E> {
+pub struct Engine<U, Q, E, K> {
     event_stream: U,
     queue: Q,
     executor: E,
+    task_ids_by_tx_hash: K,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
     conf: EngineConfig,
 }
 
-impl<U, Q, E> Engine<U, Q, E> {
-    pub fn new(event_stream: U, queue: Q, executor: E, conf: EngineConfig) -> Self {
+impl<U, Q, E, K> Engine<U, Q, E, K> {
+    pub fn new(event_stream: U, queue: Q, executor: E, task_ids_by_tx_hash: K, conf: EngineConfig) -> Self {
         Self {
             event_stream,
             queue,
             executor,
             current_task: None,
             conf,
+            task_ids_by_tx_hash,
         }
     }
 
@@ -53,7 +54,7 @@ impl<U, Q, E> Engine<U, Q, E> {
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
+impl<GaugeId, StateId, Bearer, U, Q, E, K> Future for Engine<U, Q, E, K>
 where
     GaugeId: Copy + Into<TaskId> + Unpin + Send + 'static,
     StateId: Copy + Into<TaskId> + Unpin + Send + 'static,
@@ -70,6 +71,7 @@ where
         + Unpin
         + Send
         + 'static,
+    K: KvStore<TransactionHash, Vec<TaskId>> + Clone + Unpin + Send + 'static,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -91,7 +93,12 @@ where
                 continue;
             }
             let executor = self.executor.clone();
-            self.block_on(process_tasks::<_, Bearer, _, _, _>(queue, executor));
+            let task_ids_by_tx_hash = self.task_ids_by_tx_hash.clone();
+            self.block_on(process_tasks::<_, Bearer, _, _, _, _>(
+                queue,
+                executor,
+                task_ids_by_tx_hash,
+            ));
         }
         Poll::Pending
     }
@@ -239,10 +246,15 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, Bearer, StateId, Q, E, K>(
+    queue: Q,
+    mut executor: E,
+    mut task_ids_by_tx_hash: K,
+) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
+    K: KvStore<TransactionHash, Vec<TaskId>> + Clone + Unpin + Send + 'static,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
@@ -263,14 +275,18 @@ where
     }
     match executor.execute().await {
         Ok(res) => {
-            // TODO: index this with executed tasks (DEX-919)
-            let _tx_hash = res.output;
+            let tx_hash = res.output;
+
+            task_ids_by_tx_hash
+                .insert(tx_hash, res.executed_tasks.clone())
+                .await;
 
             let commands = res
                 .executed_tasks
                 .into_iter()
                 .map(QueueCmd::Done)
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
+
             queue.batch_execute(commands.collect()).await;
         }
         Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {

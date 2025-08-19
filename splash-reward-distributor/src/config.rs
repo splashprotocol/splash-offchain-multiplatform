@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub node: NodeConfig,
     pub network_id: NetworkId,
     pub explorer: ExplorerConfig,
+    pub task_id_by_tx_hash_db_path: String,
     pub funding_index_db_path: String,
     pub onchain_index_db_path: String,
     pub persistent_queue_db_path: String,
