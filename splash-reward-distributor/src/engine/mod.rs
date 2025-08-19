@@ -9,10 +9,12 @@ mod withdrawal;
 
 use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
+use crate::engine::resolved_tx::CardanoTxInputs;
 use crate::engine::task::{Task, TaskId};
 use crate::events::OnChainEvent;
 use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
+use cml_chain::transaction::Transaction;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use std::fmt::Debug;
@@ -62,7 +64,7 @@ where
             ),
         > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
-    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ExecutorError>
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, Transaction, CardanoTxInputs, (), ExecutorError>
         + Clone
         + Unpin
         + Send
@@ -88,7 +90,7 @@ where
                 continue;
             }
             let executor = self.executor.clone();
-            self.block_on(process_tasks(queue, executor));
+            self.block_on(process_tasks::<_, Bearer, _, _, _>(queue, executor));
         }
         Poll::Pending
     }
@@ -239,7 +241,7 @@ where
 async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
-    E: BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task<GaugeId, StateId>, (), ExecutorError>,
+    E: BatchExecutor<TaskId, Task<GaugeId, StateId>, Transaction, CardanoTxInputs, (), ExecutorError>,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();

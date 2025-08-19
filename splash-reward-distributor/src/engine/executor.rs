@@ -4,7 +4,7 @@ use crate::constants::{
 };
 use crate::emission::{reward_amount, Emission};
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
-use crate::engine::resolved_tx::{PartiallySignedCardanoTx, PartiallySignedTx};
+use crate::engine::resolved_tx::{CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
@@ -71,19 +71,27 @@ pub enum Control<TaskId> {
 }
 
 #[derive(Debug)]
-pub struct ExecutionResult<GaugeId, StateId, Bearer, TaskId, Out> {
+pub struct ExecutionResult<TaskId, Tx, TxInputs, Out> {
     pub executed_tasks: Vec<TaskId>,
+    pub resolved_tx: PartiallySignedTx<Tx, TxInputs>,
     pub output: Out,
-    pub predicted_harvest_order_spends: Vec<StateId>,
+}
+
+pub struct HarvestFlowEntityUpdates<StateId, Bearer> {
     pub predicted_buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+    pub predicted_harvest_order_spends: Vec<StateId>,
+}
+
+pub struct BufferingFlowEntityUpdates<StateId, GaugeId, Bearer> {
     pub predicted_gauge_updates: Vec<EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>>,
+    pub predicted_buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
     pub funding_box_changes: Option<FundingBoxChanges>,
 }
 
 #[async_trait]
-pub trait BatchExecutor<GaugeId, StateId, Bearer, TaskId, Task, Out, Err> {
+pub trait BatchExecutor<TaskId, Task, Tx, TxInputs, Out, Err> {
     async fn feed(&mut self, task_id: TaskId, task: Task) -> Control<TaskId>;
-    async fn execute(&mut self) -> Result<ExecutionResult<GaugeId, StateId, Bearer, TaskId, Out>, Err>;
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx, TxInputs, Out>, Err>;
 }
 
 pub enum Error {
@@ -107,12 +115,11 @@ pub struct HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emi
 #[async_trait]
 impl<Ctx, PositionIndex, OnChainIndex, Emiss>
     BatchExecutor<
-        FarmId,
-        OutputRef,
-        FinalizedTxOut,
         TaskId,
         Harvesting<OutputRef>,
-        PartiallySignedCardanoTx,
+        Transaction,
+        CardanoTxInputs,
+        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut>,
         Error,
     > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
@@ -197,8 +204,15 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, Error>
-    {
+    ) -> Result<
+        ExecutionResult<
+            TaskId,
+            Transaction,
+            CardanoTxInputs,
+            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut>,
+        >,
+        Error,
+    > {
         if let Some(batch) = self.batch.take() {
             let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
 
@@ -337,8 +351,6 @@ where
 
             let tx_body = output.body();
             let tx_hash = hash_transaction_canonical(&tx_body);
-            let tx_hash_bytes = <[u8; 32]>::from(tx_hash);
-            let task_id = TaskId::from(tx_hash_bytes);
 
             let resolved_tx = PartiallySignedCardanoTx {
                 tx: output.build_unchecked(),
@@ -361,13 +373,15 @@ where
                 .map(|id| (*id).into())
                 .collect();
 
+            let output = HarvestFlowEntityUpdates {
+                predicted_buffer_wallet_update,
+                predicted_harvest_order_spends,
+            };
+
             Ok(ExecutionResult {
                 executed_tasks,
-                output: resolved_tx,
-                predicted_harvest_order_spends,
-                predicted_buffer_wallet_update,
-                predicted_gauge_updates: vec![],
-                funding_box_changes: None,
+                resolved_tx,
+                output,
             })
         } else {
             Err(Error::MissingHarvestBatch)
@@ -386,12 +400,11 @@ pub struct BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingInd
 #[async_trait]
 impl<Ctx, OnChainIndex, FundingIndex>
     BatchExecutor<
-        FarmId,
-        OutputRef,
-        FinalizedTxOut,
         TaskId,
         GaugeBuffering<FarmId>,
-        PartiallySignedCardanoTx,
+        Transaction,
+        CardanoTxInputs,
+        BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut>,
         Error,
     > for BufferingFlow<FarmId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
@@ -435,8 +448,15 @@ where
 
     async fn execute(
         &mut self,
-    ) -> Result<ExecutionResult<FarmId, OutputRef, FinalizedTxOut, TaskId, PartiallySignedCardanoTx>, Error>
-    {
+    ) -> Result<
+        ExecutionResult<
+            TaskId,
+            Transaction,
+            CardanoTxInputs,
+            BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut>,
+        >,
+        Error,
+    > {
         use spectrum_offchain::ledger::IntoLedger;
         enum RefInputT {
             AuthManager,
@@ -545,7 +565,7 @@ where
             // Now extract gauge inputs in sorted order
             let sorted_gauge_inputs: Vec<_> = typed_inputs
                 .iter()
-                .filter_map(|(typ, e)| {
+                .filter_map(|(typ, _)| {
                     if let InputT::Gauge(Bundled(g, _)) = typ {
                         return Some(g.clone());
                     }
@@ -656,8 +676,6 @@ where
 
             let tx_body = output.body();
             let tx_hash = hash_transaction_canonical(&tx_body);
-            let tx_hash_bytes = <[u8; 32]>::from(tx_hash);
-            let task_id = TaskId::from(tx_hash_bytes);
 
             let resolved_tx = PartiallySignedCardanoTx {
                 tx: output.build_unchecked(),
@@ -716,13 +734,16 @@ where
                 .map(|g| g.created.0.id.into())
                 .collect();
 
+            let output = BufferingFlowEntityUpdates {
+                predicted_gauge_updates,
+                predicted_buffer_wallet_update,
+                funding_box_changes,
+            };
+
             Ok(ExecutionResult {
                 executed_tasks,
-                output: resolved_tx,
-                predicted_harvest_order_spends: vec![],
-                predicted_buffer_wallet_update,
-                predicted_gauge_updates,
-                funding_box_changes,
+                resolved_tx,
+                output,
             })
         } else {
             Err(Error::MissingBufferingBatch)
@@ -827,6 +848,7 @@ impl<
 #[async_trait]
 impl<
         GaugeId,
+        StateId,
         Bearer,
         Tx,
         TxInputs,
@@ -837,10 +859,10 @@ impl<
         TxSubmit,
         Emiss,
         Verifier,
-    > BatchExecutor<GaugeId, OutputRef, Bearer, TaskId, Task<GaugeId, OutputRef>, (), Error>
+    > BatchExecutor<TaskId, Task<GaugeId, StateId>, Tx, TxInputs, (), Error>
     for Executor<
         GaugeId,
-        OutputRef,
+        StateId,
         Bearer,
         Tx,
         TxInputs,
@@ -855,35 +877,35 @@ impl<
     >
 where
     GaugeId: Into<TaskId> + Copy + Send + Sync + Display + 'static,
+    StateId:
+        Into<OutputRef> + Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     Tx: Send,
     TxInputs: Send,
-    PositionIndex: Positions<OutputRef> + Clone + Send,
-    OnChainIndex: GaugeIndex<GaugeId, OutputRef, Bearer>
-        + HarvestOrderIndex<OutputRef, Bearer>
-        + BufferWalletIndex<OutputRef, Bearer>
+    PositionIndex: Positions<StateId> + Clone + Send,
+    OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
+        + HarvestOrderIndex<StateId, Bearer>
+        + BufferWalletIndex<StateId, Bearer>
         + Clone
         + Send,
     FundingIndex: FundingRepo + Clone + Send,
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
     Emiss: Emission + Clone + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
-    HarvestingFlow<OutputRef, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>: BatchExecutor<
-        GaugeId,
-        OutputRef,
-        Bearer,
+    HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>: BatchExecutor<
         TaskId,
-        Harvesting<OutputRef>,
-        PartiallySignedTx<Tx, TxInputs>,
+        Harvesting<StateId>,
+        Tx,
+        TxInputs,
+        HarvestFlowEntityUpdates<StateId, Bearer>,
         Error,
     >,
-    BufferingFlow<GaugeId, OutputRef, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
-        GaugeId,
-        OutputRef,
-        Bearer,
+    BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
         TaskId,
         GaugeBuffering<GaugeId>,
-        PartiallySignedTx<Tx, TxInputs>,
+        Tx,
+        TxInputs,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer>,
         Error,
     >,
     Ctx: Send
@@ -893,7 +915,7 @@ where
         + Has<HarvestOrderRefScriptOutput>
         + Has<NetworkId>,
 {
-    async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, OutputRef>) -> Control<TaskId> {
+    async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
         let flow = match self.blocked_on {
             None => match task {
                 Task::GaugeBuffering(_) => self.blocked_on.insert(Flow::Buffering(BufferingFlow {
@@ -919,28 +941,21 @@ where
         }
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<GaugeId, OutputRef, Bearer, TaskId, ()>, Error> {
+    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx, TxInputs, ()>, Error> {
         match self.blocked_on.take() {
             None => Err(Error::MissingFlow),
-            Some(flow) => {
-                let res = match flow {
-                    Flow::Harvesting(mut hf) => hf.execute().await?,
-                    Flow::Buffering(mut bf) => bf.execute().await?,
-                };
+            Some(Flow::Harvesting(mut hf)) => {
+                let res = hf.execute().await?;
                 loop {
-                    match self.verifier.try_approve(&res.output).await {
+                    match self.verifier.try_approve(&res.resolved_tx).await {
                         Ok(coop_tx) => {
                             // Only index predicted-writes if TX is successfully submitted
                             match self.tx_submit.submit_tx(coop_tx).await {
                                 Ok(_) => {
-                                    let ExecutionResult {
-                                        executed_tasks,
-                                        predicted_harvest_order_spends,
+                                    let HarvestFlowEntityUpdates {
                                         predicted_buffer_wallet_update,
-                                        predicted_gauge_updates,
-                                        funding_box_changes,
-                                        ..
-                                    } = res;
+                                        predicted_harvest_order_spends,
+                                    } = res.output;
                                     for output_ref in &predicted_harvest_order_spends {
                                         self.onchain_index
                                             .write_predicted_spend_harvest_order(*output_ref)
@@ -957,6 +972,66 @@ where
                                             consumed,
                                         )
                                         .await;
+
+                                    return Ok(ExecutionResult {
+                                        executed_tasks: res.executed_tasks,
+                                        resolved_tx: res.resolved_tx,
+                                        output: (),
+                                    });
+                                }
+                                Err(reject_reasons) => {
+                                    if let Some(already_spent_inputs) =
+                                        extract_already_spent_inputs(reject_reasons)
+                                    {
+                                        let HarvestFlowEntityUpdates {
+                                            predicted_harvest_order_spends,
+                                            ..
+                                        } = res.output;
+
+                                        let failed_task_ids: Vec<TaskId> = predicted_harvest_order_spends
+                                            .iter()
+                                            .filter_map(|id| {
+                                                let output_ref = (*id).into();
+                                                if already_spent_inputs.contains(&output_ref) {
+                                                    return Some(output_ref.into());
+                                                }
+                                                None
+                                            })
+                                            .collect::<Vec<_>>();
+
+                                        // TODO: if buffer wallet was already spent, the reward
+                                        // bot ideally needs to wait until next block to get the
+                                        // latest version of the wallet. Not doing so will just
+                                        // lead to the next formed TX to be rejected right here
+                                        // again.
+
+                                        return Err(Error::TxInputsAlreadySpent { failed_task_ids });
+                                    } else {
+                                        return Err(Error::UnrecoverableNodeError);
+                                    }
+                                }
+                            }
+                        }
+                        Err(VerifierRejection::Unavailable) => continue, // todo: RestartVerifierWhenUnresponsive
+                        Err(VerifierRejection::InvalidWithdrawal) => {
+                            panic!() // todo: ShouldGoToIndexFaultMode; ShouldResyncOnMismatch
+                        }
+                    }
+                }
+            }
+            Some(Flow::Buffering(mut bf)) => {
+                let res = bf.execute().await?;
+                loop {
+                    match self.verifier.try_approve(&res.resolved_tx).await {
+                        Ok(coop_tx) => {
+                            // Only index predicted-writes if TX is successfully submitted
+                            match self.tx_submit.submit_tx(coop_tx).await {
+                                Ok(_) => {
+                                    let BufferingFlowEntityUpdates {
+                                        predicted_gauge_updates,
+                                        funding_box_changes,
+                                        ..
+                                    } = res.output;
 
                                     for gauge_update in &predicted_gauge_updates {
                                         let EntityUpdated {
@@ -988,85 +1063,36 @@ where
                                     }
 
                                     return Ok(ExecutionResult {
-                                        executed_tasks,
+                                        executed_tasks: res.executed_tasks,
+                                        resolved_tx: res.resolved_tx,
                                         output: (),
-                                        predicted_harvest_order_spends,
-                                        predicted_buffer_wallet_update,
-                                        predicted_gauge_updates,
-                                        funding_box_changes,
                                     });
                                 }
-                                Err(e) => {
-                                    if let RejectReasons(Some(ApplyTxError { node_errors })) = &e {
-                                        if let Some(bad_inputs) = node_errors.iter().find_map(|err| {
-                                            if let ConwayLedgerPredFailure::UtxowFailure(
-                                                ConwayUtxowPredFailure::UtxoFailure(
-                                                    ConwayUtxoPredFailure::BadInputsUtxo(bad_inputs),
-                                                ),
-                                            ) = err
-                                            {
-                                                Some(
-                                                    bad_inputs
-                                                        .iter()
-                                                        .map(|TxInput { tx_hash, index }| {
-                                                            OutputRef::new(
-                                                                TransactionHash::from_raw_bytes(
-                                                                    tx_hash.as_slice(),
-                                                                )
-                                                                .unwrap(),
-                                                                *index,
-                                                            )
-                                                        })
-                                                        .collect::<Vec<_>>(),
-                                                )
-                                            } else {
-                                                None
-                                            }
-                                        }) {
-                                            let ExecutionResult {
-                                                predicted_harvest_order_spends,
-                                                predicted_gauge_updates,
-                                                ..
-                                            } = res;
+                                Err(reject_reasons) => {
+                                    if let Some(already_spent_inputs) =
+                                        extract_already_spent_inputs(reject_reasons)
+                                    {
+                                        let BufferingFlowEntityUpdates {
+                                            predicted_gauge_updates,
+                                            ..
+                                        } = res.output;
 
-                                            let spent_harvest_orders: Vec<TaskId> =
-                                                predicted_harvest_order_spends
-                                                    .iter()
-                                                    .filter_map(|id| {
-                                                        if bad_inputs.contains(id) {
-                                                            return Some((*id).into());
-                                                        }
-                                                        None
-                                                    })
-                                                    .collect::<Vec<_>>();
-
-                                            // TODO: if buffer wallet was already spent, the reward
-                                            // bot ideally needs to wait until next block to get the
-                                            // latest version of the wallet. Not doing so will just
-                                            // lead to the next formed TX to be rejected right here
-                                            // again.
-
-                                            let spent_gauges: Vec<TaskId> = predicted_gauge_updates
-                                                .iter()
-                                                .filter_map(|e| {
-                                                    if let Some(consumed_input) = e.consumed {
-                                                        if bad_inputs.contains(&consumed_input) {
-                                                            return Some(e.created.0.id.into());
-                                                        }
+                                        let failed_task_ids: Vec<TaskId> = predicted_gauge_updates
+                                            .iter()
+                                            .filter_map(|e| {
+                                                if let Some(consumed_input) = e.consumed {
+                                                    if already_spent_inputs.contains(&consumed_input.into()) {
+                                                        return Some(e.created.0.id.into());
                                                     }
-                                                    None
-                                                })
-                                                .collect::<Vec<_>>();
+                                                }
+                                                None
+                                            })
+                                            .collect();
 
-                                            let failed_task_ids = spent_harvest_orders
-                                                .into_iter()
-                                                .chain(spent_gauges)
-                                                .collect();
-
-                                            return Err(Error::TxInputsAlreadySpent { failed_task_ids });
-                                        }
+                                        return Err(Error::TxInputsAlreadySpent { failed_task_ids });
+                                    } else {
+                                        return Err(Error::UnrecoverableNodeError);
                                     }
-                                    return Err(Error::UnrecoverableNodeError);
                                 }
                             }
                         }
@@ -1079,4 +1105,33 @@ where
             }
         }
     }
+}
+
+fn extract_already_spent_inputs(RejectReasons(reasons): RejectReasons) -> Option<Vec<OutputRef>> {
+    reasons.map(|ApplyTxError { node_errors }| {
+        node_errors
+            .iter()
+            .filter_map(|err| {
+                if let ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                    ConwayUtxoPredFailure::BadInputsUtxo(bad_inputs),
+                )) = err
+                {
+                    Some(
+                        bad_inputs
+                            .iter()
+                            .map(|TxInput { tx_hash, index }| {
+                                OutputRef::new(
+                                    TransactionHash::from_raw_bytes(tx_hash.as_slice()).unwrap(),
+                                    *index,
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect()
+    })
 }
