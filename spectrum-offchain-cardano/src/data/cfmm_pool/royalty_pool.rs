@@ -13,8 +13,10 @@ use crate::data::pool::{ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, Pool
 use crate::data::royalty_withdraw_request::{DataToSign, OnChainRoyaltyWithdraw, RoyaltyWithdrawContext};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolRoyaltyWithdrawV2,
-    RoyaltyPoolV1, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO,
+    RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw,
+    RoyaltyPoolRoyaltyWithdrawLedgerFixed, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1,
+    RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO,
+    RoyaltyPoolV2RoyaltyWithdrawRequest,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::{
@@ -37,7 +39,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::{RawBytesEncoding, Serialize};
-use cml_crypto::{Ed25519Signature, PublicKey, ScriptHash};
+use cml_crypto::{blake2b224, Ed25519Signature, PublicKey, ScriptHash};
 use num_rational::Ratio;
 use num_traits::{CheckedSub, ToPrimitive};
 use spectrum_cardano_lib::address::{AddressExtension, InlineCredential, PlutusAddress, PlutusCredential};
@@ -54,6 +56,18 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Div, Neg};
 use void::Void;
+
+pub const AIKEN_TRUE: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
+    alternative: 1,
+    fields: vec![],
+    encodings: None,
+});
+
+pub const AIKEN_FALSE: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
+    alternative: 0,
+    fields: vec![],
+    encodings: None,
+});
 
 #[derive(Debug)]
 pub struct RoyaltyPoolConfig {
@@ -367,6 +381,7 @@ impl TryFromPData for RoyaltyPoolV2Config {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RoyaltyPoolVer {
     V1,
+    V1LedgerFixed,
     V2,
 }
 
@@ -374,6 +389,7 @@ impl RoyaltyPoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<RoyaltyPoolVer>
     where
         Ctx: Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+            + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
             + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
@@ -388,6 +404,12 @@ impl RoyaltyPoolVer {
                 == *this_hash
             {
                 return Some(RoyaltyPoolVer::V1);
+            } else if ctx
+                .select::<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(RoyaltyPoolVer::V1LedgerFixed);
             } else if ctx
                 .select::<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>()
                 .script_hash
@@ -434,7 +456,7 @@ pub struct RoyaltyPool {
 impl Display for RoyaltyPool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.ver {
-            RoyaltyPoolVer::V1 => {
+            RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => {
                 f.write_str(&*format!(
                     "RoyaltyPool(id: {}, ver: V1, static_price: {}, rx: {}, ry: {},  tx: {}, ty: {}, royalty_x: {}, royalty_y: {})",
                     self.id,
@@ -469,6 +491,7 @@ impl Display for RoyaltyPool {
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for RoyaltyPool
 where
     Ctx: Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
         + Has<PoolValidation>,
 {
@@ -489,13 +512,17 @@ where
                     ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
                         .marginal_cost
                 }
+                RoyaltyPoolVer::V1LedgerFixed => {
+                    ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>()
+                        .marginal_cost
+                }
                 RoyaltyPoolVer::V2 => {
                     ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>()
                         .marginal_cost
                 }
             };
             match pool_ver {
-                RoyaltyPoolVer::V1 => {
+                RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => {
                     let conf = RoyaltyPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
@@ -866,12 +893,17 @@ impl AMMOps for RoyaltyPool {
 
 impl<Ctx> RequiresValidator<Ctx> for RoyaltyPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>> + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
             RoyaltyPoolVer::V1 => ctx
                 .select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>()
+                .erased(),
+            RoyaltyPoolVer::V1LedgerFixed => ctx
+                .select::<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>()
                 .erased(),
             RoyaltyPoolVer::V2 => ctx
                 .select::<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>()
@@ -1157,7 +1189,9 @@ impl<Ctx> ApplyOrder<OnChainRoyaltyWithdraw, Ctx> for RoyaltyPool
 where
     Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<RoyaltyWithdrawContext>,
 {
     type Result = RoyaltyWithdrawOutput;
@@ -1175,6 +1209,9 @@ where
         let pool_order_validator = if self.ver == RoyaltyPoolVer::V1 {
             ctx.select::<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>()
                 .erased()
+        } else if self.ver == RoyaltyPoolVer::V1LedgerFixed {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>()
+                .erased()
         } else {
             ctx.select::<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>()
                 .erased()
@@ -1187,27 +1224,42 @@ where
         };
 
         let mut message_to_sign = order.additional_bytes.clone();
-        message_to_sign.extend(&data_to_sign.into_pd().to_cbor_bytes());
+        message_to_sign.extend(&data_to_sign.clone().into_pd().to_cbor_bytes());
+        let hashed_data_to_sign = blake2b224(&data_to_sign.into_pd().to_cbor_bytes());
+        let mut hashed_message_to_sign = order.additional_bytes.clone();
+        hashed_message_to_sign.extend(&hashed_data_to_sign);
 
-        if self.ver == RoyaltyPoolVer::V1 {
+        if self.ver == RoyaltyPoolVer::V1 || self.ver == RoyaltyPoolVer::V1LedgerFixed {
             let public_key: PublicKey = self.first_royalty_pub_key.try_into().unwrap();
 
-            let signature_is_correct = public_key.verify(&message_to_sign, &order.signature);
-
-            if !signature_is_correct {
+            let hashed = if public_key.verify(&message_to_sign, &order.signature) {
+                false
+            } else if public_key.verify(&hashed_message_to_sign, &order.signature) {
+                true
+            } else {
                 return Err(ApplyOrderError::verification_failed(
                     royalty_withdraw,
-                    format!("signature_is_correct: {}", signature_is_correct),
+                    format!("signature_is_incorrect"),
                 ));
-            }
+            };
 
             self.reserves_x = self
                 .reserves_x
                 .checked_sub(&order.withdraw_royalty_x)
                 .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
 
+            self.first_royalty_x = self
+                .first_royalty_x
+                .checked_sub(&order.withdraw_royalty_x)
+                .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
+
             self.reserves_y = self
                 .reserves_y
+                .checked_sub(&order.withdraw_royalty_y)
+                .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
+
+            self.first_royalty_y = self
+                .first_royalty_y
                 .checked_sub(&order.withdraw_royalty_y)
                 .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
 
@@ -1222,39 +1274,56 @@ where
                 redeemer_pkh: order.royalty_pub_key_hash,
             };
 
+            let redeemer = if self.ver == RoyaltyPoolVer::V1 {
+                ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
+                    ConstrPlutusData::new(
+                        0,
+                        vec![
+                            PlutusData::Integer(BigInteger::from(context.pool_input_idx)),
+                            PlutusData::Integer(BigInteger::from(context.order_input_idx)),
+                        ],
+                    )
+                    .into_pd()
+                })
+            } else {
+                ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
+                    ConstrPlutusData::new(
+                        0,
+                        vec![
+                            PlutusData::Integer(BigInteger::from(context.pool_input_idx)),
+                            PlutusData::Integer(BigInteger::from(context.order_input_idx)),
+                            if hashed { AIKEN_TRUE } else { AIKEN_FALSE },
+                        ],
+                    )
+                    .into_pd()
+                })
+            };
+
             let blueprint = OperationResultBlueprint {
                 outputs: SingleOutput(royalty_output),
-                witness_script: Some((
-                    pool_order_validator.clone(),
-                    ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
-                        ConstrPlutusData::new(
-                            0,
-                            vec![
-                                PlutusData::Integer(BigInteger::from(context.pool_input_idx)),
-                                PlutusData::Integer(BigInteger::from(context.order_input_idx)),
-                            ],
-                        )
-                        .into_pd()
-                    }),
-                )),
+                witness_script: Some((pool_order_validator.clone(), redeemer)),
                 order_script_validator: order_validator,
                 strict_fee: Some(royalty_withdraw_context.transaction_fee),
             };
 
             Ok((self, blueprint))
         } else {
-            let public_key_idx = {
+            let (public_key_idx, hashed) = {
                 let first_public_key: PublicKey = self.first_royalty_pub_key.try_into().unwrap();
                 let second_public_key: PublicKey = self.second_royalty_pub_key.try_into().unwrap();
 
                 if first_public_key.verify(&message_to_sign, &order.signature) {
-                    0
+                    (0, false)
+                } else if first_public_key.verify(&hashed_message_to_sign, &order.signature) {
+                    (0, true)
                 } else if second_public_key.verify(&message_to_sign, &order.signature) {
-                    1
+                    (1, false)
+                } else if second_public_key.verify(&hashed_message_to_sign, &order.signature) {
+                    (1, true)
                 } else {
                     return Err(ApplyOrderError::verification_failed(
                         royalty_withdraw,
-                        format!("signature_is_correct for both keys"),
+                        format!("signature is incorrect for both keys"),
                     ));
                 }
             };
@@ -1313,6 +1382,7 @@ where
                                 PlutusData::Integer(BigInteger::from(context.pool_input_idx)),
                                 PlutusData::Integer(BigInteger::from(context.order_input_idx)),
                                 PlutusData::Integer(BigInteger::from(public_key_idx)),
+                                if hashed { AIKEN_TRUE } else { AIKEN_FALSE },
                             ],
                         )
                         .into_pd()
@@ -1350,7 +1420,7 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for RoyaltyPool {
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
 
-        if self.ver == RoyaltyPoolVer::V1 {
+        if self.ver == RoyaltyPoolVer::V1 || self.ver == RoyaltyPoolVer::V1LedgerFixed {
             if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
                 unsafe_update_pd_royalty(
                     datum,
@@ -1411,7 +1481,8 @@ mod tests {
     use crate::data::royalty_withdraw_request::{OnChainRoyaltyWithdraw, RoyaltyWithdrawOrderValidation};
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
-        ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1RoyaltyWithdrawRequest,
+        ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1RoyaltyWithdrawRequest,
+        RoyaltyPoolV2, RoyaltyPoolV2RoyaltyWithdrawRequest,
     };
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use crate::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
@@ -1427,12 +1498,15 @@ mod tests {
     struct Context {
         oref: OutputRef,
         royalty_pool: DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>,
+        royalty_pool_ledger_fixed: DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>,
+        royalty_pool_v2: DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>,
         const_fn_pool_v1: DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>,
         const_fn_pool_v2: DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>,
         fee_switch_v1: DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>,
         fee_switch_v2: DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>,
         fee_switch_bi_dir: DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>,
         royalty_withdraw: DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>,
+        royalty_withdraw_v2: DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>,
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
         consumed_identifiers: ConsumedIdentifiers<Token>,
@@ -1446,6 +1520,22 @@ mod tests {
             &self,
         ) -> DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }> {
             self.royalty_pool
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }> {
+            self.royalty_pool_ledger_fixed
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }> {
+            self.royalty_pool_v2
         }
     }
 
@@ -1497,6 +1587,14 @@ mod tests {
         }
     }
 
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }> {
+            self.royalty_withdraw_v2
+        }
+    }
+
     impl Has<OutputRef> for Context {
         fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
             self.oref
@@ -1533,12 +1631,15 @@ mod tests {
         let ctx = Context {
             oref,
             royalty_pool: scripts.royalty_pool_v1,
+            royalty_pool_ledger_fixed: scripts.royalty_pool_v1_ledger_fixed,
+            royalty_pool_v2: scripts.royalty_pool_v2,
             const_fn_pool_v1: scripts.const_fn_pool_v1,
             const_fn_pool_v2: scripts.const_fn_pool_v2,
             fee_switch_v1: scripts.const_fn_pool_fee_switch,
             fee_switch_v2: scripts.const_fn_pool_fee_switch_v2,
             fee_switch_bi_dir: scripts.const_fn_pool_fee_switch_bidir_fee,
             royalty_withdraw: scripts.royalty_pool_withdraw_request,
+            royalty_withdraw_v2: scripts.royalty_pool_v2_withdraw_request,
             cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
             consumed_inputs: SmallVec::new(vec![oref].into_iter()).into(),
             consumed_identifiers: Default::default(),

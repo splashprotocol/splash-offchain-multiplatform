@@ -33,9 +33,10 @@ use crate::deployment::ProtocolValidator::{
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
     ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw,
-    RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
-    RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit,
-    RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolRoyaltyWithdrawLedgerFixed, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
+    RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2,
+    RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest,
+    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
@@ -181,6 +182,7 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>
@@ -231,16 +233,19 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>

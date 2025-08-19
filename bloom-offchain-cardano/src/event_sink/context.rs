@@ -14,9 +14,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
     ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1,
-    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2,
-    RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    RoyaltyPoolV1Deposit, RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest,
+    RoyaltyPoolV2, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest,
+    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::handler_context::{
@@ -306,6 +306,14 @@ impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for HandlerContex
     }
 }
 
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }> {
+        self.scripts.royalty_pool_v1_ledger_fixed.clone()
+    }
+}
+
 impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>>(
         &self,
@@ -351,6 +359,14 @@ impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8
         &self,
     ) -> DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }> {
         self.scripts.royalty_pool_withdraw_request.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }> {
+        self.scripts.royalty_pool_v2_withdraw_request.clone()
     }
 }
 

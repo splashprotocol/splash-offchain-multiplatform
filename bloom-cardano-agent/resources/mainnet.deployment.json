@@ -312,10 +312,10 @@
     }
   },
   "royaltyPoolV2": {
-    "hash": "34aa28abc6a91f875e8ad75166eebea11a0ab95ba821004177a5bbc9",
+    "hash": "178475d7c0bfc0ac503022e7cace6fe614d252f4ff3ee7bf554cd38f",
     "referenceUtxo": {
-      "txHash": "a8da13b829380dba089200a242cbb79a8ff225882bdf5fe8e05f483e143043e4",
-      "outputIndex": 1
+      "txHash": "41c7d9ae33f0aa04913cfad6ff04e80b3c5044c07c22ca31724725a7780e919f",
+      "outputIndex": 0
     },
     "cost": {
       "mem": 2000000,
@@ -431,11 +431,26 @@
       "steps": 240000000
     }
   },
-  "royaltyPoolWithdrawContractV2": {
-    "hash": "9b092753fa5116553f66c5f60041e4b7008d27c304c081c0d1693c23",
+  "royaltyPoolWithdrawContractLedgerFixed": {
+    "hash": "b06af42921ec84197df52d049736ae4e38dc4d568772455c088d7e49",
     "referenceUtxo": {
-      "txHash": "727524d21bad1494e509f0d1436a2a99588aefe76916eb98c4c8fe4e7bc49c2d",
-      "outputIndex": 0
+      "txHash": "41c7d9ae33f0aa04913cfad6ff04e80b3c5044c07c22ca31724725a7780e919f",
+      "outputIndex": 2
+    },
+    "cost": {
+      "mem": 800000,
+      "steps": 320000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolWithdrawContractV2": {
+    "hash": "a062da72f9f3280fbed90b3e95ea943aabd7eff9c82343324a9726ad",
+    "referenceUtxo": {
+      "txHash": "41c7d9ae33f0aa04913cfad6ff04e80b3c5044c07c22ca31724725a7780e919f",
+      "outputIndex": 1
     },
     "cost": {
       "mem": 800000,

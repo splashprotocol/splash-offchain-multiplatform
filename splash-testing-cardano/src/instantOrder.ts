@@ -51,23 +51,21 @@ export type InstantOrderConf = {
 
 function buildInstantOrderDatum(lucid: LucidEvolution, conf: InstantOrderConf, beacon: PolicyId): Datum {
     return Data.to({
-        tag: "01",
-        redeemerAddress: {
-            paymentCredential: { VerificationKeyCredential: [paymentCredentialOf(conf.redeemerAddr).hash] },
-            stakeCredential: {
-              Inline: [{ VerificationKeyCredential: [stakeCredentialOf(conf.redeemerAddr).hash] }],
-            },
-          },
-        input: conf.input,
-        tradableInput: conf.tradableInput,
-        costPerExStep: conf.costPerExStep,
-        output: conf.output,
-        basePrice: conf.basePrice,
-        fee: conf.fee,
-        permittedExecutors: conf.permittedExecutors,
-        cancellationAfter: 0n,
-        cancellationPkh: conf.cancellationPkh,
-        beacon: beacon,
+      tag: "01",
+      redeemerAddress: {
+        paymentCredential: { VerificationKeyCredential: [paymentCredentialOf(conf.redeemerAddr).hash] },
+        stakeCredential: {
+          Inline: [{ VerificationKeyCredential: [stakeCredentialOf(conf.redeemerAddr).hash] }],
+        },
+      },
+      input: conf.input,
+      output: conf.output,
+      basePrice: conf.basePrice,
+      fee: conf.fee,
+      permittedExecutors: conf.permittedExecutors,
+      cancellationAfter: 0n,
+      cancellationPkh: conf.cancellationPkh,
+      minLovelace: 1_500_000n
     }, InstantOrderInstantOrder.conf)
 }
 
@@ -82,7 +80,7 @@ async function createInstantOrder(lucid: LucidEvolution, validator: BuiltValidat
     const input = await getUtxoWithToken(utxos, tokenABase16)
     const beacon = await beaconFromInput(lucid, input, conf);
     console.log("Beacon: " + beacon);
-    const lovelaceTotal = conf.fee + conf.costPerExStep * 4n;
+    const lovelaceTotal = conf.fee + 1_500_000n;
     const depositedValue = conf.input.policy == "" ? { lovelace: lovelaceTotal + conf.tradableInput } : { lovelace: lovelaceTotal, [asUnit(conf.input)]: conf.tradableInput};
     const tx = lucid.newTx().collectFrom([input]).pay.ToAddressWithData(orderAddress, { kind: "inline", value: buildInstantOrderDatum(lucid, conf, beacon) }, depositedValue);
     return tx.complete();
@@ -132,10 +130,10 @@ async function main() {
             name: tokenABase16,
         },
         output: {
-            policy: "aad2b2cadf2a45d536e4b2545009e4e7f17a0cf9d87f4a3d3f83bb73",
+            policy: "52d9152be374affb87589ac68ca48965e521bf55d2bc015ca6f2ad0d",
             name: "746f6b656e",
         },
-        tradableInput: 10_000_000n,
+        tradableInput: 18041743908n,
         costPerExStep: 600_000n,
         basePrice: {
             num: 0n,
