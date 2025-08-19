@@ -92,6 +92,7 @@ pub trait BatchExecutor<TaskId, Task, Tx, TxInputs, Out, Err> {
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx, TxInputs, Out>, Err>;
 }
 
+#[derive(Debug, Clone)]
 pub enum Error {
     TxInputsAlreadySpent { failed_task_ids: Vec<TaskId> },
     UnrecoverableNodeError,
