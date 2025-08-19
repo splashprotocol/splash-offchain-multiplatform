@@ -16,10 +16,9 @@ use crate::onchain::smart_farm::Gauge;
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
-use cml_chain::address::{BaseAddress, EnterpriseAddress};
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
@@ -37,10 +36,9 @@ use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
-use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{ex_units, AssetClass, AssetName, NetworkId, OutputRef, Token};
+use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
@@ -942,20 +940,35 @@ where
     }
 
     async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Tx, TxInputs, ()>, Error> {
+        enum TypedExecutionResult<HarvestOut, BufferingOut> {
+            Harvesting(HarvestOut),
+            Buffering(BufferingOut),
+        }
         match self.blocked_on.take() {
             None => Err(Error::MissingFlow),
-            Some(Flow::Harvesting(mut hf)) => {
-                let res = hf.execute().await?;
+            Some(flow) => {
+                let (typed_result, resolved_tx, executed_tasks) = match flow {
+                    Flow::Harvesting(mut hf) => {
+                        let res = hf.execute().await?;
+                        let typed_res = TypedExecutionResult::Harvesting(res.output);
+                        (typed_res, res.resolved_tx, res.executed_tasks)
+                    }
+                    Flow::Buffering(mut bf) => {
+                        let res = bf.execute().await?;
+                        let typed_res = TypedExecutionResult::Buffering(res.output);
+                        (typed_res, res.resolved_tx, res.executed_tasks)
+                    }
+                };
+
                 loop {
-                    match self.verifier.try_approve(&res.resolved_tx).await {
+                    match self.verifier.try_approve(&resolved_tx).await {
                         Ok(coop_tx) => {
-                            // Only index predicted-writes if TX is successfully submitted
-                            match self.tx_submit.submit_tx(coop_tx).await {
-                                Ok(_) => {
+                            match (self.tx_submit.submit_tx(coop_tx).await, typed_result) {
+                                (Ok(_), TypedExecutionResult::Harvesting(update)) => {
                                     let HarvestFlowEntityUpdates {
                                         predicted_buffer_wallet_update,
                                         predicted_harvest_order_spends,
-                                    } = res.output;
+                                    } = update;
                                     for output_ref in &predicted_harvest_order_spends {
                                         self.onchain_index
                                             .write_predicted_spend_harvest_order(*output_ref)
@@ -974,64 +987,18 @@ where
                                         .await;
 
                                     return Ok(ExecutionResult {
-                                        executed_tasks: res.executed_tasks,
-                                        resolved_tx: res.resolved_tx,
+                                        executed_tasks,
+                                        resolved_tx,
                                         output: (),
                                     });
                                 }
-                                Err(reject_reasons) => {
-                                    if let Some(already_spent_inputs) =
-                                        extract_already_spent_inputs(reject_reasons)
-                                    {
-                                        let HarvestFlowEntityUpdates {
-                                            predicted_harvest_order_spends,
-                                            ..
-                                        } = res.output;
 
-                                        let failed_task_ids: Vec<TaskId> = predicted_harvest_order_spends
-                                            .iter()
-                                            .filter_map(|id| {
-                                                let output_ref = (*id).into();
-                                                if already_spent_inputs.contains(&output_ref) {
-                                                    return Some(output_ref.into());
-                                                }
-                                                None
-                                            })
-                                            .collect::<Vec<_>>();
-
-                                        // TODO: if buffer wallet was already spent, the reward
-                                        // bot ideally needs to wait until next block to get the
-                                        // latest version of the wallet. Not doing so will just
-                                        // lead to the next formed TX to be rejected right here
-                                        // again.
-
-                                        return Err(Error::TxInputsAlreadySpent { failed_task_ids });
-                                    } else {
-                                        return Err(Error::UnrecoverableNodeError);
-                                    }
-                                }
-                            }
-                        }
-                        Err(VerifierRejection::Unavailable) => continue, // todo: RestartVerifierWhenUnresponsive
-                        Err(VerifierRejection::InvalidWithdrawal) => {
-                            panic!() // todo: ShouldGoToIndexFaultMode; ShouldResyncOnMismatch
-                        }
-                    }
-                }
-            }
-            Some(Flow::Buffering(mut bf)) => {
-                let res = bf.execute().await?;
-                loop {
-                    match self.verifier.try_approve(&res.resolved_tx).await {
-                        Ok(coop_tx) => {
-                            // Only index predicted-writes if TX is successfully submitted
-                            match self.tx_submit.submit_tx(coop_tx).await {
-                                Ok(_) => {
+                                (Ok(_), TypedExecutionResult::Buffering(update)) => {
                                     let BufferingFlowEntityUpdates {
                                         predicted_gauge_updates,
                                         funding_box_changes,
                                         ..
-                                    } = res.output;
+                                    } = update;
 
                                     for gauge_update in &predicted_gauge_updates {
                                         let EntityUpdated {
@@ -1063,19 +1030,51 @@ where
                                     }
 
                                     return Ok(ExecutionResult {
-                                        executed_tasks: res.executed_tasks,
-                                        resolved_tx: res.resolved_tx,
+                                        executed_tasks,
+                                        resolved_tx,
                                         output: (),
                                     });
                                 }
-                                Err(reject_reasons) => {
+
+                                (Err(reject_reasons), TypedExecutionResult::Harvesting(update)) => {
+                                    if let Some(already_spent_inputs) =
+                                        extract_already_spent_inputs(reject_reasons)
+                                    {
+                                        let HarvestFlowEntityUpdates {
+                                            predicted_harvest_order_spends,
+                                            ..
+                                        } = update;
+
+                                        let failed_task_ids: Vec<TaskId> = predicted_harvest_order_spends
+                                            .iter()
+                                            .filter_map(|id| {
+                                                let output_ref = (*id).into();
+                                                if already_spent_inputs.contains(&output_ref) {
+                                                    return Some(output_ref.into());
+                                                }
+                                                None
+                                            })
+                                            .collect::<Vec<_>>();
+
+                                        // TODO: if buffer wallet was already spent, the reward
+                                        // bot ideally needs to wait until next block to get the
+                                        // latest version of the wallet. Not doing so will just
+                                        // lead to the next formed TX to be rejected right here
+                                        // again.
+
+                                        return Err(Error::TxInputsAlreadySpent { failed_task_ids });
+                                    } else {
+                                        return Err(Error::UnrecoverableNodeError);
+                                    }
+                                }
+                                (Err(reject_reasons), TypedExecutionResult::Buffering(update)) => {
                                     if let Some(already_spent_inputs) =
                                         extract_already_spent_inputs(reject_reasons)
                                     {
                                         let BufferingFlowEntityUpdates {
                                             predicted_gauge_updates,
                                             ..
-                                        } = res.output;
+                                        } = update;
 
                                         let failed_task_ids: Vec<TaskId> = predicted_gauge_updates
                                             .iter()
