@@ -21,7 +21,7 @@ mod tests {
     };
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
     use splash_lp_index::config::AppConfig;
-    use splash_lp_index::context::Context;
+    use splash_lp_index::context::RuntimeContext;
     use splash_lp_index::pipeline::log_events::log_event;
     use splash_lp_index::pipeline::resolve_gauges::resolve_gauges;
     use splash_lp_index::position_db::event_log::EventLog;
@@ -84,7 +84,7 @@ mod tests {
             dao_protocol_deployment.wp_factory.hash,
             dao_protocol_deployment.ve_factory.hash,
         ]);
-        let cx = Context {
+        let cx = RuntimeContext {
             dex_deployment: dex_protocol_deployment,
             dao_deployment: dao_protocol_deployment,
             dao_tokens,

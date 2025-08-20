@@ -1,8 +1,9 @@
-use crate::onchain::buffer_wallet::BufferWallet;
-use crate::onchain::funding_box::ConfirmedFundingBoxChanges;
-use crate::onchain::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
-use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
-use crate::{config::HarvestLimits, onchain::auth_manager::AuthManager};
+use crate::entities::auth_manager::AuthManager;
+use crate::entities::buffer_wallet::BufferWallet;
+use crate::entities::funding_box::ConfirmedFundingBoxChanges;
+use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
+use crate::entities::smart_farm::{Gauge, UpdatedGauges};
+use crate::settings::MinLovelacePerHarvest;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
@@ -47,7 +48,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent<FarmId, Out
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
-        + Has<HarvestLimits>
+        + Has<MinLovelacePerHarvest>
         + Has<NetworkId>
         + Has<SplashPolicy>
         + Has<OperatorCreds>

@@ -20,6 +20,7 @@ spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain", features = ["cml-chain"] }
 splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
+splash-yf-offchain = { version = "1.0.0", path = "../splash-yf-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }

@@ -10,8 +10,6 @@ mod withdrawal;
 use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
-use crate::events::OnChainEvent;
-use crate::onchain::smart_farm::UpdatedGauges;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::{Stream, StreamExt};
@@ -23,6 +21,8 @@ use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
+use splash_yf_offchain::events::OnChainEvent;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {

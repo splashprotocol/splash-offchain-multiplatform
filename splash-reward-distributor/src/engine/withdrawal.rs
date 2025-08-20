@@ -1,6 +1,6 @@
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
-use crate::onchain::harvest_order::HarvestOrder;
 use spectrum_offchain::ledger::TryFromLedger;
+use splash_yf_offchain::entities::harvest_order::HarvestOrder;
 
 #[derive(Debug)]
 pub struct Withdrawal<OrderId> {

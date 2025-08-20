@@ -9,10 +9,6 @@ use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
 use crate::entity_index::{BufferWalletIndex, GaugeIndex};
-use crate::events::EntityUpdated;
-use crate::onchain::buffer_wallet::BufferWallet;
-use crate::onchain::harvest_order::{HarvestOrder, HarvestOrderAction};
-use crate::onchain::smart_farm::Gauge;
 use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -58,6 +54,10 @@ use splash_dao_offchain::routines::FundingBoxChanges;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
+use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
+use splash_yf_offchain::entities::smart_farm::Gauge;
+use splash_yf_offchain::events::EntityUpdated;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control<TaskId> {

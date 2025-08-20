@@ -8,13 +8,13 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolDeployment as DexDeployment};
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
-use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
-    WPFactoryAuthPolicy,
-};
+use splash_dao_offchain::protocol_config::{BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput, HarvestOrderScriptHash, OperatorCreds, PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy, WPFactoryAuthPolicy};
 use type_equalities::IsEqual;
+use spectrum_cardano_lib::collateral::Collateral;
+use spectrum_offchain_cardano::has_deployed_script_info;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
-pub struct Context {
+pub struct RuntimeContext {
     pub dex_deployment: DexDeployment,
     pub dao_deployment: DaoDeployment,
     pub dao_tokens: DaoTokens,
@@ -24,31 +24,31 @@ pub struct Context {
     pub network_id: NetworkId,
 }
 
-impl Has<SplashPolicy> for Context {
+impl Has<SplashPolicy> for RuntimeContext {
     fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
         SplashPolicy(self.splash_policy_id)
     }
 }
 
-impl Has<PermManagerAuthPolicy> for Context {
+impl Has<PermManagerAuthPolicy> for RuntimeContext {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.dao_tokens.perm_auth.policy_id)
     }
 }
 
-impl Has<WPFactoryAuthPolicy> for Context {
+impl Has<WPFactoryAuthPolicy> for RuntimeContext {
     fn select<U: IsEqual<WPFactoryAuthPolicy>>(&self) -> WPFactoryAuthPolicy {
         WPFactoryAuthPolicy(self.dao_tokens.wp_factory_auth.policy_id)
     }
 }
 
-impl Has<FarmAuthPolicy> for Context {
+impl Has<FarmAuthPolicy> for RuntimeContext {
     fn select<U: IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
         FarmAuthPolicy(self.dao_deployment.smart_farm.hash)
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolV1 as u8 }> {
@@ -56,7 +56,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolV2 as u8 }> {
@@ -64,7 +64,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }> {
@@ -72,7 +72,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }> {
@@ -80,7 +80,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }> {
@@ -88,7 +88,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for Context
     }
 }
 
-impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }> {
@@ -96,7 +96,7 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }> {
@@ -104,7 +104,7 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ StableFnPoolT2T as u8 }> {
@@ -112,7 +112,7 @@ impl Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for Context {
     }
 }
 
-impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for Context {
+impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }> {
@@ -120,39 +120,31 @@ impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for Context {
     }
 }
 
-impl Has<PoolValidation> for Context {
+impl Has<PoolValidation> for RuntimeContext {
     fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
         self.pool_validation.clone()
     }
 }
 
-impl Has<DeployedScriptInfo<{ HarvestOrder as u8 }>> for Context {
-    fn select<U: IsEqual<DeployedScriptInfo<{ HarvestOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ HarvestOrder as u8 }> {
-        (&self.dao_deployment.harvest_order).into()
+impl Has<MinLovelacePerHarvest> for RuntimeContext {
+    fn select<U: IsEqual<MinLovelacePerHarvest>>(&self) -> MinLovelacePerHarvest {
+        self.harvest_limits.minimal_lovelace_per_single_harvest
     }
 }
 
-impl Has<HarvestLimits> for Context {
-    fn select<U: IsEqual<HarvestLimits>>(&self) -> HarvestLimits {
-        self.harvest_limits
-    }
-}
-
-impl Has<BufferWalletScript> for Context {
+impl Has<BufferWalletScript> for RuntimeContext {
     fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
         BufferWalletScript(self.dao_deployment.buffer_wallet.clone())
     }
 }
 
-impl Has<NetworkId> for Context {
+impl Has<NetworkId> for RuntimeContext {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
     }
 }
 
-impl Has<OperatorCreds> for Context {
+impl Has<OperatorCreds> for RuntimeContext {
     fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
         // Need this since we use existing code in `splash-reward-distributor` to parse
         // `HarvestOrder`s (the reward bot uses these credentials to work with funding UTxOs).
@@ -162,5 +154,41 @@ impl Has<OperatorCreds> for Context {
             cml_chain::certs::Credential::new_pub_key(dummy_key_hash),
         ));
         OperatorCreds(dummy_key_hash, dummy_address)
+    }
+}
+
+
+has_deployed_script_info!(SmartFarm, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.smart_farm).into());
+has_deployed_script_info!(HarvestOrder, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.harvest_order).into());
+has_deployed_script_info!(PermManager, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.perm_manager).into());
+has_deployed_script_info!(WpFactory, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.wp_factory).into());
+
+impl Has<Collateral> for RuntimeContext {
+    fn select<U: IsEqual<Collateral>>(&self) -> Collateral {
+        todo!()
+    }
+}
+
+impl Has<HarvestOrderRefScriptOutput> for RuntimeContext {
+    fn select<U: IsEqual<HarvestOrderRefScriptOutput>>(&self) -> HarvestOrderRefScriptOutput {
+        todo!()
+    }
+}
+
+impl Has<HarvestOrderScriptHash> for RuntimeContext {
+    fn select<U: IsEqual<HarvestOrderScriptHash>>(&self) -> HarvestOrderScriptHash {
+        todo!()
+    }
+}
+
+impl Has<PermManagerBoxRefScriptOutput> for RuntimeContext {
+    fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
+        todo!()
+    }
+}
+
+impl Has<FarmAuthRefScriptOutput> for RuntimeContext {
+    fn select<U: IsEqual<FarmAuthRefScriptOutput>>(&self) -> FarmAuthRefScriptOutput {
+        todo!()
     }
 }

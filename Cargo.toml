@@ -27,7 +27,8 @@ members = [
     "splash-lp-indexer",
     "intent-relay",
     "splash-testing",
-    "splash-reward-distributor"
+    "splash-reward-distributor",
+    "splash-yf-offchain"
 ]
 
 [profile.release]

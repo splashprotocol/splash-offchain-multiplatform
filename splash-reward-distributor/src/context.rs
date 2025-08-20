@@ -12,6 +12,7 @@ use splash_dao_offchain::protocol_config::{
     FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use type_equalities::IsEqual;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeContext {}
@@ -56,8 +57,8 @@ impl Has<BufferWalletScript> for RuntimeContext {
     }
 }
 
-impl Has<HarvestLimits> for RuntimeContext {
-    fn select<U: IsEqual<HarvestLimits>>(&self) -> HarvestLimits {
+impl Has<MinLovelacePerHarvest> for RuntimeContext {
+    fn select<U: IsEqual<MinLovelacePerHarvest>>(&self) -> MinLovelacePerHarvest {
         todo!()
     }
 }

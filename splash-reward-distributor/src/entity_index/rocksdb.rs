@@ -19,7 +19,7 @@ use spectrum_offchain::domain::{
 use tokio::task::spawn_blocking;
 
 use crate::entity_index::{HarvestOrderIndex, HarvestOrderStatus, Mod};
-use crate::onchain::{
+use splash_yf_offchain::entities::{
     auth_manager::AuthManager, buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge,
 };
 
@@ -541,9 +541,9 @@ mod tests {
     };
     use splash_dao_offchain::routines::Slot;
 
-    use crate::{
-        entity_index::rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex},
-        onchain::{buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge},
+    use crate::entity_index::rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex};
+    use splash_yf_offchain::entities::{
+        buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge,
     };
 
     #[tokio::test]

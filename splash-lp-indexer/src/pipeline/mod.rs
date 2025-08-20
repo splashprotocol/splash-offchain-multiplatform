@@ -28,6 +28,7 @@ use splash_dao_offchain::protocol_config::{
     WPFactoryAuthPolicy,
 };
 use std::collections::HashSet;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
 pub mod log_events;
 pub mod resolve_gauges;
@@ -71,7 +72,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<NetworkId>
-        + Has<HarvestLimits>
+        + Has<MinLovelacePerHarvest>
         + 'static,
 {
     log_onchain_events(

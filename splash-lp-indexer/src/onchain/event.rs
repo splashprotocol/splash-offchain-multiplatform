@@ -1,8 +1,6 @@
-use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
-use cml_chain::transaction::TransactionOutput;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -12,11 +10,11 @@ use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
 use spectrum_offchain_cardano::data::PoolId;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
@@ -25,7 +23,8 @@ use splash_dao_offchain::protocol_config::{
     WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
-use splash_reward_distributor::events::OnChainEvent as RewardOnChainEvent;
+use splash_yf_offchain::events::OnChainEvent as RewardOnChainEvent;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
@@ -70,7 +69,7 @@ where
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<NetworkId>
-        + Has<HarvestLimits>,
+        + Has<MinLovelacePerHarvest>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         PositionEvent::try_from_ledger(repr, ctx)
@@ -336,7 +335,7 @@ where
         + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
-        + Has<HarvestLimits>
+        + Has<MinLovelacePerHarvest>
         + Has<OperatorCreds>
         + Has<NetworkId>
         + Has<BufferWalletScript>

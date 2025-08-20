@@ -4,18 +4,18 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use crate::entity_index::rocksdb::OnChainIndex;
-use crate::onchain::auth_manager::AuthManagerId;
-use crate::onchain::buffer_wallet::{BufferWallet, BufferWalletId};
-use crate::onchain::funding_box::ConfirmedFundingBoxChanges;
-use crate::onchain::harvest_order::HarvestOrder;
-use crate::onchain::smart_farm::{Gauge, UpdatedGauges};
-use crate::{events::OnChainEvent, onchain::auth_manager::AuthManager};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
 use splash_dao_offchain::funding::FundingRepo;
+use splash_yf_offchain::entities::auth_manager::{AuthManager, AuthManagerId};
+use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletId};
+use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
+use splash_yf_offchain::entities::harvest_order::HarvestOrder;
+use splash_yf_offchain::entities::smart_farm::{Gauge, UpdatedGauges};
+use splash_yf_offchain::events::OnChainEvent;
 
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {

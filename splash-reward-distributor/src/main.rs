@@ -4,8 +4,6 @@ mod context;
 pub mod emission;
 pub mod engine;
 mod entity_index;
-mod events;
-mod onchain;
 mod pipeline;
 mod positions;
 

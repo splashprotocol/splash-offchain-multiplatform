@@ -1,0 +1,21 @@
+[package]
+name = "splash-yf-offchain"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.84.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
+spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain", features = ["cml-chain"] }
+splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+serde = { version = "1.0.147", features = ["derive"] }
+rmp-serde = "1.3.0"
+derive_more = { version = "2.0.1", features = ["full"] }
+type-equalities = "0.3.1"

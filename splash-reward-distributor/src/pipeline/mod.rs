@@ -1,6 +1,5 @@
 use crate::config::HarvestLimits;
 use crate::entity_index::{index_events, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex};
-use crate::events::OnChainEvent;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::Transaction;
 use cml_crypto::ScriptHash;
@@ -21,7 +20,9 @@ use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
+use splash_yf_offchain::events::OnChainEvent;
 use std::collections::HashSet;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
 pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
     mut upstream: U,
@@ -49,7 +50,7 @@ pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<BufferWalletScript>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
-        + Has<HarvestLimits>
+        + Has<MinLovelacePerHarvest>
         + Has<NetworkId>
         + Has<OperatorCreds>
         + Has<SplashPolicy>

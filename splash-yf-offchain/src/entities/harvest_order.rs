@@ -1,5 +1,5 @@
+use crate::settings::MinLovelacePerHarvest;
 use cml_chain::{
-    address::{Address, BaseAddress, EnterpriseAddress},
     certs::{Credential, StakeCredential},
     plutus::{ConstrPlutusData, PlutusData},
     transaction::TransactionOutput,
@@ -18,8 +18,6 @@ use spectrum_cardano_lib::{
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::{deployment::ProtocolValidator as DaoProtocolValidator, routines::Slot};
-
-use crate::config::HarvestLimits;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
@@ -86,7 +84,7 @@ pub(crate) fn try_new_harvest_request<C>(
     ctx: &C,
 ) -> Option<(HarvestOrder<OutputRef>, FinalizedTxOut)>
 where
-    C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
+    C: Has<MinLovelacePerHarvest> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
@@ -101,7 +99,7 @@ pub(crate) fn get_consumed_harvest_orders<C>(
     ctx: &C,
 ) -> Vec<HarvestOrder<OutputRef>>
 where
-    C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
+    C: Has<MinLovelacePerHarvest> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.inputs
         .iter()
@@ -122,11 +120,11 @@ fn try_extract_harvest_order<C>(
     ctx: &C,
 ) -> Option<HarvestOrder<OutputRef>>
 where
-    C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
+    C: Has<MinLovelacePerHarvest> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
-    let harvest_limit = ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest;
+    let harvest_limit = ctx.select::<MinLovelacePerHarvest>();
     let lovelace_amount = output.value().coin;
-    if test_address(output.address(), ctx) && lovelace_amount >= harvest_limit {
+    if test_address(output.address(), ctx) && lovelace_amount >= harvest_limit.0 {
         let datum = output.datum()?;
         let HarvestOrderDatum {
             account_key,

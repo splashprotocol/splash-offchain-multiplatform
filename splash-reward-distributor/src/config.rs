@@ -7,6 +7,7 @@ use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,5 +43,5 @@ pub struct ChainSyncConfig {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarvestLimits {
-    pub minimal_lovelace_per_single_harvest: u64,
+    pub minimal_lovelace_per_single_harvest: MinLovelacePerHarvest,
 }

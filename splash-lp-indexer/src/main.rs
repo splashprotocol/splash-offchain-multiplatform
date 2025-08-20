@@ -21,7 +21,7 @@ use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
 };
 use splash_lp_index::config::AppConfig;
-use splash_lp_index::context::Context;
+use splash_lp_index::context::RuntimeContext;
 use splash_lp_index::feed::event::ExportAccountEvent;
 use splash_lp_index::feed::event_publisher::EventPublisher;
 use splash_lp_index::http_api::build_api_server;
@@ -100,7 +100,7 @@ async fn main() {
         dex_protocol_deployment.stable_fn_pool_t2t.hash,
     ]);
 
-    let cx = Context {
+    let cx = RuntimeContext {
         dex_deployment: dex_protocol_deployment,
         dao_deployment: dao_protocol_deployment,
         dao_tokens,
