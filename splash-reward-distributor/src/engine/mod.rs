@@ -17,6 +17,7 @@ use serde::Deserialize;
 use spectrum_offchain::kv_store::KvStore;
 use std::fmt::Debug;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -28,24 +29,22 @@ pub struct EngineConfig {
     buffering_threshold: u64,
 }
 
-pub struct Engine<U, Q, E, K> {
+pub struct Engine<U, Q, E> {
     event_stream: U,
     queue: Q,
     executor: E,
-    task_ids_by_tx_hash: K,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
     conf: EngineConfig,
 }
 
-impl<U, Q, E, K> Engine<U, Q, E, K> {
-    pub fn new(event_stream: U, queue: Q, executor: E, task_ids_by_tx_hash: K, conf: EngineConfig) -> Self {
+impl<U, Q, E> Engine<U, Q, E> {
+    pub fn new(event_stream: U, queue: Q, executor: E, conf: EngineConfig) -> Self {
         Self {
             event_stream,
             queue,
             executor,
             current_task: None,
             conf,
-            task_ids_by_tx_hash,
         }
     }
 
@@ -54,7 +53,7 @@ impl<U, Q, E, K> Engine<U, Q, E, K> {
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E, K> Future for Engine<U, Q, E, K>
+impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
 where
     GaugeId: Copy + Into<TaskId> + Unpin + Send + 'static,
     StateId: Copy + Into<TaskId> + Unpin + Send + 'static,
@@ -71,7 +70,6 @@ where
         + Unpin
         + Send
         + 'static,
-    K: KvStore<TransactionHash, Vec<TaskId>> + Clone + Unpin + Send + 'static,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -93,12 +91,7 @@ where
                 continue;
             }
             let executor = self.executor.clone();
-            let task_ids_by_tx_hash = self.task_ids_by_tx_hash.clone();
-            self.block_on(process_tasks::<_, Bearer, _, _, _, _>(
-                queue,
-                executor,
-                task_ids_by_tx_hash,
-            ));
+            self.block_on(process_tasks::<_, Bearer, _, _, _>(queue, executor));
         }
         Poll::Pending
     }
@@ -139,18 +132,22 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::BotHarvestingAction { payouts, .. } => Some(
+                OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => Some(
                     payouts
                         .into_iter()
-                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into()))
+                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
                         .collect(),
                 ),
-                OnChainEvent::BotGaugeBufferingAction { drained_gauges, .. } => Some(
+                OnChainEvent::BotGaugeBufferingAction {
+                    drained_gauges,
+                    tx_hash,
+                    ..
+                } => Some(
                     drained_gauges
                         .into_iter()
                         .map(|gauge_update| {
                             let task_id = gauge_update.created.0.id.into();
-                            QueueCmd::Done(task_id)
+                            QueueCmd::Done(task_id, tx_hash)
                         })
                         .collect(),
                 ),
@@ -246,15 +243,10 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, Bearer, StateId, Q, E, K>(
-    queue: Q,
-    mut executor: E,
-    mut task_ids_by_tx_hash: K,
-) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
-    K: KvStore<TransactionHash, Vec<TaskId>> + Clone + Unpin + Send + 'static,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
@@ -277,14 +269,10 @@ where
         Ok(res) => {
             let tx_hash = res.output;
 
-            task_ids_by_tx_hash
-                .insert(tx_hash, res.executed_tasks.clone())
-                .await;
-
             let commands = res
                 .executed_tasks
                 .into_iter()
-                .map(QueueCmd::Done)
+                .map(|task_id| QueueCmd::Done(task_id, tx_hash))
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
 
             queue.batch_execute(commands.collect()).await;

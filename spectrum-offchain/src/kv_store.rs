@@ -3,51 +3,16 @@ use async_trait::async_trait;
 use log::trace;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::hash::Hash;
 use std::sync::Arc;
 
 use crate::display::display_option;
 
 #[async_trait]
 pub trait KvStore<K, V> {
-    async fn insert(&mut self, key: K, value: V) -> Option<V>;
+    async fn insert(&self, key: K, value: V) -> Option<V>;
     async fn get(&self, key: K) -> Option<V>;
-    async fn remove(&mut self, key: K) -> Option<V>;
-}
-
-#[derive(Debug, Clone)]
-pub struct InMemoryKvStore<K, V>(HashMap<K, V>);
-
-impl<StableId, Src> InMemoryKvStore<StableId, Src> {
-    pub fn new() -> Self {
-        Self(Default::default())
-    }
-
-    pub fn with_tracing() -> KvStoreWithTracing<Self> {
-        KvStoreWithTracing(Self::new())
-    }
-}
-
-#[async_trait]
-impl<K, V> KvStore<K, V> for InMemoryKvStore<K, V>
-where
-    K: Eq + Send + Hash,
-    V: Clone + Send,
-    Self: Send + Sync,
-{
-    async fn insert(&mut self, key: K, value: V) -> Option<V> {
-        self.0.insert(key, value)
-    }
-
-    async fn get(&self, key: K) -> Option<V> {
-        self.0.get(&key).cloned()
-    }
-
-    async fn remove(&mut self, key: K) -> Option<V> {
-        self.0.remove(&key)
-    }
+    async fn remove(&self, key: K) -> Option<V>;
 }
 
 #[derive(Clone)]
@@ -61,7 +26,7 @@ where
     V: Display + Send + 'static,
     Self: Send + Sync,
 {
-    async fn insert(&mut self, key: K, value: V) -> Option<V> {
+    async fn insert(&self, key: K, value: V) -> Option<V> {
         trace!("KvStore::insert(key: {}, value: {})", key, value);
         self.0.insert(key, value).await
     }
@@ -72,7 +37,7 @@ where
         res
     }
 
-    async fn remove(&mut self, key: K) -> Option<V> {
+    async fn remove(&self, key: K) -> Option<V> {
         let res = self.0.remove(key).await;
         trace!("KvStore::remove(key: {}) -> {}", key, display_option(&res));
         res
@@ -99,7 +64,7 @@ where
     V: Serialize + DeserializeOwned + Send + 'static,
     Self: Send,
 {
-    async fn insert(&mut self, key: K, value: V) -> Option<V> {
+    async fn insert(&self, key: K, value: V) -> Option<V> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();
@@ -126,7 +91,7 @@ where
         .await
     }
 
-    async fn remove(&mut self, key: K) -> Option<V> {
+    async fn remove(&self, key: K) -> Option<V> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let key = rmp_serde::to_vec(&key).unwrap();

@@ -115,6 +115,7 @@ where
                     OnChainEvent::BotHarvestingAction {
                         payouts,
                         buffer_wallet_update,
+                        ..
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
@@ -133,6 +134,7 @@ where
                     OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
                         buffer_wallet_update,
+                        ..
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
@@ -192,6 +194,7 @@ where
                     OnChainEvent::BotHarvestingAction {
                         payouts,
                         buffer_wallet_update,
+                        ..
                     } => {
                         let prev_state_id = indexer
                             .remove_buffer_wallet(buffer_wallet_update.created.0.state_id)
@@ -204,6 +207,7 @@ where
                     OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
                         buffer_wallet_update,
+                        ..
                     } => {
                         let prev_state_id = indexer
                             .remove_buffer_wallet(buffer_wallet_update.created.0.state_id)
