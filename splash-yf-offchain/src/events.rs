@@ -4,6 +4,7 @@ use crate::entities::funding_box::ConfirmedFundingBoxChanges;
 use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
 use crate::entities::smart_farm::{Gauge, UpdatedGauges};
 use crate::settings::MinLovelacePerHarvest;
+use cml_crypto::TransactionHash;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;

@@ -168,6 +168,7 @@ where
         .await;
 
         if let Some(mapped_tasks) = mapped_tasks {
+            // We would enter this region if a TX is confirmed in a block.
             assert_eq!(mapped_tasks, task_ids);
         } else {
             <KVStoreRocksDB as KvStore<TransactionHash, Vec<TaskId>>>::insert(
