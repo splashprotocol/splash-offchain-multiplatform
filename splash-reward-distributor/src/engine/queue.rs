@@ -1,12 +1,15 @@
 use async_trait::async_trait;
+use cml_crypto::{RawBytesEncoding, TransactionHash};
 use futures::channel::mpsc;
 use futures::executor::block_on;
 use futures::{SinkExt, Stream};
 use rocksdb::{
-    ColumnFamily, IteratorMode, Options, ReadOptions, Transaction, TransactionDB, TransactionDBOptions,
+    ColumnFamily, Direction, IteratorMode, Options, ReadOptions, Transaction, TransactionDB,
+    TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -16,7 +19,7 @@ pub enum QueueCmd<TaskId, Task> {
     Schedule(TaskId, Task, StrikeTime),
     Update(TaskId, Task),
     Cancel(TaskId),
-    Done(TaskId),
+    Done(TaskId, TransactionHash),
     AdvanceClocks(u64),
     DowngradeClocks(u64),
 }
@@ -24,6 +27,8 @@ pub enum QueueCmd<TaskId, Task> {
 #[async_trait]
 pub trait TaskQueue<TaskId, Task> {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>);
+    /// Removes all Done task_ids associated with the given TX hash from the index and returns them.
+    async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>>;
     fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
     fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
 }
@@ -37,10 +42,12 @@ pub enum StrikeTime {
 
 const PENDING: &str = "pending";
 const DONE: &str = "done";
+const DONE_WITH_TX_HASH: &str = "done_tx_hash";
 const INDEX: &str = "index";
 const CLOCKS: &str = "clocks";
+const DONE_TASK_ID_IX_START: usize = 32;
 
-const TABLES: [&str; 4] = [PENDING, DONE, INDEX, CLOCKS];
+const TABLES: [&str; 5] = [PENDING, DONE, DONE_WITH_TX_HASH, INDEX, CLOCKS];
 
 struct PendingKey<TaskId>(u64, TaskId);
 impl<TaskId> PendingKey<TaskId> {
@@ -60,6 +67,8 @@ impl<TaskId> PendingKey<TaskId> {
 
 struct Tables<'a> {
     pending: &'a ColumnFamily,
+    /// Maps [tx_hash|task_id] to empty slice []
+    done_with_tx_hash: &'a ColumnFamily,
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
@@ -85,6 +94,7 @@ impl RocksDB {
         Tables {
             pending: self.db.cf_handle(PENDING).unwrap(),
             done: self.db.cf_handle(DONE).unwrap(),
+            done_with_tx_hash: self.db.cf_handle(DONE_WITH_TX_HASH).unwrap(),
             index: self.db.cf_handle(INDEX).unwrap(),
             clocks: self.db.cf_handle(CLOCKS).unwrap(),
         }
@@ -103,7 +113,8 @@ impl RocksDB {
 #[async_trait]
 impl<TaskId, Task> TaskQueue<TaskId, Task> for RocksDB
 where
-    TaskId: Copy + TryFrom<Vec<u8>> + AsRef<[u8]> + Send + 'static,
+    TaskId: Copy + TryFrom<Vec<u8>> + AsRef<[u8]> + Send + Serialize + DeserializeOwned + PartialEq + 'static,
+    TaskId::Error: Debug,
     Task: Serialize + DeserializeOwned + Send + 'static,
 {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>) {
@@ -118,15 +129,57 @@ where
                     }
                     QueueCmd::Update(id, task) => update(&tx, &tables, id, task),
                     QueueCmd::Cancel(id) => cancel(&tx, &tables, id),
-                    QueueCmd::Done(id) => done(&tx, &tables, id),
+                    QueueCmd::Done(id, tx_hash) => {
+                        done(&tx, &tables, tx_hash, id);
+                    }
                     QueueCmd::AdvanceClocks(time) => advance_clocks(&tx, &tables, time),
                     QueueCmd::DowngradeClocks(time) => downgrade_clocks(&tx, &tables, time),
                 }
             }
+
             tx.commit().unwrap();
         })
         .await
         .unwrap();
+    }
+
+    async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>> {
+        spawn_blocking(move || {
+            let tx = self.db.transaction();
+            let tables = self.tables();
+            let mut readopts = ReadOptions::default();
+            let prefix = tx_hash.to_raw_bytes();
+            readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
+            let mut to_delete = vec![];
+            let mut task_ids = vec![];
+            {
+                let mut done_tasks = tx.iterator_cf_opt(
+                    &tables.done_with_tx_hash,
+                    readopts,
+                    IteratorMode::From(prefix, Direction::Forward),
+                );
+                while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+                    let task_id_bytes = key_with_tx_hash[DONE_TASK_ID_IX_START..].to_vec();
+                    let task_id = TaskId::try_from(task_id_bytes.clone()).unwrap();
+                    to_delete.push((task_id_bytes, key_with_tx_hash.to_vec()));
+                    task_ids.push(task_id);
+                }
+
+                for (task_id_key, key_with_tx_hash) in to_delete {
+                    tx.delete_cf(&tables.done, task_id_key).unwrap();
+                    tx.delete_cf(&tables.done_with_tx_hash, key_with_tx_hash).unwrap();
+                }
+            }
+
+            tx.commit().unwrap();
+            if !task_ids.is_empty() {
+                Some(task_ids)
+            } else {
+                None
+            }
+        })
+        .await
+        .unwrap()
     }
 
     fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin {
@@ -146,7 +199,7 @@ where
                             if let Ok(None) = tx.get_cf(tables.done, task_id) {
                                 let task_id = task_id.to_vec().try_into().ok().unwrap();
                                 let task = rmp_serde::from_slice(&task_bytes).unwrap();
-                                if let Err(_) = block_on(snd.send((task_id, task))) {
+                                if block_on(snd.send((task_id, task))).is_err() {
                                     break;
                                 }
                                 continue;
@@ -156,6 +209,7 @@ where
                     }
                 }
             }
+            tx.commit().unwrap();
         });
         recv
     }
@@ -165,18 +219,27 @@ where
         spawn_blocking(move || {
             let tables = self.tables();
             let tx = self.db.transaction();
-            let mut done_tasks = tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
-            while let Some(Ok((task_id, _))) = done_tasks.next() {
-                if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, &task_id) {
-                    let task_id = task_id.to_vec().try_into().ok().unwrap();
-                    let task = rmp_serde::from_slice(&task_bytes).unwrap();
-                    if let Err(_) = block_on(snd.send((task_id, task))) {
-                        break;
+            {
+                let mut done_tasks = tx.iterator_cf_opt(
+                    tables.done_with_tx_hash,
+                    ReadOptions::default(),
+                    IteratorMode::Start,
+                );
+                while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+                    let task_id = &key_with_tx_hash[DONE_TASK_ID_IX_START..];
+                    if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
+                        let task_id = task_id.to_vec().try_into().ok().unwrap();
+                        let task = rmp_serde::from_slice(&task_bytes).unwrap();
+                        if block_on(snd.send((task_id, task))).is_err() {
+                            break;
+                        }
+                        continue;
                     }
-                    continue;
+                    tx.delete_cf(tables.done, task_id).unwrap();
+                    tx.delete_cf(tables.done_with_tx_hash, key_with_tx_hash).unwrap();
                 }
-                tx.delete_cf(tables.done, task_id).unwrap();
             }
+            tx.commit().unwrap();
         });
         recv
     }
@@ -200,7 +263,7 @@ fn schedule<TaskId: Copy + AsRef<[u8]>, Task: Serialize>(
     tx.put_cf(
         tables.pending,
         PendingKey::new(exact_strike_time, id).as_bytes(),
-        &[],
+        [],
     )
     .unwrap();
 }
@@ -219,8 +282,16 @@ fn cancel<TaskId: AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables,
     tx.delete_cf(tables.index, id).unwrap();
 }
 
-fn done<TaskId: Copy + AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables, id: TaskId) {
+fn done<TaskId: Copy + AsRef<[u8]>>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    tx_hash: TransactionHash,
+    id: TaskId,
+) {
+    let mut key = tx_hash.to_raw_bytes().to_vec();
+    key.extend_from_slice(id.as_ref());
     tx.put_cf(tables.done, id, []).unwrap();
+    tx.put_cf(tables.done_with_tx_hash, key, []).unwrap();
 }
 
 fn advance_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
@@ -234,6 +305,7 @@ fn downgrade_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64)
 #[cfg(test)]
 mod tests {
     use crate::engine::queue::{QueueCmd, RocksDB, StrikeTime, TaskQueue};
+    use cml_crypto::{RawBytesEncoding, TransactionHash};
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
     use splash_testing::db_path::DBPath;
@@ -262,12 +334,11 @@ mod tests {
         let db = RocksDB::new(&path);
         let tid0 = TaskId([0u8; 32]);
         let t0 = Task(tid0);
-        db.clone()
-            .batch_execute(vec![
-                QueueCmd::AdvanceClocks(1),
-                QueueCmd::Schedule(tid0, t0, StrikeTime::Ready),
-            ])
-            .await;
+        let cmds: Vec<QueueCmd<_, _>> = vec![
+            QueueCmd::AdvanceClocks(1),
+            QueueCmd::Schedule(tid0, t0, StrikeTime::Ready),
+        ];
+        db.clone().batch_execute(cmds).await;
         let ordered_tasks = timeout(
             Duration::from_millis(100),
             <RocksDB as TaskQueue<TaskId, Task>>::pending_stream(db).collect::<Vec<(TaskId, Task)>>(),
@@ -379,8 +450,9 @@ mod tests {
                 QueueCmd::Schedule(tid2, t2, StrikeTime::Ready),
             ])
             .await;
+        let tx_hash = TransactionHash::from_raw_bytes(&[0; 32]).unwrap();
         db.clone()
-            .batch_execute(vec![QueueCmd::<TaskId, Task>::Done(tid2)])
+            .batch_execute(vec![QueueCmd::<TaskId, Task>::Done(tid2, tx_hash)])
             .await;
         let ordered_pending_tasks = timeout(
             Duration::from_millis(100),
@@ -442,5 +514,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![t0, t1_upd]
         );
+    }
+
+    #[tokio::test]
+    async fn test_task_ids_by_tx_hash() {
+        let path = DBPath::new("_test_mark_task_done");
+        let db = RocksDB::new(&path);
+        let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
+        let tx_hash = TransactionHash::from_raw_bytes(&[0; 32]).unwrap();
+        let cmds = vec![
+            QueueCmd::<TaskId, Task>::Done(tid0, tx_hash),
+            QueueCmd::Done(tid1, tx_hash),
+            QueueCmd::Done(tid2, tx_hash),
+        ];
+
+        db.clone().batch_execute(cmds).await;
+        let result: Vec<TaskId> = <RocksDB as TaskQueue<TaskId, Task>>::drop_tx(db, tx_hash)
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![tid0, tid1, tid2]);
     }
 }

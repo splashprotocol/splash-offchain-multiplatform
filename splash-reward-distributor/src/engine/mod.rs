@@ -14,15 +14,13 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
-use spectrum_offchain::tx_hash::CanonicalHash;
+use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
+use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
-use splash_yf_offchain::events::OnChainEvent;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {
@@ -132,18 +130,22 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::BotHarvestingAction { payouts, .. } => Some(
+                OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => Some(
                     payouts
                         .into_iter()
-                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into()))
+                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
                         .collect(),
                 ),
-                OnChainEvent::BotGaugeBufferingAction { drained_gauges, .. } => Some(
+                OnChainEvent::BotGaugeBufferingAction {
+                    drained_gauges,
+                    tx_hash,
+                    ..
+                } => Some(
                     drained_gauges
                         .into_iter()
                         .map(|gauge_update| {
                             let task_id = gauge_update.created.0.id.into();
-                            QueueCmd::Done(task_id)
+                            QueueCmd::Done(task_id, tx_hash)
                         })
                         .collect(),
                 ),
@@ -263,14 +265,14 @@ where
     }
     match executor.execute().await {
         Ok(res) => {
-            // TODO: index this with executed tasks (DEX-919)
-            let _tx_hash = res.output;
+            let tx_hash = res.output;
 
             let commands = res
                 .executed_tasks
                 .into_iter()
-                .map(QueueCmd::Done)
+                .map(|task_id| QueueCmd::Done(task_id, tx_hash))
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
+
             queue.batch_execute(commands.collect()).await;
         }
         Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {

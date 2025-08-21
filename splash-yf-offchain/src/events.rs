@@ -4,6 +4,7 @@ use crate::entities::funding_box::ConfirmedFundingBoxChanges;
 use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
 use crate::entities::smart_farm::{Gauge, UpdatedGauges};
 use crate::settings::MinLovelacePerHarvest;
+use cml_crypto::TransactionHash;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
@@ -29,10 +30,12 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     BotHarvestingAction {
         payouts: Vec<(HarvestOrder<StateId>, SplashPayout)>,
         buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+        tx_hash: TransactionHash,
     },
     BotGaugeBufferingAction {
         drained_gauges: Vec<EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>>,
         buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+        tx_hash: TransactionHash,
     },
     UpdatedGauges(UpdatedGauges<GaugeId, StateId, Bearer>),
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
@@ -71,6 +74,7 @@ where
 
         // Make sure to process inputs first for harvest orders
         if let Some(buffer_wallet_update) = BufferWalletUpdate::try_from_ledger(repr, ctx) {
+            let tx_hash = repr.hash;
             if !consumed_harvest_orders.is_empty() {
                 // Batch harvesting tx
                 let mut payouts = vec![];
@@ -90,6 +94,7 @@ where
                 Some(OnChainEvent::BotHarvestingAction {
                     payouts,
                     buffer_wallet_update,
+                    tx_hash,
                 })
             } else {
                 // gauge-buffering tx
@@ -99,6 +104,7 @@ where
                 Some(OnChainEvent::BotGaugeBufferingAction {
                     drained_gauges: gauge_updates.0,
                     buffer_wallet_update,
+                    tx_hash,
                 })
             }
         } else if !consumed_harvest_orders.is_empty() {
