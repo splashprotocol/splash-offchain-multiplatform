@@ -48,4 +48,27 @@ mod tests {
         let distribution = iterative_distribution(sim);
         dbg!(&distribution);
     }
+
+    #[test]
+    fn test_iter_distribution() {
+        let sim = Simulation {
+            // 4 pools, 3 epochs
+            emission_by_pool_by_epoch: vec![
+                vec![1_000_000, 800_000, 1_000_000],
+                vec![1_000_000, 800_000, 1_000_000],
+                vec![1_000_000, 800_000, 1_000_000],
+                vec![1_000_000, 1_600_000, 1_000_000],
+            ],
+            // 5 accounts, 3 epochs, 4 pools
+            accounts: vec![
+                vec![vec![2_000, 2_000, 2_000, 2_400], vec![2_000, 2_000, 2_000, 2_000], vec![2_000, 2_000, 2_000, 2_000]],
+                vec![vec![2_000, 2_000, 2_000, 1_900], vec![2_000, 2_000, 2_000, 2_000], vec![2_000, 2_000, 2_000, 2_000]],
+                vec![vec![2_000, 2_000, 2_000, 1_900], vec![2_000, 2_000, 2_000, 2_000], vec![2_000, 2_000, 2_000, 2_000]],
+                vec![vec![2_000, 2_000, 2_000, 1_900], vec![2_000, 2_000, 2_000, 2_000], vec![2_000, 2_000, 2_000, 2_000]],
+                vec![vec![2_000, 2_000, 2_000, 1_900], vec![2_000, 2_000, 2_000, 2_000], vec![2_000, 2_000, 2_000, 2_000]],
+            ],
+        };
+        let distribution = iterative_distribution(sim);
+        dbg!(&distribution);
+    }
 }
