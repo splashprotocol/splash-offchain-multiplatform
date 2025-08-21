@@ -8,7 +8,6 @@ use rocksdb::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use spectrum_offchain::kv_store::{KVStoreRocksDB, KvStore};
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
@@ -44,8 +43,9 @@ const PENDING: &str = "pending";
 const DONE: &str = "done";
 const INDEX: &str = "index";
 const CLOCKS: &str = "clocks";
+const TASK_IDS_BY_TX_HASH: &str = "tx_hash";
 
-const TABLES: [&str; 4] = [PENDING, DONE, INDEX, CLOCKS];
+const TABLES: [&str; 5] = [PENDING, DONE, INDEX, CLOCKS, TASK_IDS_BY_TX_HASH];
 
 struct PendingKey<TaskId>(u64, TaskId);
 impl<TaskId> PendingKey<TaskId> {
@@ -68,26 +68,22 @@ struct Tables<'a> {
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
+    task_ids_by_tx_hash: &'a ColumnFamily,
 }
 
 #[derive(Clone)]
 pub struct RocksDB {
     db: Arc<TransactionDB>,
-    task_ids_by_tx_hash: Arc<KVStoreRocksDB>,
 }
 
 impl RocksDB {
-    pub fn new<P: AsRef<Path>>(db_path: P, task_id_by_tx_hash_db_path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
         let db_opts = TransactionDBOptions::default();
-        let task_ids_by_tx_hash = Arc::new(KVStoreRocksDB::new(
-            task_id_by_tx_hash_db_path.as_ref().to_string_lossy().into_owned(),
-        ));
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, TABLES).unwrap()),
-            task_ids_by_tx_hash,
         }
     }
 
@@ -97,6 +93,7 @@ impl RocksDB {
             done: self.db.cf_handle(DONE).unwrap(),
             index: self.db.cf_handle(INDEX).unwrap(),
             clocks: self.db.cf_handle(CLOCKS).unwrap(),
+            task_ids_by_tx_hash: self.db.cf_handle(TASK_IDS_BY_TX_HASH).unwrap(),
         }
     }
 
@@ -125,7 +122,7 @@ where
     Task: Serialize + DeserializeOwned + Send + 'static,
 {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>) {
-        let (done_pairs, task_ids_by_tx_hash) = spawn_blocking(move || {
+        spawn_blocking(move || {
             let tables = self.tables();
             let tx = self.db.transaction();
             let mut done_pairs = vec![];
@@ -146,60 +143,48 @@ where
                 }
             }
 
+            // If there's at least one QueueCmd::Done(..), need to associate it with the TX hash
+            if let Some(first_tx_hash) = done_pairs.first().map(|(_, tx_hash)| *tx_hash) {
+                let task_ids: Vec<_> = done_pairs
+                    .iter()
+                    .map(|(task_id, tx_hash)| {
+                        assert_eq!(*tx_hash, first_tx_hash);
+                        *task_id
+                    })
+                    .collect();
+
+                let mapped_tasks: Option<Vec<TaskId>> = get_task_ids(&tx, &tables, first_tx_hash);
+
+                if let Some(mapped_tasks) = mapped_tasks {
+                    // We would enter this region if a TX is confirmed in a block.
+                    assert_eq!(mapped_tasks, task_ids);
+                } else {
+                    insert_task_ids(&tx, &tables, first_tx_hash, task_ids);
+                }
+            }
+
             tx.commit().unwrap();
-            (done_pairs, self.task_ids_by_tx_hash)
         })
         .await
         .unwrap();
-
-        let first_tx_hash = done_pairs.iter().next().map(|(_, tx_hash)| *tx_hash).unwrap();
-        let task_ids: Vec<_> = done_pairs
-            .into_iter()
-            .map(|(task_id, tx_hash)| {
-                assert_eq!(tx_hash, first_tx_hash);
-                task_id
-            })
-            .collect();
-
-        let mapped_tasks = <KVStoreRocksDB as KvStore<TransactionHash, Vec<TaskId>>>::get(
-            &task_ids_by_tx_hash,
-            first_tx_hash,
-        )
-        .await;
-
-        if let Some(mapped_tasks) = mapped_tasks {
-            // We would enter this region if a TX is confirmed in a block.
-            assert_eq!(mapped_tasks, task_ids);
-        } else {
-            <KVStoreRocksDB as KvStore<TransactionHash, Vec<TaskId>>>::insert(
-                &task_ids_by_tx_hash,
-                first_tx_hash,
-                task_ids,
-            )
-            .await;
-        }
     }
 
     async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>> {
-        let task_ids = <KVStoreRocksDB as KvStore<TransactionHash, Vec<TaskId>>>::remove(
-            &self.task_ids_by_tx_hash,
-            tx_hash,
-        )
-        .await;
-        let task_ids_cloned = task_ids.clone();
         spawn_blocking(move || {
-            if let Some(task_ids) = task_ids_cloned {
-                let tx = self.db.transaction();
-                let tables = self.tables();
+            let tx = self.db.transaction();
+            let tables = self.tables();
+
+            let task_ids: Option<Vec<TaskId>> = remove_task_ids(&tx, &tables, tx_hash);
+            if let Some(task_ids) = &task_ids {
                 for id in task_ids {
                     remove_done(&tx, &tables, id);
                 }
-                tx.commit().unwrap();
             }
+            tx.commit().unwrap();
+            task_ids
         })
         .await
-        .unwrap();
-        task_ids
+        .unwrap()
     }
 
     fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin {
@@ -219,7 +204,7 @@ where
                             if let Ok(None) = tx.get_cf(tables.done, task_id) {
                                 let task_id = task_id.to_vec().try_into().ok().unwrap();
                                 let task = rmp_serde::from_slice(&task_bytes).unwrap();
-                                if let Err(_) = block_on(snd.send((task_id, task))) {
+                                if block_on(snd.send((task_id, task))).is_err() {
                                     break;
                                 }
                                 continue;
@@ -229,6 +214,7 @@ where
                     }
                 }
             }
+            tx.commit().unwrap();
         });
         recv
     }
@@ -238,18 +224,22 @@ where
         spawn_blocking(move || {
             let tables = self.tables();
             let tx = self.db.transaction();
-            let mut done_tasks = tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
-            while let Some(Ok((task_id, _))) = done_tasks.next() {
-                if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, &task_id) {
-                    let task_id = task_id.to_vec().try_into().ok().unwrap();
-                    let task = rmp_serde::from_slice(&task_bytes).unwrap();
-                    if let Err(_) = block_on(snd.send((task_id, task))) {
-                        break;
+            {
+                let mut done_tasks =
+                    tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
+                while let Some(Ok((task_id, _))) = done_tasks.next() {
+                    if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, &task_id) {
+                        let task_id = task_id.to_vec().try_into().ok().unwrap();
+                        let task = rmp_serde::from_slice(&task_bytes).unwrap();
+                        if block_on(snd.send((task_id, task))).is_err() {
+                            break;
+                        }
+                        continue;
                     }
-                    continue;
+                    tx.delete_cf(tables.done, task_id).unwrap();
                 }
-                tx.delete_cf(tables.done, task_id).unwrap();
             }
+            tx.commit().unwrap();
         });
         recv
     }
@@ -308,6 +298,45 @@ fn downgrade_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64)
     tx.delete_cf(tables.clocks, time.to_be_bytes()).unwrap()
 }
 
+fn get_task_ids<TaskId: Copy + AsRef<[u8]> + DeserializeOwned>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    tx_hash: TransactionHash,
+) -> Option<Vec<TaskId>> {
+    let key_bytes = rmp_serde::to_vec(&tx_hash).unwrap();
+    let task_ids_bytes = tx.get_cf(tables.task_ids_by_tx_hash, key_bytes).unwrap();
+    if let Some(task_ids_bytes) = task_ids_bytes {
+        let task_ids: Vec<TaskId> = rmp_serde::from_slice(&task_ids_bytes).unwrap();
+        return Some(task_ids);
+    }
+    None
+}
+
+fn insert_task_ids<TaskId>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    tx_hash: TransactionHash,
+    task_ids: Vec<TaskId>,
+) where
+    TaskId: Copy + AsRef<[u8]> + Serialize + DeserializeOwned,
+{
+    let key = rmp_serde::to_vec(&tx_hash).unwrap();
+    let value = rmp_serde::to_vec(&task_ids).unwrap();
+    tx.put_cf(tables.task_ids_by_tx_hash, key, value).unwrap();
+}
+
+fn remove_task_ids<TaskId: Copy + AsRef<[u8]> + DeserializeOwned>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    tx_hash: TransactionHash,
+) -> Option<Vec<TaskId>> {
+    let task_ids = get_task_ids(tx, tables, tx_hash);
+
+    let key_bytes = rmp_serde::to_vec(&tx_hash).unwrap();
+    tx.delete_cf(tables.task_ids_by_tx_hash, key_bytes).unwrap();
+    task_ids
+}
+
 #[cfg(test)]
 mod tests {
     use crate::engine::queue::{QueueCmd, RocksDB, StrikeTime, TaskQueue};
@@ -337,8 +366,7 @@ mod tests {
     #[tokio::test]
     async fn execute_schedule() {
         let path = DBPath::new("_test_execute_schedule");
-        let task_ids_map_path = DBPath::new("_task_ids_map");
-        let db = RocksDB::new(&path, &task_ids_map_path);
+        let db = RocksDB::new(&path);
         let tid0 = TaskId([0u8; 32]);
         let t0 = Task(tid0);
         let cmds: Vec<QueueCmd<_, _>> = vec![
@@ -361,8 +389,7 @@ mod tests {
     #[tokio::test]
     async fn stream_pending_tasks() {
         let path = DBPath::new("_test_stream_pending_tasks");
-        let task_ids_map_path = DBPath::new("_task_ids_map");
-        let db = RocksDB::new(&path, &task_ids_map_path);
+        let db = RocksDB::new(&path);
         let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
         let (t0, t1, t2) = (Task(tid0), Task(tid1), Task(tid2));
         db.clone()
@@ -398,8 +425,7 @@ mod tests {
     #[tokio::test]
     async fn delete_pending_task() {
         let path = DBPath::new("_test_delete_pending_task");
-        let task_ids_map_path = DBPath::new("_task_ids_map");
-        let db = RocksDB::new(&path, &task_ids_map_path);
+        let db = RocksDB::new(&path);
         let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
         let (t0, t1, t2) = (Task(tid0), Task(tid1), Task(tid2));
         db.clone()
@@ -438,8 +464,7 @@ mod tests {
     #[tokio::test]
     async fn mark_task_done() {
         let path = DBPath::new("_test_mark_task_done");
-        let task_ids_map_path = DBPath::new("_task_ids_map");
-        let db = RocksDB::new(&path, &task_ids_map_path);
+        let db = RocksDB::new(&path);
         let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
         let (t0, t1, t2) = (Task(tid0), Task(tid1), Task(tid2));
         db.clone()
@@ -492,8 +517,7 @@ mod tests {
     #[tokio::test]
     async fn update_task() {
         let path = DBPath::new("_test_update_task");
-        let task_ids_map_path = DBPath::new("_task_ids_map");
-        let db = RocksDB::new(&path, &task_ids_map_path);
+        let db = RocksDB::new(&path);
         let (tid0, tid1) = (TaskId([0u8; 32]), TaskId([1u8; 32]));
         let (t0, t1) = (Task(tid0), Task(tid1));
         let t1_upd = Task(TaskId([3u8; 32]));
@@ -525,5 +549,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![t0, t1_upd]
         );
+    }
+
+    #[tokio::test]
+    async fn test_task_ids_by_tx_hash() {
+        let path = DBPath::new("_test_mark_task_done");
+        let db = RocksDB::new(&path);
+        let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
+        let tx_hash = TransactionHash::from_raw_bytes(&[0; 32]).unwrap();
+        let cmds = vec![
+            QueueCmd::<TaskId, Task>::Done(tid0, tx_hash),
+            QueueCmd::Done(tid1, tx_hash),
+            QueueCmd::Done(tid2, tx_hash),
+        ];
+
+        db.clone().batch_execute(cmds).await;
+        let result: Vec<TaskId> = <RocksDB as TaskQueue<TaskId, Task>>::drop_tx(db, tx_hash)
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![tid0, tid1, tid2]);
     }
 }

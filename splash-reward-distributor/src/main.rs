@@ -115,7 +115,7 @@ async fn main() {
         ctx.clone(),
     );
 
-    let queue = RocksDB::new(config.persistent_queue_db_path, config.task_id_by_tx_hash_db_path);
+    let queue = RocksDB::new(config.persistent_queue_db_path);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
     let engine = engine::Engine::new(engine_mailbox, queue, executor, config.engine);
 
