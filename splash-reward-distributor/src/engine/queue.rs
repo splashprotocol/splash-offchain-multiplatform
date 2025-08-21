@@ -44,9 +44,9 @@ const PENDING: &str = "pending";
 const DONE: &str = "done";
 const INDEX: &str = "index";
 const CLOCKS: &str = "clocks";
-const TASK_IDS_BY_TX_HASH: &str = "tx_hash";
+const DONE_TASK_ID_IX_START: usize = 32;
 
-const TABLES: [&str; 5] = [PENDING, DONE, INDEX, CLOCKS, TASK_IDS_BY_TX_HASH];
+const TABLES: [&str; 4] = [PENDING, DONE, INDEX, CLOCKS];
 
 struct PendingKey<TaskId>(u64, TaskId);
 impl<TaskId> PendingKey<TaskId> {
@@ -66,10 +66,10 @@ impl<TaskId> PendingKey<TaskId> {
 
 struct Tables<'a> {
     pending: &'a ColumnFamily,
+    /// Maps [tx_hash|task_id] to empty slice []
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
-    task_ids_by_tx_hash: &'a ColumnFamily,
 }
 
 #[derive(Clone)]
@@ -94,7 +94,6 @@ impl RocksDB {
             done: self.db.cf_handle(DONE).unwrap(),
             index: self.db.cf_handle(INDEX).unwrap(),
             clocks: self.db.cf_handle(CLOCKS).unwrap(),
-            task_ids_by_tx_hash: self.db.cf_handle(TASK_IDS_BY_TX_HASH).unwrap(),
         }
     }
 
@@ -158,7 +157,7 @@ where
                 );
                 while let Some(Ok((key, _))) = done_tasks.next() {
                     keys_delete.push(key.to_vec());
-                    let task_id = TaskId::try_from(key[32..].to_vec()).unwrap();
+                    let task_id = TaskId::try_from(key[DONE_TASK_ID_IX_START..].to_vec()).unwrap();
                     task_ids.push(task_id)
                 }
 
@@ -198,7 +197,7 @@ where
                         // over the `done` column
                         let task_is_done = done_tasks.any(|done_key| {
                             if let Ok((done_key, _)) = done_key {
-                                *task_id == done_key[32..]
+                                *task_id == done_key[DONE_TASK_ID_IX_START..]
                             } else {
                                 false
                             }
@@ -231,7 +230,7 @@ where
                 let mut done_tasks =
                     tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
                 while let Some(Ok((key, _))) = done_tasks.next() {
-                    let task_id = &key[32..];
+                    let task_id = &key[DONE_TASK_ID_IX_START..];
                     if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
                         let task_id = task_id.to_vec().try_into().ok().unwrap();
                         let task = rmp_serde::from_slice(&task_bytes).unwrap();
