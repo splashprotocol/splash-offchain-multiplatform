@@ -1,8 +1,6 @@
 use crate::constants::EVENT_LOCK_TTL_SLOTS;
 use crate::onchain::event::{AccountPoolHarvested, PositionEvent};
-use actix_web::error::ParseError;
-use actix_web::http::header::{Header, HeaderName, HeaderValue, TryIntoHeaderValue};
-use actix_web::web::Header;
+use actix_web::http::header::{Header, TryIntoHeaderValue};
 use actix_web::HttpMessage;
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
