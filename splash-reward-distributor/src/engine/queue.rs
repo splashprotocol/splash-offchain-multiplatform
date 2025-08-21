@@ -1,10 +1,11 @@
 use async_trait::async_trait;
-use cml_crypto::TransactionHash;
+use cml_crypto::{RawBytesEncoding, TransactionHash};
 use futures::channel::mpsc;
 use futures::executor::block_on;
 use futures::{SinkExt, Stream};
 use rocksdb::{
-    ColumnFamily, IteratorMode, Options, ReadOptions, Transaction, TransactionDB, TransactionDBOptions,
+    ColumnFamily, Direction, IteratorMode, Options, ReadOptions, Transaction, TransactionDB,
+    TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -110,22 +111,14 @@ impl RocksDB {
 #[async_trait]
 impl<TaskId, Task> TaskQueue<TaskId, Task> for RocksDB
 where
-    TaskId: Copy
-        + Debug
-        + TryFrom<Vec<u8>>
-        + AsRef<[u8]>
-        + Send
-        + Serialize
-        + DeserializeOwned
-        + PartialEq
-        + 'static,
+    TaskId: Copy + TryFrom<Vec<u8>> + AsRef<[u8]> + Send + Serialize + DeserializeOwned + PartialEq + 'static,
+    TaskId::Error: Debug,
     Task: Serialize + DeserializeOwned + Send + 'static,
 {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>) {
         spawn_blocking(move || {
             let tables = self.tables();
             let tx = self.db.transaction();
-            let mut done_pairs = vec![];
             for cmd in cmds {
                 match cmd {
                     QueueCmd::Schedule(id, task, time) => {
@@ -135,31 +128,10 @@ where
                     QueueCmd::Update(id, task) => update(&tx, &tables, id, task),
                     QueueCmd::Cancel(id) => cancel(&tx, &tables, id),
                     QueueCmd::Done(id, tx_hash) => {
-                        done(&tx, &tables, id);
-                        done_pairs.push((id, tx_hash));
+                        done(&tx, &tables, tx_hash, id);
                     }
                     QueueCmd::AdvanceClocks(time) => advance_clocks(&tx, &tables, time),
                     QueueCmd::DowngradeClocks(time) => downgrade_clocks(&tx, &tables, time),
-                }
-            }
-
-            // If there's at least one QueueCmd::Done(..), need to associate it with the TX hash
-            if let Some(first_tx_hash) = done_pairs.first().map(|(_, tx_hash)| *tx_hash) {
-                let task_ids: Vec<_> = done_pairs
-                    .iter()
-                    .map(|(task_id, tx_hash)| {
-                        assert_eq!(*tx_hash, first_tx_hash);
-                        *task_id
-                    })
-                    .collect();
-
-                let mapped_tasks: Option<Vec<TaskId>> = get_task_ids(&tx, &tables, first_tx_hash);
-
-                if let Some(mapped_tasks) = mapped_tasks {
-                    // We would enter this region if a TX is confirmed in a block.
-                    assert_eq!(mapped_tasks, task_ids);
-                } else {
-                    insert_task_ids(&tx, &tables, first_tx_hash, task_ids);
                 }
             }
 
@@ -173,15 +145,34 @@ where
         spawn_blocking(move || {
             let tx = self.db.transaction();
             let tables = self.tables();
+            let mut readopts = ReadOptions::default();
+            let prefix = tx_hash.to_raw_bytes();
+            readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
+            let mut keys_delete = vec![];
+            let mut task_ids = vec![];
+            {
+                let mut done_tasks = tx.iterator_cf_opt(
+                    &tables.done,
+                    readopts,
+                    IteratorMode::From(prefix, Direction::Forward),
+                );
+                while let Some(Ok((key, _))) = done_tasks.next() {
+                    keys_delete.push(key.to_vec());
+                    let task_id = TaskId::try_from(key[32..].to_vec()).unwrap();
+                    task_ids.push(task_id)
+                }
 
-            let task_ids: Option<Vec<TaskId>> = remove_task_ids(&tx, &tables, tx_hash);
-            if let Some(task_ids) = &task_ids {
-                for id in task_ids {
-                    remove_done(&tx, &tables, id);
+                for key in keys_delete {
+                    tx.delete_cf(&tables.done, key).unwrap();
                 }
             }
+
             tx.commit().unwrap();
-            task_ids
+            if !task_ids.is_empty() {
+                Some(task_ids)
+            } else {
+                None
+            }
         })
         .await
         .unwrap()
@@ -200,8 +191,20 @@ where
                     let strike_time = <u64>::from_be_bytes(strike_time_bytes);
                     if strike_time <= current_time {
                         let task_id = &key[8..];
+                        let mut done_tasks =
+                            tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
+
+                        // We don't know the TX hash associated with `task_id`, so need to iterate
+                        // over the `done` column
+                        let task_is_done = done_tasks.any(|done_key| {
+                            if let Ok((done_key, _)) = done_key {
+                                *task_id == done_key[32..]
+                            } else {
+                                false
+                            }
+                        });
                         if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
-                            if let Ok(None) = tx.get_cf(tables.done, task_id) {
+                            if !task_is_done {
                                 let task_id = task_id.to_vec().try_into().ok().unwrap();
                                 let task = rmp_serde::from_slice(&task_bytes).unwrap();
                                 if block_on(snd.send((task_id, task))).is_err() {
@@ -227,8 +230,9 @@ where
             {
                 let mut done_tasks =
                     tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
-                while let Some(Ok((task_id, _))) = done_tasks.next() {
-                    if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, &task_id) {
+                while let Some(Ok((key, _))) = done_tasks.next() {
+                    let task_id = &key[32..];
+                    if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
                         let task_id = task_id.to_vec().try_into().ok().unwrap();
                         let task = rmp_serde::from_slice(&task_bytes).unwrap();
                         if block_on(snd.send((task_id, task))).is_err() {
@@ -236,7 +240,7 @@ where
                         }
                         continue;
                     }
-                    tx.delete_cf(tables.done, task_id).unwrap();
+                    tx.delete_cf(tables.done, key).unwrap();
                 }
             }
             tx.commit().unwrap();
@@ -263,7 +267,7 @@ fn schedule<TaskId: Copy + AsRef<[u8]>, Task: Serialize>(
     tx.put_cf(
         tables.pending,
         PendingKey::new(exact_strike_time, id).as_bytes(),
-        &[],
+        [],
     )
     .unwrap();
 }
@@ -282,12 +286,15 @@ fn cancel<TaskId: AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables,
     tx.delete_cf(tables.index, id).unwrap();
 }
 
-fn done<TaskId: Copy + AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables, id: TaskId) {
-    tx.put_cf(tables.done, id, []).unwrap();
-}
-
-fn remove_done<TaskId: Copy + AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables, id: TaskId) {
-    tx.delete_cf(tables.done, id).unwrap();
+fn done<TaskId: Copy + AsRef<[u8]>>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    tx_hash: TransactionHash,
+    id: TaskId,
+) {
+    let mut key = tx_hash.to_raw_bytes().to_vec();
+    key.extend_from_slice(id.as_ref());
+    tx.put_cf(tables.done, key, []).unwrap();
 }
 
 fn advance_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
@@ -296,45 +303,6 @@ fn advance_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
 
 fn downgrade_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
     tx.delete_cf(tables.clocks, time.to_be_bytes()).unwrap()
-}
-
-fn get_task_ids<TaskId: Copy + AsRef<[u8]> + DeserializeOwned>(
-    tx: &Transaction<TransactionDB>,
-    tables: &Tables,
-    tx_hash: TransactionHash,
-) -> Option<Vec<TaskId>> {
-    let key_bytes = rmp_serde::to_vec(&tx_hash).unwrap();
-    let task_ids_bytes = tx.get_cf(tables.task_ids_by_tx_hash, key_bytes).unwrap();
-    if let Some(task_ids_bytes) = task_ids_bytes {
-        let task_ids: Vec<TaskId> = rmp_serde::from_slice(&task_ids_bytes).unwrap();
-        return Some(task_ids);
-    }
-    None
-}
-
-fn insert_task_ids<TaskId>(
-    tx: &Transaction<TransactionDB>,
-    tables: &Tables,
-    tx_hash: TransactionHash,
-    task_ids: Vec<TaskId>,
-) where
-    TaskId: Copy + AsRef<[u8]> + Serialize + DeserializeOwned,
-{
-    let key = rmp_serde::to_vec(&tx_hash).unwrap();
-    let value = rmp_serde::to_vec(&task_ids).unwrap();
-    tx.put_cf(tables.task_ids_by_tx_hash, key, value).unwrap();
-}
-
-fn remove_task_ids<TaskId: Copy + AsRef<[u8]> + DeserializeOwned>(
-    tx: &Transaction<TransactionDB>,
-    tables: &Tables,
-    tx_hash: TransactionHash,
-) -> Option<Vec<TaskId>> {
-    let task_ids = get_task_ids(tx, tables, tx_hash);
-
-    let key_bytes = rmp_serde::to_vec(&tx_hash).unwrap();
-    tx.delete_cf(tables.task_ids_by_tx_hash, key_bytes).unwrap();
-    task_ids
 }
 
 #[cfg(test)]
