@@ -1,7 +1,20 @@
 use crate::constants::EVENT_LOCK_TTL_SLOTS;
 use crate::onchain::event::{AccountPoolHarvested, PositionEvent};
+use actix_web::error::ParseError;
+use actix_web::http::header::{Header, HeaderName, HeaderValue, TryIntoHeaderValue};
+use actix_web::web::Header;
+use actix_web::HttpMessage;
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
+
+#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug, derive_more::From, derive_more::Into)]
+pub struct LockId([u8; 32]);
+
+#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+pub struct Lock {
+    pub id: LockId,
+    pub at: Slot,
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct SuspendedPositionEvents {
@@ -11,30 +24,30 @@ pub struct SuspendedPositionEvents {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
-pub struct AccountInPool {
+pub struct PoolAccountState {
     /// Accumulator of avg share over period from `activated_at` to `updated_at`
     pub avg_share_bps: u64,
     /// Latest share as (personal_share, total_share)
     pub share: (u64, u64),
     pub updated_at: Slot,
     pub activated_at: Option<Slot>,
-    pub locked_at: Option<Slot>,
+    pub lock: Option<Lock>,
 }
 
-impl AccountInPool {
+impl PoolAccountState {
     pub fn new(current_slot: Slot, activated: bool) -> Self {
         Self {
             avg_share_bps: 0,
             share: (0, 1),
             updated_at: current_slot,
             activated_at: if activated { Some(current_slot) } else { None },
-            locked_at: None,
+            lock: None,
         }
     }
 
     pub fn should_unlock(&self, current_slot: Slot) -> bool {
-        self.locked_at
-            .is_some_and(|locked_at| current_slot - locked_at > EVENT_LOCK_TTL_SLOTS)
+        self.lock
+            .is_some_and(|lock| current_slot - lock.at > EVENT_LOCK_TTL_SLOTS)
     }
 
     pub fn activated(mut self, slot: Slot) -> Self {
@@ -48,14 +61,26 @@ impl AccountInPool {
     }
 
     // Lock account before harvesting.
-    pub fn lock(mut self, current_slot: Slot) -> Self {
-        self.locked_at.replace(current_slot);
-        self
+    pub fn lock(mut self, current_slot: Slot, lock_id: LockId) -> Result<Self, LockId> {
+        match self.lock {
+            Some(ref lock) => {
+                if lock.id != lock_id {
+                    return Err(lock_id);
+                }
+            }
+            None => {
+                self.lock.replace(Lock {
+                    id: lock_id,
+                    at: current_slot,
+                });
+            }
+        }
+        Ok(self)
     }
 
     // Unlock if harvest failed.
     pub fn unlock(mut self, delayed_events: Vec<SuspendedPositionEvents>) -> Self {
-        self.locked_at = None;
+        self.lock = None;
         delayed_events.into_iter().fold(self, |acc, de| {
             acc.try_adjust_position(de.current_slot, de.total_lq, de.events)
                 .unwrap()
@@ -80,7 +105,7 @@ impl AccountInPool {
         total_lq: u64,
         events: Vec<PositionEvent>,
     ) -> Result<Self, (Self, SuspendedPositionEvents)> {
-        if self.locked_at.is_some() {
+        if self.lock.is_some() {
             return Err((
                 self,
                 SuspendedPositionEvents {
@@ -118,7 +143,7 @@ impl AccountInPool {
 
 #[cfg(test)]
 mod tests {
-    use crate::account::AccountInPool;
+    use crate::account::PoolAccountState;
     use crate::onchain::event::{Deposit, PositionEvent, Redeem};
     use cml_chain::certs::Credential;
     use cml_crypto::Ed25519KeyHash;
@@ -128,7 +153,7 @@ mod tests {
     fn init_account() {
         let s0 = 10;
         let account_key = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
-        let acc = AccountInPool::new(s0, true);
+        let acc = PoolAccountState::new(s0, true);
         let personal_position_lq = 50_000;
         let total_lq = 1_000_000;
         let events = vec![PositionEvent::Deposit(Deposit {
@@ -140,12 +165,12 @@ mod tests {
         let init_acc = acc.try_adjust_position(s0, total_lq, events);
         assert_eq!(
             init_acc,
-            Ok(AccountInPool {
+            Ok(PoolAccountState {
                 avg_share_bps: 0,
                 share: (personal_position_lq, total_lq),
                 updated_at: s0,
                 activated_at: Some(s0),
-                locked_at: None,
+                lock: None,
             })
         )
     }
@@ -157,7 +182,7 @@ mod tests {
         let s2 = 30;
         let pid = PoolId::random();
         let account_key = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
-        let acc = AccountInPool::new(s0, true);
+        let acc = PoolAccountState::new(s0, true);
         let personal_delta_lq_0 = 500_000;
         let total_lq_0 = 1_000_000;
         let events_0 = vec![PositionEvent::Deposit(Deposit {
@@ -187,12 +212,12 @@ mod tests {
         let updated_acc_2 = updated_acc_0.try_adjust_position(s2, total_lq_2, events_2);
         assert_eq!(
             updated_acc_2,
-            Ok(AccountInPool {
+            Ok(PoolAccountState {
                 avg_share_bps: 2500,
                 share: (1000000, 4000000,),
                 updated_at: 30,
                 activated_at: Some(10,),
-                locked_at: None,
+                lock: None,
             },)
         );
     }
