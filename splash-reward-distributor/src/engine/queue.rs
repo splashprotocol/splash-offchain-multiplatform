@@ -42,11 +42,12 @@ pub enum StrikeTime {
 
 const PENDING: &str = "pending";
 const DONE: &str = "done";
+const DONE_WITH_TX_HASH: &str = "done_tx_hash";
 const INDEX: &str = "index";
 const CLOCKS: &str = "clocks";
 const DONE_TASK_ID_IX_START: usize = 32;
 
-const TABLES: [&str; 4] = [PENDING, DONE, INDEX, CLOCKS];
+const TABLES: [&str; 5] = [PENDING, DONE, DONE_WITH_TX_HASH, INDEX, CLOCKS];
 
 struct PendingKey<TaskId>(u64, TaskId);
 impl<TaskId> PendingKey<TaskId> {
@@ -67,6 +68,7 @@ impl<TaskId> PendingKey<TaskId> {
 struct Tables<'a> {
     pending: &'a ColumnFamily,
     /// Maps [tx_hash|task_id] to empty slice []
+    done_with_tx_hash: &'a ColumnFamily,
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
@@ -92,6 +94,7 @@ impl RocksDB {
         Tables {
             pending: self.db.cf_handle(PENDING).unwrap(),
             done: self.db.cf_handle(DONE).unwrap(),
+            done_with_tx_hash: self.db.cf_handle(DONE_WITH_TX_HASH).unwrap(),
             index: self.db.cf_handle(INDEX).unwrap(),
             clocks: self.db.cf_handle(CLOCKS).unwrap(),
         }
@@ -147,22 +150,24 @@ where
             let mut readopts = ReadOptions::default();
             let prefix = tx_hash.to_raw_bytes();
             readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
-            let mut keys_delete = vec![];
+            let mut to_delete = vec![];
             let mut task_ids = vec![];
             {
                 let mut done_tasks = tx.iterator_cf_opt(
-                    &tables.done,
+                    &tables.done_with_tx_hash,
                     readopts,
                     IteratorMode::From(prefix, Direction::Forward),
                 );
-                while let Some(Ok((key, _))) = done_tasks.next() {
-                    keys_delete.push(key.to_vec());
-                    let task_id = TaskId::try_from(key[DONE_TASK_ID_IX_START..].to_vec()).unwrap();
-                    task_ids.push(task_id)
+                while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+                    let task_id_bytes = key_with_tx_hash[DONE_TASK_ID_IX_START..].to_vec();
+                    let task_id = TaskId::try_from(task_id_bytes.clone()).unwrap();
+                    to_delete.push((task_id_bytes, key_with_tx_hash.to_vec()));
+                    task_ids.push(task_id);
                 }
 
-                for key in keys_delete {
-                    tx.delete_cf(&tables.done, key).unwrap();
+                for (task_id_key, key_with_tx_hash) in to_delete {
+                    tx.delete_cf(&tables.done, task_id_key).unwrap();
+                    tx.delete_cf(&tables.done_with_tx_hash, key_with_tx_hash).unwrap();
                 }
             }
 
@@ -190,20 +195,8 @@ where
                     let strike_time = <u64>::from_be_bytes(strike_time_bytes);
                     if strike_time <= current_time {
                         let task_id = &key[8..];
-                        let mut done_tasks =
-                            tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
-
-                        // We don't know the TX hash associated with `task_id`, so need to iterate
-                        // over the `done` column
-                        let task_is_done = done_tasks.any(|done_key| {
-                            if let Ok((done_key, _)) = done_key {
-                                *task_id == done_key[DONE_TASK_ID_IX_START..]
-                            } else {
-                                false
-                            }
-                        });
                         if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
-                            if !task_is_done {
+                            if let Ok(None) = tx.get_cf(tables.done, task_id) {
                                 let task_id = task_id.to_vec().try_into().ok().unwrap();
                                 let task = rmp_serde::from_slice(&task_bytes).unwrap();
                                 if block_on(snd.send((task_id, task))).is_err() {
@@ -227,10 +220,13 @@ where
             let tables = self.tables();
             let tx = self.db.transaction();
             {
-                let mut done_tasks =
-                    tx.iterator_cf_opt(tables.done, ReadOptions::default(), IteratorMode::Start);
-                while let Some(Ok((key, _))) = done_tasks.next() {
-                    let task_id = &key[DONE_TASK_ID_IX_START..];
+                let mut done_tasks = tx.iterator_cf_opt(
+                    tables.done_with_tx_hash,
+                    ReadOptions::default(),
+                    IteratorMode::Start,
+                );
+                while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+                    let task_id = &key_with_tx_hash[DONE_TASK_ID_IX_START..];
                     if let Ok(Some(task_bytes)) = tx.get_cf(tables.index, task_id) {
                         let task_id = task_id.to_vec().try_into().ok().unwrap();
                         let task = rmp_serde::from_slice(&task_bytes).unwrap();
@@ -239,7 +235,8 @@ where
                         }
                         continue;
                     }
-                    tx.delete_cf(tables.done, key).unwrap();
+                    tx.delete_cf(tables.done, task_id).unwrap();
+                    tx.delete_cf(tables.done_with_tx_hash, key_with_tx_hash).unwrap();
                 }
             }
             tx.commit().unwrap();
@@ -293,7 +290,8 @@ fn done<TaskId: Copy + AsRef<[u8]>>(
 ) {
     let mut key = tx_hash.to_raw_bytes().to_vec();
     key.extend_from_slice(id.as_ref());
-    tx.put_cf(tables.done, key, []).unwrap();
+    tx.put_cf(tables.done, id, []).unwrap();
+    tx.put_cf(tables.done_with_tx_hash, key, []).unwrap();
 }
 
 fn advance_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
