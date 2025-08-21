@@ -16,6 +16,8 @@ use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
 use splash_yf_offchain::events::OnChainEvent;
+use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
+use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::ControlFlow;

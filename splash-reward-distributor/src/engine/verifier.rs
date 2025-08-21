@@ -1,7 +1,7 @@
+use crate::accounts::{AccountState, Accounts};
 use crate::emission::{reward_amount, Emission};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
 use crate::engine::withdrawal::Withdrawal;
-use crate::positions::{AccountState, Positions};
 use cml_chain::certs::Credential;
 use cml_chain::transaction::Transaction;
 use cml_crypto::Ed25519KeyHash;
@@ -92,7 +92,7 @@ pub struct AuthorizedExecutors(pub Vec<Ed25519KeyHash>);
 impl<Index, Emiss, Prov, Ctx> LocalVerifier<PartiallySignedCardanoTx, Transaction, Ctx>
     for Verifier<PartiallySignedCardanoTx, Index, Emiss, Prov>
 where
-    Index: Positions<OutputRef> + Send + Sync,
+    Index: Accounts<OutputRef> + Send + Sync,
     Emiss: Emission + Send + Sync,
     Prov: TxProver<PartiallySignedCardanoTx, Transaction> + Send + Sync,
     Ctx: Has<MinLovelacePerHarvest>

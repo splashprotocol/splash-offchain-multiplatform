@@ -1,4 +1,4 @@
-use crate::account::{AccountInPool, SuspendedPositionEvents};
+use crate::account::{PoolAccountState, SuspendedPositionEvents};
 use crate::feed::event::ExportAccountEvent;
 use crate::onchain::event::{
     AccountEvent, AccountPoolHarvested, FarmEvent, MultiAccountHarvested, OnChainEvent, PoolEvent,
@@ -117,12 +117,12 @@ impl MatureEvents for PositionDB {
                             .unwrap()
                             .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap());
                         let mut iter_accounts = get_range_iterator(&db, accounts_cf, pool_key);
-                        let mut accounts_for_update: HashMap<Credential, (AccountInPool, AccountFrame)> =
+                        let mut accounts_for_update: HashMap<Credential, (PoolAccountState, AccountFrame)> =
                             HashMap::new();
                         let suspended_events_cf = db.cf_handle(SUS_EVENTS_CF).unwrap();
                         while let Some(Ok((key, value))) = iter_accounts.next() {
                             let (_, account_cred) = from_account_key(key.to_vec()).unwrap();
-                            let account = rmp_serde::from_slice::<AccountInPool>(&value).unwrap();
+                            let account = rmp_serde::from_slice::<PoolAccountState>(&value).unwrap();
                             let updated_account = if let Some(farm_activated_at) = farm_activated_at {
                                 account.activated(farm_activated_at)
                             } else {
@@ -147,7 +147,7 @@ impl MatureEvents for PositionDB {
                             accounts_for_update.insert(
                                 new_account_key,
                                 (
-                                    AccountInPool::new(current_slot, farm_activated_at.is_some()),
+                                    PoolAccountState::new(current_slot, farm_activated_at.is_some()),
                                     account_frame,
                                 ),
                             );
