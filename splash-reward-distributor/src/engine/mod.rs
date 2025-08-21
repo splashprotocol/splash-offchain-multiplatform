@@ -14,15 +14,13 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
-use spectrum_offchain::kv_store::KvStore;
+use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
+use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
-use splash_yf_offchain::events::OnChainEvent;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {
