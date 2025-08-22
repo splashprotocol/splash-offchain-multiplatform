@@ -311,6 +311,21 @@
       "steps": 240000000
     }
   },
+  "royaltyPoolV2DaoRequest": {
+    "hash": "cd4222cb8e02c64be76bdcb76075ee138fe644b0b5237763b5252001",
+    "referenceUtxo": {
+      "txHash": "0fa254ce7dcda8ee43ac44bbef470be02954d63630c6da379d508d5dcae52ca1",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 6000000,
+      "steps": 3502791591
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
   "royaltyPoolV2": {
     "hash": "178475d7c0bfc0ac503022e7cace6fe614d252f4ff3ee7bf554cd38f",
     "referenceUtxo": {

@@ -3,11 +3,11 @@ use crate::data::order::{ClassicalOrder, PoolNft};
 use crate::data::pool::CFMMPoolAction::DAOAction;
 use crate::data::pool::{CFMMPoolAction, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::RoyaltyPoolDAOV1Request;
-use crate::deployment::{
-    test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
-};
+use crate::deployment::ProtocolValidator::{RoyaltyPoolDAOV1Request, RoyaltyPoolV2DAOV1Request};
+use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
+use cml_chain::address::Address;
+use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
@@ -170,6 +170,42 @@ impl TryFromPData for DAORequestConfig {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum DAOV1RequestVersion {
+    V1,
+    V2,
+}
+
+impl DAOV1RequestVersion {
+    pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<DAOV1RequestVersion>
+    where
+        Ctx: Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
+            + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>,
+    {
+        let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
+            StakeCredential::PubKey { .. } => None,
+            StakeCredential::Script { hash, .. } => Some(hash),
+        });
+
+        if let Some(this_hash) = maybe_hash {
+            if ctx
+                .select::<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(DAOV1RequestVersion::V1);
+            } else if ctx
+                .select::<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(DAOV1RequestVersion::V2);
+            }
+        };
+        None
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DAOV1Request {
     pub dao_action: DaoAction,
@@ -186,6 +222,7 @@ pub struct DAOV1Request {
     pub additional_bytes: Vec<Vec<u8>>,
     pub fee: Lovelace,
     pub lovelace: Lovelace,
+    pub version: DAOV1RequestVersion,
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
@@ -202,23 +239,15 @@ impl Into<CFMMPoolAction> for OnChainDAOActionRequest {
     }
 }
 
-impl<Ctx> RequiresValidator<Ctx> for OnChainDAOActionRequest
-where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>,
-{
-    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
-        ctx.get().erased()
-    }
-}
-
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChainDAOActionRequest
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
+        if let Some(version) = DAOV1RequestVersion::try_from_address(repr.address(), ctx) {
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = DAORequestConfig::try_from_pd(pd)?;
             let init_ada_value = repr.value().coin;
@@ -240,6 +269,7 @@ where
                 additional_bytes: conf.additional_bytes,
                 fee: conf.fee,
                 lovelace: init_ada_value,
+                version,
             };
 
             let bounds = ctx.select::<DAOV1ActionOrderValidation>();
@@ -303,7 +333,7 @@ impl IntoPlutusData for DaoRequestDataToSign {
 mod tests {
     use crate::data::dao_request::{DAOV1ActionOrderValidation, OnChainDAOActionRequest};
     use crate::data::pool::PoolValidation;
-    use crate::deployment::ProtocolValidator::RoyaltyPoolDAOV1Request;
+    use crate::deployment::ProtocolValidator::{RoyaltyPoolDAOV1Request, RoyaltyPoolV2DAOV1Request};
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
@@ -327,6 +357,14 @@ mod tests {
             &self,
         ) -> DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }> {
             self.scripts.royalty_pool_dao_request
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }> {
+            self.scripts.royalty_pool_v2_dao_request
         }
     }
 

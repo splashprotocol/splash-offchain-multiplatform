@@ -131,6 +131,7 @@ pub struct DeployedValidators {
     pub royalty_pool_withdraw_request: DeployedValidatorRef,
     pub royalty_pool_v2_withdraw_request: DeployedValidatorRef,
     pub royalty_pool_dao_request: DeployedValidatorRef,
+    pub royalty_pool_v2_dao_request: DeployedValidatorRef,
     pub royalty_pool_withdraw_contract: DeployedValidatorRef,
     pub royalty_pool_withdraw_contract_ledger_fixed: DeployedValidatorRef,
     pub royalty_pool_dao_contract: DeployedValidatorRef,
@@ -177,6 +178,7 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             royalty_pool_withdraw_request: From::from(&deployment.royalty_pool_withdraw_request),
             royalty_pool_v2_withdraw_request: From::from(&deployment.royalty_pool_v2_withdraw_request),
             royalty_pool_dao_request: From::from(&deployment.royalty_pool_dao_request),
+            royalty_pool_v2_dao_request: From::from(&deployment.royalty_pool_v2_dao_request),
             royalty_pool_dao: From::from(&deployment.royalty_pool_dao_contract),
             royalty_pool_dao_v2: From::from(&deployment.royalty_pool_dao_contract_v2),
             royalty_pool_withdraw: From::from(&deployment.royalty_pool_withdraw_contract),
@@ -336,9 +338,10 @@ pub enum ProtocolValidator {
     RoyaltyPoolRoyaltyWithdrawLedgerFixed = 36,
     RoyaltyPoolRoyaltyWithdrawV2 = 37,
     RoyaltyPoolDAOV1Request = 38,
-    RoyaltyPoolDAOV1 = 39,
-    RoyaltyPoolV2DAO = 40,
-    RoyaltyPoolDAOV2 = 41,
+    RoyaltyPoolV2DAOV1Request = 39,
+    RoyaltyPoolDAOV1 = 40,
+    RoyaltyPoolV2DAO = 41,
+    RoyaltyPoolDAOV2 = 42,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -383,6 +386,8 @@ pub struct ProtocolScriptHashes {
     pub royalty_pool_v2_withdraw_request:
         DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>,
     pub royalty_pool_dao_request: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolDAOV1Request as u8 }>,
+    pub royalty_pool_v2_dao_request:
+        DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2DAOV1Request as u8 }>,
     pub royalty_pool_dao: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolDAOV1 as u8 }>,
     pub royalty_pool_dao_v2: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2DAO as u8 }>,
     pub royalty_pool_withdraw: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolRoyaltyWithdraw as u8 }>,
@@ -426,6 +431,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
                 &deployment.royalty_pool_v2_royalty_withdraw_request,
             ),
             royalty_pool_dao_request: From::from(&deployment.royalty_pool_dao_request),
+            royalty_pool_v2_dao_request: From::from(&deployment.royalty_pool_v2_dao_request),
             royalty_pool_dao: From::from(&deployment.royalty_pool_dao),
             royalty_pool_dao_v2: From::from(&deployment.royalty_pool_v2_dao),
             royalty_pool_withdraw: From::from(&deployment.royalty_pool_withdraw),
@@ -474,6 +480,8 @@ pub struct ProtocolDeployment {
     pub royalty_pool_v2_royalty_withdraw_request:
         DeployedValidator<{ ProtocolValidator::RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>,
     pub royalty_pool_dao_request: DeployedValidator<{ ProtocolValidator::RoyaltyPoolDAOV1Request as u8 }>,
+    pub royalty_pool_v2_dao_request:
+        DeployedValidator<{ ProtocolValidator::RoyaltyPoolV2DAOV1Request as u8 }>,
     pub royalty_pool_dao: DeployedValidator<{ ProtocolValidator::RoyaltyPoolDAOV1 as u8 }>,
     pub royalty_pool_v2_dao: DeployedValidator<{ ProtocolValidator::RoyaltyPoolV2DAO as u8 }>,
     pub royalty_pool_withdraw: DeployedValidator<{ ProtocolValidator::RoyaltyPoolRoyaltyWithdraw as u8 }>,
@@ -586,6 +594,11 @@ impl ProtocolDeployment {
             .await,
             royalty_pool_dao_request: DeployedValidator::unsafe_pull(
                 validators.royalty_pool_dao_request,
+                explorer,
+            )
+            .await,
+            royalty_pool_v2_dao_request: DeployedValidator::unsafe_pull(
+                validators.royalty_pool_v2_dao_request,
                 explorer,
             )
             .await,
