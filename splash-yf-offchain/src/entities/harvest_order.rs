@@ -113,7 +113,7 @@ where
         .collect()
 }
 
-fn try_extract_harvest_order<C>(
+pub fn try_extract_harvest_order<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
     issued_at: Slot,

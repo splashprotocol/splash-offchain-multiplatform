@@ -4,7 +4,9 @@ use crate::constants::{
 };
 use crate::emission::{reward_amount, Emission};
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
-use crate::engine::resolved_tx::{CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx};
+use crate::engine::resolved_tx::{
+    CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx,
+};
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
@@ -51,13 +53,13 @@ use splash_dao_offchain::protocol_config::{
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
-use std::fmt::Display;
-use std::hash::Hash;
-use std::marker::PhantomData;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
 use splash_yf_offchain::entities::smart_farm::Gauge;
 use splash_yf_offchain::events::EntityUpdated;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::marker::PhantomData;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control<TaskId> {
@@ -224,12 +226,27 @@ where
             let ex_units = Some(DaoScriptData::global().harvest_order.ex_units.clone());
             let network_id = self.ctx.select::<NetworkId>();
             let mut predicted_harvest_order_spends = vec![];
-            let mut sorted_inputs: Vec<_> = batch
+
+            struct InputData {
+                input: InputBuilderResult,
+                ex_units: Option<cml_chain::plutus::ExUnits>,
+                issued_at: Option<splash_dao_offchain::routines::Slot>,
+            }
+
+            let mut sorted_input_data: Vec<_> = batch
                 .orders
                 .into_iter()
                 .map(
                     |OrderWithPayout {
-                         order: Bundled(HarvestOrder { reward_receiver, .. }, tx_out),
+                         order:
+                             Bundled(
+                        HarvestOrder {
+                            reward_receiver,
+                            issued_at,
+                            ..
+                        },
+                        tx_out,
+                    ),
                          payout,
                      }| {
                         let reward_receiver = reward_receiver.to_address(network_id);
@@ -244,7 +261,11 @@ where
 
                         predicted_harvest_order_spends.push(tx_out.1);
 
-                        (harvest_order_input, ex_units.clone())
+                        InputData {
+                            input: harvest_order_input,
+                            ex_units: ex_units.clone(),
+                            issued_at: Some(issued_at),
+                        }
                     },
                 )
                 .collect();
@@ -258,9 +279,18 @@ where
                         NativeScriptWitnessInfo::num_signatures(2),
                     )
                     .unwrap();
-            sorted_inputs.push((buffer_wallet_input, None));
+            sorted_input_data.push(InputData {
+                input: buffer_wallet_input,
+                ex_units: None,
+                issued_at: None,
+            });
 
-            sorted_inputs.sort_by_key(|(input, _)| input.input.clone());
+            sorted_input_data.sort_by_key(|InputData { input, .. }| input.input.clone());
+
+            let blueprint_sorted_inputs: Vec<_> = sorted_input_data
+                .iter()
+                .map(|InputData { input, ex_units, .. }| (input.clone(), ex_units.clone()))
+                .collect();
 
             // Outputs
 
@@ -302,7 +332,7 @@ where
             let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
             let mut blueprint = DaoTxBlueprint {
                 reference_inputs: vec![harvest_order_ref_script_output],
-                sorted_inputs,
+                sorted_inputs: blueprint_sorted_inputs,
                 outputs,
                 sorted_mints: vec![],
                 withdrawal: None,
@@ -333,9 +363,16 @@ where
                 .get_inputs()
                 .clone()
                 .into_iter()
-                .map(|TransactionUnspentOutput { input, output }| {
-                    (OutputRef::new(input.transaction_id, input.index), output)
-                })
+                .zip(sorted_input_data)
+                .map(
+                    |(TransactionUnspentOutput { input, output }, InputData { issued_at, .. })| {
+                        CardanoTxInput {
+                            output_ref: OutputRef::new(input.transaction_id, input.index),
+                            tx_output: output,
+                            issued_at,
+                        }
+                    },
+                )
                 .collect();
 
             let output = tx_builder
@@ -655,8 +692,10 @@ where
                 .get_inputs()
                 .clone()
                 .into_iter()
-                .map(|TransactionUnspentOutput { input, output }| {
-                    (OutputRef::new(input.transaction_id, input.index), output)
+                .map(|TransactionUnspentOutput { input, output }| CardanoTxInput {
+                    output_ref: OutputRef::new(input.transaction_id, input.index),
+                    tx_output: output,
+                    issued_at: None,
                 })
                 .collect();
             let output = tx_builder

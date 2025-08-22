@@ -95,7 +95,7 @@ where
     }
 }
 
-fn try_extract_buffer_wallet<C>(
+pub fn try_extract_buffer_wallet<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
     ctx: &C,
