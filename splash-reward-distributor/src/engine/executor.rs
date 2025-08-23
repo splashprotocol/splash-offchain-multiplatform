@@ -41,15 +41,16 @@ use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::deployment::DaoScriptData;
+use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator::*};
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput,
-    HarvestOrderScriptHash, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
+    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, OperatorCreds,
+    PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
@@ -126,8 +127,7 @@ where
     Emiss: Emission + Send,
     Ctx: Send
         + Has<BufferWalletScript>
-        + Has<HarvestOrderScriptHash>
-        + Has<HarvestOrderRefScriptOutput>
+        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<Collateral>
@@ -209,7 +209,9 @@ where
         Error,
     > {
         if let Some(batch) = self.batch.take() {
-            let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
+            let harvest_order_deployed_validator =
+                self.ctx.select::<DeployedValidator<{ HarvestOrder as u8 }>>();
+            let harvest_order_ref_script_output = harvest_order_deployed_validator.reference_utxo;
 
             let num_payouts = batch.orders.len() as u64;
 
@@ -218,7 +220,7 @@ where
             let mut accounts = vec![];
 
             let harvest_order_redeemer = HarvestOrderAction::Harvest.into_pd();
-            let harvest_order_script_hash = self.ctx.select::<HarvestOrderScriptHash>().0;
+            let harvest_order_script_hash = harvest_order_deployed_validator.hash;
             let harvest_order_witness = PartialPlutusWitness::new(
                 PlutusScriptWitness::Ref(harvest_order_script_hash),
                 harvest_order_redeemer,
@@ -936,8 +938,7 @@ where
     Ctx: Send
         + Clone
         + Has<BufferWalletScript>
-        + Has<HarvestOrderScriptHash>
-        + Has<HarvestOrderRefScriptOutput>
+        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {

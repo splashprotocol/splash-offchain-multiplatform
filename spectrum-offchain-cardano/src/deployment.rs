@@ -553,3 +553,24 @@ macro_rules! has_deployed_script_info {
         }
     };
 }
+
+#[macro_export]
+macro_rules! has_deployed_validator {
+    ($validator:ident, $ctx:ident, $field_path:expr) => {
+        impl
+            spectrum_offchain::domain::Has<
+                spectrum_offchain_cardano::deployment::DeployedValidator<{ $validator as u8 }>,
+            > for $ctx
+        {
+            fn select<
+                U: type_equalities::IsEqual<
+                    spectrum_offchain_cardano::deployment::DeployedValidator<{ $validator as u8 }>,
+                >,
+            >(
+                &self,
+            ) -> spectrum_offchain_cardano::deployment::DeployedValidator<{ $validator as u8 }> {
+                $field_path(self)
+            }
+        }
+    };
+}

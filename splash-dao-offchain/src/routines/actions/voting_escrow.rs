@@ -24,6 +24,7 @@ use spectrum_cardano_lib::protocol_params::COINS_PER_UTXO_BYTE;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::Has;
+use spectrum_offchain_cardano::deployment::DeployedValidator;
 
 use crate::constants::fee_deltas::{
     EXTEND_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_VE_FEE_OFFSET,
@@ -32,7 +33,7 @@ use crate::constants::fee_deltas::{
 use crate::constants::time::MAX_LOCK_TIME_SECONDS;
 use crate::constants::VOTING_ESCROW_TX_TTL;
 use crate::create_change_output::{self};
-use crate::deployment::DaoScriptData;
+use crate::deployment::{DaoScriptData, ProtocolValidator::*};
 use crate::entities::offchain::{
     compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
@@ -51,10 +52,9 @@ use crate::entities::onchain::voting_escrow_factory::{exchange_outputs, FactoryA
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     ExtendVotingEscrowOrderRefScriptOutput, ExtendVotingEscrowOrderScriptHash, GTBuiltPolicy,
-    MakeVotingEscrowOrderRefScriptOutput, MakeVotingEscrowOrderScriptHash, MintVECompositionPolicy,
-    MintVECompositionRefScriptOutput, MintVEIdentifierPolicy, MintVEIdentifierRefScriptOutput, OperatorCreds,
-    RedeemVotingEscrowOrderRefScriptOutput, RedeemVotingEscrowOrderScriptHash, SplashPolicy,
-    VEFactoryAuthPolicy, VEFactoryRefScriptOutput, VEFactoryScriptHash, VotingEscrowRefScriptOutput,
+    MintVECompositionPolicy, MintVECompositionRefScriptOutput, MintVEIdentifierPolicy,
+    MintVEIdentifierRefScriptOutput, OperatorCreds, RedeemVotingEscrowOrderRefScriptOutput,
+    RedeemVotingEscrowOrderScriptHash, SplashPolicy, VEFactoryAuthPolicy, VotingEscrowRefScriptOutput,
     VotingEscrowScriptHash,
 };
 use crate::routines::actions::{
@@ -77,13 +77,11 @@ where
         + Clone
         + Has<MintVECompositionPolicy>
         + Has<GTBuiltPolicy>
-        + Has<VEFactoryRefScriptOutput>
         + Has<VotingEscrowRefScriptOutput>
         + Has<MintVECompositionRefScriptOutput>
         + Has<MintVEIdentifierRefScriptOutput>
-        + Has<MakeVotingEscrowOrderRefScriptOutput>
-        + Has<VEFactoryScriptHash>
-        + Has<MakeVotingEscrowOrderScriptHash>
+        + Has<DeployedValidator<{ VeFactory as u8 }>>
+        + Has<DeployedValidator<{ MakeVeOrder as u8 }>>
         + Has<MintVEIdentifierPolicy>
         + Has<NetworkId>
         + Has<VotingEscrowScriptHash>
@@ -186,12 +184,15 @@ where
             ve_factory_in_ix
         );
 
+        let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
+        let make_ve_order_deployed_validator = self.ctx.select::<DeployedValidator<{ MakeVeOrder as u8 }>>();
+
         let reference_inputs = vec![
-            self.ctx.select::<VEFactoryRefScriptOutput>().0,
+            ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
             self.ctx.select::<MintVECompositionRefScriptOutput>().0,
             self.ctx.select::<MintVEIdentifierRefScriptOutput>().0,
-            self.ctx.select::<MakeVotingEscrowOrderRefScriptOutput>().0,
+            make_ve_order_deployed_validator.reference_utxo,
         ];
 
         // `ve_factory` input ----------------------------------------------------------------------
@@ -201,7 +202,7 @@ where
             return Err(MakeVotingEscrowError::VEFactoryDatumNotPresent);
         };
 
-        let ve_factory_script_hash = self.ctx.select::<VEFactoryScriptHash>().0;
+        let ve_factory_script_hash = ve_factory_deployed_validator.hash;
         let ve_factory_redeemer = FactoryAction::Deposit.into_pd();
         let ve_factory_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(ve_factory_script_hash),
@@ -214,7 +215,7 @@ where
                 .unwrap();
 
         // `make_voting_escrow_order` input --------------------------------------------------------
-        let mve_script_hash = self.ctx.select::<MakeVotingEscrowOrderScriptHash>().0;
+        let mve_script_hash = make_ve_order_deployed_validator.hash;
         let mve_redeemer = MakeVotingEscrowOrderAction::Deposit.into_pd();
         let mve_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(mve_script_hash), mve_redeemer);
 
@@ -610,8 +611,10 @@ where
         let gt_ac = AssetClass::from(Token(gt_token.policy_id, gt_auth_name));
         ve_factory_out_value.sub_unsafe(gt_ac, ve_composition_qty);
 
+        let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
+
         let reference_inputs = vec![
-            self.ctx.select::<VEFactoryRefScriptOutput>().0,
+            ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
             self.ctx.select::<MintVECompositionRefScriptOutput>().0,
             self.ctx.select::<ExtendVotingEscrowOrderRefScriptOutput>().0,
@@ -651,7 +654,7 @@ where
             return Err(ExtendVotingEscrowError::VEFactoryDatumNotPresent);
         };
 
-        let ve_factory_script_hash = self.ctx.select::<VEFactoryScriptHash>().0;
+        let ve_factory_script_hash = ve_factory_deployed_validator.hash;
         let ve_factory_redeemer = FactoryAction::ExtendPosition {
             ve_in_ix: voting_escrow_input_ix as u64,
         }
@@ -1048,8 +1051,11 @@ where
                 }
             }
         }
+
+        let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
+
         let reference_inputs = vec![
-            self.ctx.select::<VEFactoryRefScriptOutput>().0,
+            ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
             self.ctx.select::<MintVEIdentifierRefScriptOutput>().0,
             self.ctx.select::<MintVECompositionRefScriptOutput>().0,
@@ -1089,7 +1095,7 @@ where
             return Err(RedeemVotingEscrowError::VEFactoryDatumNotPresent);
         };
 
-        let ve_factory_script_hash = self.ctx.select::<VEFactoryScriptHash>().0;
+        let ve_factory_script_hash = ve_factory_deployed_validator.hash;
         let ve_factory_redeemer = FactoryAction::RedeemFromVE {
             ve_in_ix: voting_escrow_input_ix,
         }
@@ -1106,8 +1112,6 @@ where
 
         // order input -----------------------------------------------------------------------------
         let ve_identifier_token = mint_ve_identifier_token.unwrap();
-        let ve_identifier_token_name =
-            spectrum_cardano_lib::AssetName::from(ve_identifier_token.asset_name.clone());
         let order_script_hash = self.ctx.select::<RedeemVotingEscrowOrderScriptHash>().0;
         let order_action = RedeemVEOrderAction::RedeemVE {
             voting_escrow_input_ix: voting_escrow_input_ix as u32,

@@ -2,17 +2,17 @@ use crate::config::HarvestLimits;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
+use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::has_deployed_script_info;
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput, HarvestOrderScriptHash,
-    PermManagerBoxRefScriptOutput,
+    BufferWalletScript, FarmAuthRefScriptOutput, PermManagerBoxRefScriptOutput,
 };
 use splash_dao_offchain::protocol_config::{
     FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
-use type_equalities::IsEqual;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use type_equalities::IsEqual;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeContext {}
@@ -27,14 +27,10 @@ impl Has<Collateral> for RuntimeContext {
     }
 }
 
-impl Has<HarvestOrderRefScriptOutput> for RuntimeContext {
-    fn select<U: IsEqual<HarvestOrderRefScriptOutput>>(&self) -> HarvestOrderRefScriptOutput {
-        todo!()
-    }
-}
-
-impl Has<HarvestOrderScriptHash> for RuntimeContext {
-    fn select<U: IsEqual<HarvestOrderScriptHash>>(&self) -> HarvestOrderScriptHash {
+impl Has<DeployedValidator<{ HarvestOrder as u8 }>> for RuntimeContext {
+    fn select<U: IsEqual<DeployedValidator<{ HarvestOrder as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ HarvestOrder as u8 }> {
         todo!()
     }
 }

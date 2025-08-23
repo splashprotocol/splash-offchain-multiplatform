@@ -1,18 +1,21 @@
 use crate::config::HarvestLimits;
 use cml_chain::address::EnterpriseAddress;
 use cml_crypto::{Ed25519KeyHash, ScriptHash};
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolDeployment as DexDeployment};
+use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolValidator::*};
+use spectrum_offchain_cardano::has_deployed_script_info;
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
-use splash_dao_offchain::protocol_config::{BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput, HarvestOrderScriptHash, OperatorCreds, PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy, WPFactoryAuthPolicy};
-use type_equalities::IsEqual;
-use spectrum_cardano_lib::collateral::Collateral;
-use spectrum_offchain_cardano::has_deployed_script_info;
+use splash_dao_offchain::protocol_config::{
+    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy,
+    PermManagerBoxRefScriptOutput, SplashPolicy, WPFactoryAuthPolicy,
+};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use type_equalities::IsEqual;
 
 pub struct RuntimeContext {
     pub dex_deployment: DexDeployment,
@@ -157,11 +160,22 @@ impl Has<OperatorCreds> for RuntimeContext {
     }
 }
 
-
-has_deployed_script_info!(SmartFarm, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.smart_farm).into());
-has_deployed_script_info!(HarvestOrder, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.harvest_order).into());
-has_deployed_script_info!(PermManager, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.perm_manager).into());
-has_deployed_script_info!(WpFactory, RuntimeContext, |ctx: &RuntimeContext| (&ctx.dao_deployment.wp_factory).into());
+has_deployed_script_info!(SmartFarm, RuntimeContext, |ctx: &RuntimeContext| (&ctx
+    .dao_deployment
+    .smart_farm)
+    .into());
+has_deployed_script_info!(HarvestOrder, RuntimeContext, |ctx: &RuntimeContext| (&ctx
+    .dao_deployment
+    .harvest_order)
+    .into());
+has_deployed_script_info!(PermManager, RuntimeContext, |ctx: &RuntimeContext| (&ctx
+    .dao_deployment
+    .perm_manager)
+    .into());
+has_deployed_script_info!(WpFactory, RuntimeContext, |ctx: &RuntimeContext| (&ctx
+    .dao_deployment
+    .wp_factory)
+    .into());
 
 impl Has<Collateral> for RuntimeContext {
     fn select<U: IsEqual<Collateral>>(&self) -> Collateral {
@@ -169,14 +183,10 @@ impl Has<Collateral> for RuntimeContext {
     }
 }
 
-impl Has<HarvestOrderRefScriptOutput> for RuntimeContext {
-    fn select<U: IsEqual<HarvestOrderRefScriptOutput>>(&self) -> HarvestOrderRefScriptOutput {
-        todo!()
-    }
-}
-
-impl Has<HarvestOrderScriptHash> for RuntimeContext {
-    fn select<U: IsEqual<HarvestOrderScriptHash>>(&self) -> HarvestOrderScriptHash {
+impl Has<DeployedValidator<{ HarvestOrder as u8 }>> for RuntimeContext {
+    fn select<U: IsEqual<DeployedValidator<{ HarvestOrder as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ HarvestOrder as u8 }> {
         todo!()
     }
 }
