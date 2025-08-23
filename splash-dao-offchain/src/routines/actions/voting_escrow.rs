@@ -51,9 +51,8 @@ use crate::entities::onchain::voting_escrow::{
 use crate::entities::onchain::voting_escrow_factory::{exchange_outputs, FactoryAction, VEFactorySnapshot};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    ExtendVotingEscrowOrderRefScriptOutput, ExtendVotingEscrowOrderScriptHash, GTBuiltPolicy, OperatorCreds,
-    RedeemVotingEscrowOrderRefScriptOutput, RedeemVotingEscrowOrderScriptHash, SplashPolicy,
-    VEFactoryAuthPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash,
+    GTBuiltPolicy, OperatorCreds, SplashPolicy, VEFactoryAuthPolicy, VotingEscrowRefScriptOutput,
+    VotingEscrowScriptHash,
 };
 use crate::routines::actions::{
     compute_identifier_token_asset_name, script_address, BlueprintEstimates, DaoTxBlueprint, WitnessError,
@@ -79,13 +78,11 @@ where
         + Has<DeployedValidator<{ MakeVeOrder as u8 }>>
         + Has<DeployedValidator<{ MintIdentifier as u8 }>>
         + Has<DeployedValidator<{ MintVeCompositionToken as u8 }>>
+        + Has<DeployedValidator<{ ExtendVeOrder as u8 }>>
+        + Has<DeployedValidator<{ RedeemVeOrder as u8 }>>
         + Has<NetworkId>
         + Has<VotingEscrowScriptHash>
         + Has<OperatorCreds>
-        + Has<ExtendVotingEscrowOrderScriptHash>
-        + Has<ExtendVotingEscrowOrderRefScriptOutput>
-        + Has<RedeemVotingEscrowOrderScriptHash>
-        + Has<RedeemVotingEscrowOrderRefScriptOutput>
         + Has<SplashPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<Collateral>,
@@ -619,11 +616,14 @@ where
 
         let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
 
+        let extend_ve_order_deployed_validator =
+            self.ctx.select::<DeployedValidator<{ ExtendVeOrder as u8 }>>();
+
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
             mint_ve_composition_deployed_validator.reference_utxo,
-            self.ctx.select::<ExtendVotingEscrowOrderRefScriptOutput>().0,
+            extend_ve_order_deployed_validator.reference_utxo,
         ];
 
         let authorized_action = VotingEscrowAuthorizedAction {
@@ -680,7 +680,7 @@ where
                 .unwrap();
 
         // `extend_voting_escrow_order` input --------------------------------------------------------
-        let order_script_hash = self.ctx.select::<ExtendVotingEscrowOrderScriptHash>().0;
+        let order_script_hash = extend_ve_order_deployed_validator.hash;
 
         let expected_extend_ve_script_hash =
             compute_extend_ve_order_validator(mint_ve_composition_policy).hash();
@@ -1066,13 +1066,14 @@ where
         }
 
         let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
+        let redeem_ve_order_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
 
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
             mint_ve_identifier_deployed_validator.reference_utxo,
             mint_ve_composition_deployed_validator.reference_utxo,
-            self.ctx.select::<RedeemVotingEscrowOrderRefScriptOutput>().0,
+            redeem_ve_order_deployed_validator.reference_utxo,
         ];
 
         // `voting_escrow` input -------------------------------------------------------------------
@@ -1125,7 +1126,7 @@ where
 
         // order input -----------------------------------------------------------------------------
         let ve_identifier_token = mint_ve_identifier_token.unwrap();
-        let order_script_hash = self.ctx.select::<RedeemVotingEscrowOrderScriptHash>().0;
+        let order_script_hash = redeem_ve_order_deployed_validator.hash;
         let order_action = RedeemVEOrderAction::RedeemVE {
             voting_escrow_input_ix: voting_escrow_input_ix as u32,
             ve_factory_input_ix,

@@ -55,18 +55,6 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
-pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct ExtendVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct RedeemVotingEscrowOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct RedeemVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
@@ -164,38 +152,6 @@ impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
         VEFactoryAuthPolicy(self.tokens.ve_factory_auth.clone())
-    }
-}
-
-impl Has<ExtendVotingEscrowOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<ExtendVotingEscrowOrderScriptHash>>(&self) -> ExtendVotingEscrowOrderScriptHash {
-        ExtendVotingEscrowOrderScriptHash(self.deployed_validators.extend_ve_order.hash)
-    }
-}
-
-impl Has<ExtendVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<ExtendVotingEscrowOrderRefScriptOutput>>(
-        &self,
-    ) -> ExtendVotingEscrowOrderRefScriptOutput {
-        ExtendVotingEscrowOrderRefScriptOutput(
-            self.deployed_validators.extend_ve_order.reference_utxo.clone(),
-        )
-    }
-}
-
-impl Has<RedeemVotingEscrowOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<RedeemVotingEscrowOrderScriptHash>>(&self) -> RedeemVotingEscrowOrderScriptHash {
-        RedeemVotingEscrowOrderScriptHash(self.deployed_validators.redeem_ve_order.hash)
-    }
-}
-
-impl Has<RedeemVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<RedeemVotingEscrowOrderRefScriptOutput>>(
-        &self,
-    ) -> RedeemVotingEscrowOrderRefScriptOutput {
-        RedeemVotingEscrowOrderRefScriptOutput(
-            self.deployed_validators.redeem_ve_order.reference_utxo.clone(),
-        )
     }
 }
 
