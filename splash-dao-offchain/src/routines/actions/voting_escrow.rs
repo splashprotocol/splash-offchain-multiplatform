@@ -33,7 +33,7 @@ use crate::constants::fee_deltas::{
 use crate::constants::time::MAX_LOCK_TIME_SECONDS;
 use crate::constants::VOTING_ESCROW_TX_TTL;
 use crate::create_change_output::{self};
-use crate::deployment::{DaoScriptData, ProtocolValidator::*};
+use crate::deployment::{DaoScriptData, ProtocolValidator, ProtocolValidator::*};
 use crate::entities::offchain::{
     compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
@@ -50,10 +50,7 @@ use crate::entities::onchain::voting_escrow::{
 };
 use crate::entities::onchain::voting_escrow_factory::{exchange_outputs, FactoryAction, VEFactorySnapshot};
 use crate::entities::Snapshot;
-use crate::protocol_config::{
-    GTBuiltPolicy, OperatorCreds, SplashPolicy, VEFactoryAuthPolicy, VotingEscrowRefScriptOutput,
-    VotingEscrowScriptHash,
-};
+use crate::protocol_config::{GTBuiltPolicy, OperatorCreds, SplashPolicy, VEFactoryAuthPolicy};
 use crate::routines::actions::{
     compute_identifier_token_asset_name, script_address, BlueprintEstimates, DaoTxBlueprint, WitnessError,
 };
@@ -73,15 +70,14 @@ where
         + Sync
         + Clone
         + Has<GTBuiltPolicy>
-        + Has<VotingEscrowRefScriptOutput>
         + Has<DeployedValidator<{ VeFactory as u8 }>>
         + Has<DeployedValidator<{ MakeVeOrder as u8 }>>
         + Has<DeployedValidator<{ MintIdentifier as u8 }>>
         + Has<DeployedValidator<{ MintVeCompositionToken as u8 }>>
         + Has<DeployedValidator<{ ExtendVeOrder as u8 }>>
         + Has<DeployedValidator<{ RedeemVeOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>
         + Has<NetworkId>
-        + Has<VotingEscrowScriptHash>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
         + Has<VEFactoryAuthPolicy>
@@ -186,9 +182,13 @@ where
         let mint_ve_identifier_deployed_validator =
             self.ctx.select::<DeployedValidator<{ MintIdentifier as u8 }>>();
 
+        let voting_escrow_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>();
+
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
-            self.ctx.select::<VotingEscrowRefScriptOutput>().0,
+            voting_escrow_deployed_validator.reference_utxo,
             mint_ve_composition_deployed_validator.reference_utxo,
             mint_ve_identifier_deployed_validator.reference_utxo,
             make_ve_order_deployed_validator.reference_utxo,
@@ -347,7 +347,7 @@ where
 
         let voting_escrow_output = TransactionOutputBuilder::new()
             .with_address(script_address(
-                self.ctx.select::<VotingEscrowScriptHash>().0,
+                voting_escrow_deployed_validator.hash,
                 self.ctx.select::<NetworkId>(),
             ))
             .with_data(voting_escrow_datum)
@@ -619,9 +619,13 @@ where
         let extend_ve_order_deployed_validator =
             self.ctx.select::<DeployedValidator<{ ExtendVeOrder as u8 }>>();
 
+        let voting_escrow_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>();
+
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
-            self.ctx.select::<VotingEscrowRefScriptOutput>().0,
+            voting_escrow_deployed_validator.reference_utxo,
             mint_ve_composition_deployed_validator.reference_utxo,
             extend_ve_order_deployed_validator.reference_utxo,
         ];
@@ -639,7 +643,8 @@ where
             "voting_escrow redeemer: {}",
             hex::encode(authorized_action.to_cbor_bytes())
         );
-        let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
+
+        let voting_escrow_script_hash = voting_escrow_deployed_validator.hash;
 
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
@@ -772,7 +777,7 @@ where
 
         let voting_escrow_output = TransactionOutputBuilder::new()
             .with_address(script_address(
-                self.ctx.select::<VotingEscrowScriptHash>().0,
+                voting_escrow_script_hash,
                 self.ctx.select::<NetworkId>(),
             ))
             .with_data(voting_escrow_datum)
@@ -1067,10 +1072,13 @@ where
 
         let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
         let redeem_ve_order_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
+        let voting_escrow_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>();
 
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
-            self.ctx.select::<VotingEscrowRefScriptOutput>().0,
+            voting_escrow_deployed_validator.reference_utxo,
             mint_ve_identifier_deployed_validator.reference_utxo,
             mint_ve_composition_deployed_validator.reference_utxo,
             redeem_ve_order_deployed_validator.reference_utxo,
@@ -1088,7 +1096,7 @@ where
             postfix_bytes: metadata.postfix_bytes,
         };
 
-        let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
+        let voting_escrow_script_hash = voting_escrow_deployed_validator.hash;
 
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),

@@ -58,8 +58,8 @@ use crate::entities::onchain::wpoll_vote_order::{
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    GTAuthPolicy, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy, VotingEscrowRefScriptOutput,
-    VotingEscrowScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
+    GTAuthPolicy, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy, WeightingPowerPolicy,
+    WeightingPowerRefScriptOutput,
 };
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
@@ -81,6 +81,7 @@ where
         + Sync
         + Clone
         + Has<DeployedValidator<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>>
@@ -93,9 +94,7 @@ where
         + Has<GTAuthPolicy>
         + Has<NetworkId>
         + Has<Collateral>
-        + Has<Reward>
-        + Has<VotingEscrowScriptHash>
-        + Has<VotingEscrowRefScriptOutput>,
+        + Has<Reward>,
 {
     async fn create_wpoll(
         &self,
@@ -776,7 +775,11 @@ where
         //dbg!(&ve_amt);
         //voting_escrow_out.set_amount(ve_amt);
 
-        let voting_escrow_ref_input = self.ctx.select::<VotingEscrowRefScriptOutput>().0;
+        let voting_escrow_order_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>();
+
+        let voting_escrow_ref_input = voting_escrow_order_deployed_validator.reference_utxo;
         let wpoll_auth_ref_input = self
             .ctx
             .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
@@ -815,7 +818,7 @@ where
         .unwrap();
 
         // voting_escrow input ---------------------------------------------------------------------
-        let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
+        let voting_escrow_script_hash = voting_escrow_order_deployed_validator.hash;
 
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::Governance,

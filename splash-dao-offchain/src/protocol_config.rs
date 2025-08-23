@@ -55,12 +55,6 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
-pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct VotingEscrowScriptHash(pub PolicyId);
-
-#[derive(Debug, Clone)]
 pub struct WeightingPowerPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -152,18 +146,6 @@ impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
         VEFactoryAuthPolicy(self.tokens.ve_factory_auth.clone())
-    }
-}
-
-impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
-        VotingEscrowRefScriptOutput(self.deployed_validators.voting_escrow.reference_utxo.clone())
-    }
-}
-
-impl Has<VotingEscrowScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<VotingEscrowScriptHash>>(&self) -> VotingEscrowScriptHash {
-        VotingEscrowScriptHash(self.deployed_validators.voting_escrow.hash)
     }
 }
 
