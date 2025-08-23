@@ -1,5 +1,5 @@
 use crate::onchain::event::OnChainEvent;
-use crate::position_db::{event_key, PositionDB, AGGREGATE_CF, EVENTS_CF, MAX_BLOCK_NUM_KEY};
+use crate::position_db::{event_key, PositionDB, KV_CF, EVENTS_CF, MAX_SLOT_KEY};
 use async_trait::async_trait;
 use tokio::task::spawn_blocking;
 
@@ -15,11 +15,11 @@ impl EventLog for PositionDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             let events_cf = db.cf_handle(EVENTS_CF).unwrap();
-            let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
+            let aggregates_cf = db.cf_handle(KV_CF).unwrap();
             let tx = db.transaction();
             tx.put_cf(
                 aggregates_cf,
-                MAX_BLOCK_NUM_KEY,
+                MAX_SLOT_KEY,
                 &rmp_serde::to_vec(&block_slot).unwrap(),
             )
             .unwrap();

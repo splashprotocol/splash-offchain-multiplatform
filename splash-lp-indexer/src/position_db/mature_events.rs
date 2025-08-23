@@ -8,8 +8,8 @@ use crate::position_db::accounts::Accounts;
 use crate::position_db::pool_frames::PoolFrames;
 use crate::position_db::{
     account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
-    sus_event_key, PositionDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
-    EVENTS_CF, MAX_BLOCK_NUM_KEY, POOL_LQ_FRAMES_INDEX_CF, SUS_EVENTS_CF,
+    sus_event_key, PositionDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, KV_CF, CREDS_INDEX_CF,
+    EVENTS_CF, MAX_SLOT_KEY, POOL_LQ_FRAMES_INDEX_CF, SUS_EVENTS_CF,
 };
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
@@ -32,9 +32,9 @@ impl MatureEvents for PositionDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();
-            let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
-            if let Some(max_block_num) = tx
-                .get_cf(aggregates_cf, MAX_BLOCK_NUM_KEY)
+            let kv_cf = db.cf_handle(KV_CF).unwrap();
+            if let Some(max_slot) = tx
+                .get_cf(kv_cf, MAX_SLOT_KEY)
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
             {
@@ -52,7 +52,7 @@ impl MatureEvents for PositionDB {
                                 break;
                             }
                         } else {
-                            if max_block_num - block_num <= confirmation_delay_blocks {
+                            if max_slot - block_num <= confirmation_delay_blocks {
                                 return false;
                             }
                             current_slot = Some(block_num);
@@ -61,6 +61,7 @@ impl MatureEvents for PositionDB {
                         events.push(event);
                         tx.delete_cf(events_cf, event_key).unwrap();
                     }
+
                     let accounts_cf = db.cf_handle(ACCOUNTS_CF).unwrap();
                     let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
                     let frames = aggregate_events(events);
