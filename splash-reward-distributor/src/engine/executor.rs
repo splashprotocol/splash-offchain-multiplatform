@@ -48,9 +48,7 @@ use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator::*};
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
-use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
-};
+use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
@@ -441,9 +439,9 @@ where
         + Clone
         + Has<BufferWalletScript>
         + Has<Collateral>
-        + Has<PermManagerBoxRefScriptOutput>
         + Has<OperatorCreds>
         + Has<DeployedValidator<{ SmartFarm as u8 }>>
+        + Has<DeployedValidator<{ PermManager as u8 }>>
         + Has<SplashPolicy>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>

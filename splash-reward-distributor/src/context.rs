@@ -5,7 +5,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator};
 use splash_dao_offchain::deployment::ProtocolValidator::*;
-use splash_dao_offchain::protocol_config::{BufferWalletScript, PermManagerBoxRefScriptOutput};
+use splash_dao_offchain::protocol_config::BufferWalletScript;
 use splash_dao_offchain::protocol_config::{OperatorCreds, PermManagerAuthPolicy, SplashPolicy};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use type_equalities::IsEqual;
@@ -32,8 +32,10 @@ impl Has<DeployedValidator<{ HarvestOrder as u8 }>> for RuntimeContext {
     }
 }
 
-impl Has<PermManagerBoxRefScriptOutput> for RuntimeContext {
-    fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
+impl Has<DeployedValidator<{ PermManager as u8 }>> for RuntimeContext {
+    fn select<U: IsEqual<DeployedValidator<{ PermManager as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ PermManager as u8 }> {
         todo!()
     }
 }

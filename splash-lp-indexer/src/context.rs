@@ -7,12 +7,11 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolDeployment as DexDeployment};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolValidator::*};
-use spectrum_offchain_cardano::has_deployed_script_info;
+use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator};
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
-    WPFactoryAuthPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use type_equalities::IsEqual;
@@ -166,6 +165,10 @@ has_deployed_script_info!(PermManager, RuntimeContext, |ctx: &RuntimeContext| (&
     .dao_deployment
     .perm_manager)
     .into());
+has_deployed_validator!(PermManager, RuntimeContext, |ctx: &RuntimeContext| ctx
+    .dao_deployment
+    .perm_manager
+    .clone());
 has_deployed_script_info!(WpFactory, RuntimeContext, |ctx: &RuntimeContext| (&ctx
     .dao_deployment
     .wp_factory)
@@ -181,12 +184,6 @@ impl Has<DeployedValidator<{ HarvestOrder as u8 }>> for RuntimeContext {
     fn select<U: IsEqual<DeployedValidator<{ HarvestOrder as u8 }>>>(
         &self,
     ) -> DeployedValidator<{ HarvestOrder as u8 }> {
-        todo!()
-    }
-}
-
-impl Has<PermManagerBoxRefScriptOutput> for RuntimeContext {
-    fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
         todo!()
     }
 }

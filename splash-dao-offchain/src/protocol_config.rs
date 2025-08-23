@@ -55,12 +55,6 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
-pub struct PermManagerBoxRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct GovProxyRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct EDaoMSigAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -143,12 +137,6 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<PermManagerBoxRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
-        PermManagerBoxRefScriptOutput(self.deployed_validators.perm_manager.reference_utxo.clone())
-    }
-}
-
 impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<EDaoMSigAuthPolicy>>(&self) -> EDaoMSigAuthPolicy {
         EDaoMSigAuthPolicy(self.tokens.edao_msig.policy_id)
@@ -158,12 +146,6 @@ impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
 impl Has<PermManagerAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.tokens.perm_auth.policy_id)
-    }
-}
-
-impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<GovProxyRefScriptOutput>>(&self) -> GovProxyRefScriptOutput {
-        GovProxyRefScriptOutput(self.deployed_validators.gov_proxy.reference_utxo.clone())
     }
 }
 

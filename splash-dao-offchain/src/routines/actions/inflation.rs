@@ -29,8 +29,8 @@ use crate::entities::onchain::smart_farm::{self};
 use crate::entities::onchain::weighting_poll::{self, unsafe_update_wp_state};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    EDaoMSigAuthPolicy, FarmFactoryAuthPolicy, GovProxyRefScriptOutput, InflationAuthPolicy, OperatorCreds,
-    PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
+    EDaoMSigAuthPolicy, FarmFactoryAuthPolicy, InflationAuthPolicy, OperatorCreds, PermManagerAuthPolicy,
+    SplashPolicy,
 };
 use crate::routines::actions::select_funding_boxes;
 use crate::routines::TimedOutputRef;
@@ -49,14 +49,14 @@ where
         + Has<Collateral>
         + Has<InflationAuthPolicy>
         + Has<FarmFactoryAuthPolicy>
-        + Has<PermManagerBoxRefScriptOutput>
-        + Has<GovProxyRefScriptOutput>
         + Has<EDaoMSigAuthPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
         + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::GovProxy as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn distribute_inflation(
