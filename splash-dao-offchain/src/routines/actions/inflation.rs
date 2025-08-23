@@ -8,7 +8,7 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::RequiredSigners;
 use log::trace;
 use spectrum_offchain::domain::event::{Predicted, Traced};
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, DeployedValidator};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -30,8 +30,8 @@ use crate::entities::onchain::weighting_poll::{self, unsafe_update_wp_state};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy,
-    GovProxyRefScriptOutput, InflationAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds,
-    PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
+    GovProxyRefScriptOutput, InflationAuthPolicy, OperatorCreds, PermManagerAuthPolicy,
+    PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use crate::routines::actions::select_funding_boxes;
 use crate::routines::TimedOutputRef;
@@ -49,7 +49,6 @@ where
         + Clone
         + Has<Collateral>
         + Has<InflationAuthPolicy>
-        + Has<MintWPAuthRefScriptOutput>
         + Has<FarmAuthPolicy>
         + Has<FarmAuthRefScriptOutput>
         + Has<FarmFactoryAuthPolicy>
@@ -59,7 +58,7 @@ where
         + Has<PermManagerAuthPolicy>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn distribute_inflation(
@@ -78,8 +77,12 @@ where
     ) {
         let mut tx_builder = constant_tx_builder();
 
-        let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
-        let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
+        let wpoll_auth_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>();
+
+        let wpoll_auth_ref_input = wpoll_auth_deployed_validator.reference_utxo;
+        let smart_farm_ref_input = self.ctx.select::<FarmAuthRefScriptOutput>().0;
 
         let mut next_weighting_poll = weighting_poll.get().clone();
         let farm_distribution_ix = next_weighting_poll
@@ -91,10 +94,7 @@ where
         assert!(old_weight >= farm_weight);
         next_weighting_poll.distribution[farm_distribution_ix].1 = old_weight - farm_weight;
 
-        let weighting_poll_script_hash = self
-            .ctx
-            .select::<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
-            .script_hash;
+        let weighting_poll_script_hash = wpoll_auth_deployed_validator.hash;
 
         let (input_results, funding_boxes_to_spend) = select_funding_boxes(
             DISTRIBUTE_INFLATION_MINIMUM_FUNDING,
@@ -154,7 +154,7 @@ where
                     )
                     .plutus_script_inline_datum(weighting_poll_script, RequiredSigners::from(vec![]))
                     .unwrap();
-                    tx_builder.add_reference_input(wpoll_auth_ref_script.clone());
+                    tx_builder.add_reference_input(wpoll_auth_ref_input.clone());
                     change_output_creator.add_input(&weighting_poll_input);
                     tx_builder.add_input(weighting_poll_input).unwrap();
                     tx_builder.set_exunits(
@@ -169,11 +169,11 @@ where
                     // First determine the index of `perm_manager` within `reference_input`
                     let mut indexed_inputs = vec![
                         (
-                            smart_farm_ref_script.input.clone(),
+                            smart_farm_ref_input.input.clone(),
                             DistributeInflationRefInputType::Other,
                         ),
                         (
-                            wpoll_auth_ref_script.input.clone(),
+                            wpoll_auth_ref_input.input.clone(),
                             DistributeInflationRefInputType::Other,
                         ),
                         (
@@ -205,7 +205,7 @@ where
                     )
                     .plutus_script_inline_datum(smart_farm_script, RequiredSigners::from(vec![operator_pkh]))
                     .unwrap();
-                    tx_builder.add_reference_input(smart_farm_ref_script.clone());
+                    tx_builder.add_reference_input(smart_farm_ref_input.clone());
                     change_output_creator.add_input(&smart_farm_input);
                     tx_builder.add_input(smart_farm_input).unwrap();
                     tx_builder.set_exunits(

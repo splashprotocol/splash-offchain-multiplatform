@@ -46,9 +46,6 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 pub struct SplashPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct MintWPAuthRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct MintVECompositionPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -169,12 +166,6 @@ impl Has<SplashPolicy> for ProtocolConfig {
 impl Has<InflationAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<InflationAuthPolicy>>(&self) -> InflationAuthPolicy {
         InflationAuthPolicy(self.tokens.inflation_auth.policy_id)
-    }
-}
-
-impl Has<MintWPAuthRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MintWPAuthRefScriptOutput>>(&self) -> MintWPAuthRefScriptOutput {
-        MintWPAuthRefScriptOutput(self.deployed_validators.mint_wpauth_token.reference_utxo.clone())
     }
 }
 
