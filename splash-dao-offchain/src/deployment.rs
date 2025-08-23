@@ -3,17 +3,16 @@ use cml_chain::{plutus::ExUnits, transaction::NativeScript, utils::BigInteger};
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{NetworkId, Token};
 use spectrum_offchain::domain::Has;
-use spectrum_offchain_cardano::deployment::{
-    DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script,
+use spectrum_offchain_cardano::{
+    deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script},
+    has_deployed_script_info,
 };
 use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{
-        GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy,
-    },
+    protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
     GenesisEpochStartTime,
 };
 
@@ -288,27 +287,9 @@ impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
     }
 }
 
-impl Has<MintVEIdentifierPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
-        MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
-    }
-}
-
-impl Has<MintVECompositionPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
-    }
-}
-
 impl Has<NetworkId> for CompleteDeployment {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
-    }
-}
-
-impl Has<MintWPAuthPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
-        MintWPAuthPolicy(self.deployed_validators.mint_wpauth_token.hash)
     }
 }
 
@@ -324,53 +305,43 @@ impl Has<GenesisEpochStartTime> for CompleteDeployment {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.mint_wpauth_token)
-    }
-}
+use ProtocolValidator::*;
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
-    }
-}
+has_deployed_script_info!(
+    MintVeCompositionToken,
+    CompleteDeployment,
+    |ctx: &CompleteDeployment| { (&ctx.deployed_validators.mint_ve_composition_token).into() }
+);
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.voting_escrow)
-    }
-}
+has_deployed_script_info!(MintIdentifier, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.mint_identifier).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
-    }
-}
+has_deployed_script_info!(
+    MintWpAuthPolicy,
+    CompleteDeployment,
+    |ctx: &CompleteDeployment| { (&ctx.deployed_validators.mint_wpauth_token).into() }
+);
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.wpoll_vote_order)
-    }
-}
+has_deployed_script_info!(VeFactory, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.ve_factory).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.redeem_ve_order)
-    }
-}
+has_deployed_script_info!(VotingEscrow, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.voting_escrow).into()
+});
+
+has_deployed_script_info!(ExtendVeOrder, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.extend_ve_order).into()
+});
+
+has_deployed_script_info!(WPollVoteOrder, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.wpoll_vote_order).into()
+});
+
+has_deployed_script_info!(RedeemVeOrder, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.redeem_ve_order).into()
+});
 
 impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
     type Error = ();

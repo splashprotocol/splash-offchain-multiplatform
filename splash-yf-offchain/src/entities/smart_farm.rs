@@ -19,7 +19,7 @@ use splash_dao_offchain::{
     constants::SPLASH_NAME,
     deployment::ProtocolValidator as DaoProtocolValidator,
     entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot},
-    protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, SplashPolicy},
+    protocol_config::{PermManagerAuthPolicy, SplashPolicy},
     routines::{Slot, TimedOutputRef},
 };
 
@@ -67,7 +67,6 @@ pub struct UpdatedGauges<FarmId, StateId, Bearer>(
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for UpdatedGauges<FarmId, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
@@ -132,14 +131,12 @@ fn try_extract_gauge<C>(
 ) -> Option<Gauge<FarmId, OutputRef>>
 where
     C: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     let splash_policy = ctx.select::<SplashPolicy>().0;
     let ctx = GaugeCtx {
         perm_manager_auth_policy: ctx.select::<PermManagerAuthPolicy>(),
-        farm_auth_policy: ctx.select::<FarmAuthPolicy>(),
         timed_output_ref,
         deployed_script_info: ctx.select::<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>(),
     };
@@ -158,7 +155,6 @@ where
 /// Need this struct simply to use `SmartFarmSnapshot::try_from_ledger(...)` above.
 struct GaugeCtx {
     perm_manager_auth_policy: PermManagerAuthPolicy,
-    farm_auth_policy: FarmAuthPolicy,
     timed_output_ref: TimedOutputRef,
     deployed_script_info: DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>,
 }
@@ -166,12 +162,6 @@ struct GaugeCtx {
 impl Has<PermManagerAuthPolicy> for GaugeCtx {
     fn select<U: type_equalities::IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         self.perm_manager_auth_policy.clone()
-    }
-}
-
-impl Has<FarmAuthPolicy> for GaugeCtx {
-    fn select<U: type_equalities::IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
-        self.farm_auth_policy.clone()
     }
 }
 

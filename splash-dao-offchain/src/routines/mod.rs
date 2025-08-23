@@ -41,9 +41,8 @@ use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot, DaoOrder, DaoOrderB
 use crate::entities::Snapshot;
 use crate::funding::FundingRepo;
 use crate::protocol_config::{
-    GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    NotOutputRefNorSlotNumber, OperatorCreds, PermManagerAuthPolicy, ProtocolConfig, SplashPolicy,
-    VEFactoryAuthPolicy,
+    GTAuthPolicy, NotOutputRefNorSlotNumber, OperatorCreds, PermManagerAuthPolicy, ProtocolConfig,
+    SplashPolicy, VEFactoryAuthPolicy,
 };
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::actions::InflationActions;
@@ -2400,13 +2399,13 @@ impl Display for TimedOutputRef {
 
 pub struct ProvideTimedOref<'a, Cx>(pub &'a Cx, pub TimedOutputRef);
 
-impl<'a, Cx> Has<TimedOutputRef> for ProvideTimedOref<'a, Cx> {
+impl<Cx> Has<TimedOutputRef> for ProvideTimedOref<'_, Cx> {
     fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
         self.1
     }
 }
 
-impl<'a, Cx, T> Has<T> for ProvideTimedOref<'a, Cx>
+impl<Cx, T> Has<T> for ProvideTimedOref<'_, Cx>
 where
     Cx: Has<T>,
     T: NotOutputRefNorSlotNumber,
@@ -2423,25 +2422,25 @@ pub struct ProcessLedgerEntityContext<'a, D> {
     pub metadata: Option<Metadata>,
 }
 
-impl<'a, D> Has<OutputRef> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<OutputRef> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.timed_output_ref.output_ref
     }
 }
 
-impl<'a, D> Has<TimedOutputRef> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<TimedOutputRef> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
         self.timed_output_ref
     }
 }
 
-impl<'a, D> Has<CurrentEpoch> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<CurrentEpoch> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
         self.current_epoch
     }
 }
 
-impl<'a, D> Has<Option<Metadata>> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<Option<Metadata>> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<Option<Metadata>>>(&self) -> Option<Metadata> {
         self.metadata.clone()
     }

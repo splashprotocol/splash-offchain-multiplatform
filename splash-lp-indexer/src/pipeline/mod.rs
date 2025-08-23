@@ -24,11 +24,10 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use spectrum_offchain_cardano::event_pipeline::read_events::read_events;
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
-    WPFactoryAuthPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
-use std::collections::HashSet;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use std::collections::HashSet;
 
 pub mod log_events;
 pub mod resolve_gauges;
@@ -68,7 +67,6 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
         + Has<BufferWalletScript>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<NetworkId>

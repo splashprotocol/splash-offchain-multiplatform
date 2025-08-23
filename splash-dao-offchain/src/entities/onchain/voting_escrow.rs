@@ -15,7 +15,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo, DeployedValidator};
 use uplc_pallas_codec::utils::Int;
 
 use spectrum_cardano_lib::{
@@ -29,7 +29,7 @@ use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 use crate::constants::GT_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
-use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};
+use crate::protocol_config::GTAuthPolicy;
 use crate::routines::TimedOutputRef;
 use crate::{
     constants::time::MAX_LOCK_TIME_SECONDS,
@@ -108,13 +108,13 @@ impl Stable for VotingEscrow {
 
 impl<C> TryFromLedger<TransactionOutput, C> for VotingEscrowSnapshot
 where
-    C: Has<MintVEIdentifierPolicy>
-        + Has<GTAuthPolicy>
+    C: Has<GTAuthPolicy>
         + Has<TimedOutputRef>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>,
+        + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
+        if test_address::<{ ProtocolValidator::VotingEscrow as u8 }, C>(repr.address(), ctx) {
             let value = repr.value().clone();
             let VotingEscrowConfig {
                 locked_until,
@@ -134,7 +134,9 @@ where
                 Owner::Script(_) => (),
             }
 
-            let ve_identifier_policy = ctx.select::<MintVEIdentifierPolicy>().0;
+            let ve_identifier_policy = ctx
+                .select::<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>()
+                .script_hash;
             let mut identifier_token_names = value
                 .multiasset
                 .iter()

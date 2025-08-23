@@ -19,8 +19,7 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
-    WPFactoryAuthPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_yf_offchain::events::OnChainEvent as RewardOnChainEvent;
@@ -65,7 +64,6 @@ where
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<NetworkId>
@@ -332,7 +330,6 @@ pub struct MultiAccountHarvested {
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultiAccountHarvested
 where
     Cx: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<MinLovelacePerHarvest>
@@ -378,9 +375,7 @@ pub struct FarmCreated {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
 where
-    Cx: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
-        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
+    Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let farms_in_inputs: HashSet<_> =

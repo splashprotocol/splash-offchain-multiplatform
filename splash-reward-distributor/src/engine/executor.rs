@@ -41,16 +41,14 @@ use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::deployment::DaoScriptData;
+use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator::*};
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
-use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, HarvestOrderRefScriptOutput,
-    HarvestOrderScriptHash, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
-};
+use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
@@ -126,8 +124,7 @@ where
     Emiss: Emission + Send,
     Ctx: Send
         + Has<BufferWalletScript>
-        + Has<HarvestOrderScriptHash>
-        + Has<HarvestOrderRefScriptOutput>
+        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<Collateral>
@@ -209,7 +206,9 @@ where
         Error,
     > {
         if let Some(batch) = self.batch.take() {
-            let harvest_order_ref_script_output = self.ctx.select::<HarvestOrderRefScriptOutput>().0;
+            let harvest_order_deployed_validator =
+                self.ctx.select::<DeployedValidator<{ HarvestOrder as u8 }>>();
+            let harvest_order_ref_script_output = harvest_order_deployed_validator.reference_utxo;
 
             let num_payouts = batch.orders.len() as u64;
 
@@ -218,7 +217,7 @@ where
             let mut accounts = vec![];
 
             let harvest_order_redeemer = HarvestOrderAction::Harvest.into_pd();
-            let harvest_order_script_hash = self.ctx.select::<HarvestOrderScriptHash>().0;
+            let harvest_order_script_hash = harvest_order_deployed_validator.hash;
             let harvest_order_witness = PartialPlutusWitness::new(
                 PlutusScriptWitness::Ref(harvest_order_script_hash),
                 harvest_order_redeemer,
@@ -440,10 +439,9 @@ where
         + Clone
         + Has<BufferWalletScript>
         + Has<Collateral>
-        + Has<PermManagerBoxRefScriptOutput>
-        + Has<FarmAuthRefScriptOutput>
-        + Has<FarmAuthPolicy>
         + Has<OperatorCreds>
+        + Has<DeployedValidator<{ SmartFarm as u8 }>>
+        + Has<DeployedValidator<{ PermManager as u8 }>>
         + Has<SplashPolicy>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
@@ -499,7 +497,9 @@ where
                     )
                     .unwrap();
 
-            let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
+            let smart_farm_deployed_validator = self.ctx.select::<DeployedValidator<{ SmartFarm as u8 }>>();
+
+            let smart_farm_ref_input = smart_farm_deployed_validator.reference_utxo;
 
             let Bundled(_, tx_out) = batch.auth_manager;
 
@@ -508,7 +508,7 @@ where
 
             let mut typed_ref_inputs = vec![
                 (RefInputT::AuthManager, perm_manager_unspent_input),
-                (RefInputT::Gauge, smart_farm_ref_script),
+                (RefInputT::Gauge, smart_farm_ref_input),
             ];
             typed_ref_inputs.sort_by_key(|(_, input)| input.input.clone());
 
@@ -606,7 +606,7 @@ where
 
             let mut buffer_wallet_out = bw_tx_out;
 
-            let gauge_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
+            let gauge_script_hash = smart_farm_deployed_validator.hash;
             let gauge_ex_units = Some(DaoScriptData::global().mint_farm_auth_token.ex_units.clone());
 
             // The TX output is arranged as:
@@ -936,8 +936,7 @@ where
     Ctx: Send
         + Clone
         + Has<BufferWalletScript>
-        + Has<HarvestOrderScriptHash>
-        + Has<HarvestOrderRefScriptOutput>
+        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {
