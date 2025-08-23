@@ -12,7 +12,7 @@ use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{GTAuthPolicy, MintVECompositionPolicy, VEFactoryAuthPolicy},
+    protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
     GenesisEpochStartTime,
 };
 
@@ -287,12 +287,6 @@ impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
     }
 }
 
-impl Has<MintVECompositionPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
-    }
-}
-
 impl Has<NetworkId> for CompleteDeployment {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
@@ -312,6 +306,12 @@ impl Has<GenesisEpochStartTime> for CompleteDeployment {
 }
 
 use ProtocolValidator::*;
+
+has_deployed_script_info!(
+    MintVeCompositionToken,
+    CompleteDeployment,
+    |ctx: &CompleteDeployment| { (&ctx.deployed_validators.mint_ve_composition_token).into() }
+);
 
 has_deployed_script_info!(MintIdentifier, CompleteDeployment, |ctx: &CompleteDeployment| {
     (&ctx.deployed_validators.mint_identifier).into()

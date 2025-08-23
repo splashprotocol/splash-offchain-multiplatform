@@ -46,12 +46,6 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 pub struct SplashPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct MintVECompositionPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct MintVECompositionRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct FarmAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -131,7 +125,6 @@ impl NotOutputRefNorSlotNumber for FarmAuthPolicy {}
 impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
 impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
-impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
@@ -166,23 +159,6 @@ impl Has<SplashPolicy> for ProtocolConfig {
 impl Has<InflationAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<InflationAuthPolicy>>(&self) -> InflationAuthPolicy {
         InflationAuthPolicy(self.tokens.inflation_auth.policy_id)
-    }
-}
-
-impl Has<MintVECompositionPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
-    }
-}
-
-impl Has<MintVECompositionRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MintVECompositionRefScriptOutput>>(&self) -> MintVECompositionRefScriptOutput {
-        MintVECompositionRefScriptOutput(
-            self.deployed_validators
-                .mint_ve_composition_token
-                .reference_utxo
-                .clone(),
-        )
     }
 }
 
