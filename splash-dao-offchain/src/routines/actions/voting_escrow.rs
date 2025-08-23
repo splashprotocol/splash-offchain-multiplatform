@@ -52,10 +52,9 @@ use crate::entities::onchain::voting_escrow_factory::{exchange_outputs, FactoryA
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     ExtendVotingEscrowOrderRefScriptOutput, ExtendVotingEscrowOrderScriptHash, GTBuiltPolicy,
-    MintVECompositionPolicy, MintVECompositionRefScriptOutput, MintVEIdentifierPolicy,
-    MintVEIdentifierRefScriptOutput, OperatorCreds, RedeemVotingEscrowOrderRefScriptOutput,
-    RedeemVotingEscrowOrderScriptHash, SplashPolicy, VEFactoryAuthPolicy, VotingEscrowRefScriptOutput,
-    VotingEscrowScriptHash,
+    MintVECompositionPolicy, MintVECompositionRefScriptOutput, OperatorCreds,
+    RedeemVotingEscrowOrderRefScriptOutput, RedeemVotingEscrowOrderScriptHash, SplashPolicy,
+    VEFactoryAuthPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash,
 };
 use crate::routines::actions::{
     compute_identifier_token_asset_name, script_address, BlueprintEstimates, DaoTxBlueprint, WitnessError,
@@ -79,10 +78,9 @@ where
         + Has<GTBuiltPolicy>
         + Has<VotingEscrowRefScriptOutput>
         + Has<MintVECompositionRefScriptOutput>
-        + Has<MintVEIdentifierRefScriptOutput>
         + Has<DeployedValidator<{ VeFactory as u8 }>>
         + Has<DeployedValidator<{ MakeVeOrder as u8 }>>
-        + Has<MintVEIdentifierPolicy>
+        + Has<DeployedValidator<{ MintIdentifier as u8 }>>
         + Has<NetworkId>
         + Has<VotingEscrowScriptHash>
         + Has<OperatorCreds>
@@ -186,12 +184,14 @@ where
 
         let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
         let make_ve_order_deployed_validator = self.ctx.select::<DeployedValidator<{ MakeVeOrder as u8 }>>();
+        let mint_ve_identifier_deployed_validator =
+            self.ctx.select::<DeployedValidator<{ MintIdentifier as u8 }>>();
 
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
             self.ctx.select::<MintVECompositionRefScriptOutput>().0,
-            self.ctx.select::<MintVEIdentifierRefScriptOutput>().0,
+            mint_ve_identifier_deployed_validator.reference_utxo,
             make_ve_order_deployed_validator.reference_utxo,
         ];
 
@@ -273,7 +273,7 @@ where
         voting_escrow_value.add_unsafe(gt_ac, ve_composition_qty);
 
         // Mint ve_identifier token ----------------------------------------------------------------
-        let mint_identifier_policy = self.ctx.select::<MintVEIdentifierPolicy>().0;
+        let mint_identifier_policy = mint_ve_identifier_deployed_validator.hash;
         let mint_ve_identifier_token_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(mint_identifier_policy),
             ve_factory_output_ref.into_pd(),
@@ -978,7 +978,9 @@ where
         let gt_auth_name = spectrum_cardano_lib::AssetName::from(gt_token.asset_name.clone());
         let gt_ac = AssetClass::from(Token(gt_token.policy_id, gt_auth_name));
 
-        let mint_ve_identifier_policy_id = self.ctx.select::<MintVEIdentifierPolicy>().0;
+        let mint_ve_identifier_deployed_validator =
+            self.ctx.select::<DeployedValidator<{ MintIdentifier as u8 }>>();
+        let mint_ve_identifier_policy_id = mint_ve_identifier_deployed_validator.hash;
         let mut mint_ve_identifier_token = None;
 
         let mut owner_value = Value::zero();
@@ -1057,7 +1059,7 @@ where
         let reference_inputs = vec![
             ve_factory_deployed_validator.reference_utxo,
             self.ctx.select::<VotingEscrowRefScriptOutput>().0,
-            self.ctx.select::<MintVEIdentifierRefScriptOutput>().0,
+            mint_ve_identifier_deployed_validator.reference_utxo,
             self.ctx.select::<MintVECompositionRefScriptOutput>().0,
             self.ctx.select::<RedeemVotingEscrowOrderRefScriptOutput>().0,
         ];

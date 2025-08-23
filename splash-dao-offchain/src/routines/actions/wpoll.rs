@@ -58,10 +58,10 @@ use crate::entities::onchain::wpoll_vote_order::{
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    GTAuthPolicy, InflationBoxRefScriptOutput, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy, PollFactoryRefScriptOutput, Reward,
-    SplashPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
-    WPollVoteOrderScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
+    GTAuthPolicy, InflationBoxRefScriptOutput, MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds,
+    PermManagerAuthPolicy, PollFactoryRefScriptOutput, Reward, SplashPolicy, VotingEscrowRefScriptOutput,
+    VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput, WPollVoteOrderScriptHash, WeightingPowerPolicy,
+    WeightingPowerRefScriptOutput,
 };
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
@@ -89,7 +89,6 @@ where
         + Has<OperatorCreds>
         + Has<MintWPAuthPolicy>
         + Has<MintWPAuthRefScriptOutput>
-        + Has<MintVEIdentifierPolicy>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
         + Has<WeightingPowerPolicy>

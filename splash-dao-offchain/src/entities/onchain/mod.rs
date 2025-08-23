@@ -28,8 +28,8 @@ use wpoll_vote_order::{WPollVoteOnchainOrder, WPollVoteOrderBundle};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        FarmAuthPolicy, GTAuthPolicy, InflationAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
-        OperatorCreds, PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy, WPFactoryAuthPolicy,
+        FarmAuthPolicy, GTAuthPolicy, InflationAuthPolicy, MintWPAuthPolicy, OperatorCreds,
+        PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy, WPFactoryAuthPolicy,
     },
     routines::TimedOutputRef,
     CurrentEpoch, GenesisEpochStartTime,
@@ -79,10 +79,10 @@ where
         + Has<VEFactoryAuthPolicy>
         + Has<InflationAuthPolicy>
         + Has<WPFactoryAuthPolicy>
-        + Has<MintVEIdentifierPolicy>
         + Has<GenesisEpochStartTime>
         + Has<GTAuthPolicy>
         + Has<CurrentEpoch>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>

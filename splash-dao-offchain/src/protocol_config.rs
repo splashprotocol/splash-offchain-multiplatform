@@ -58,12 +58,6 @@ pub struct MintWPAuthPolicy(pub PolicyId);
 pub struct MintWPAuthRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
-pub struct MintVEIdentifierPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct MintVEIdentifierRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct MintVECompositionPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -150,7 +144,6 @@ impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
 impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
-impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
 impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
@@ -210,18 +203,6 @@ impl Has<MintWPAuthPolicy> for ProtocolConfig {
 impl Has<MintWPAuthRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<MintWPAuthRefScriptOutput>>(&self) -> MintWPAuthRefScriptOutput {
         MintWPAuthRefScriptOutput(self.deployed_validators.mint_wpauth_token.reference_utxo.clone())
-    }
-}
-
-impl Has<MintVEIdentifierPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
-        MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
-    }
-}
-
-impl Has<MintVEIdentifierRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MintVEIdentifierRefScriptOutput>>(&self) -> MintVEIdentifierRefScriptOutput {
-        MintVEIdentifierRefScriptOutput(self.deployed_validators.mint_identifier.reference_utxo.clone())
     }
 }
 
