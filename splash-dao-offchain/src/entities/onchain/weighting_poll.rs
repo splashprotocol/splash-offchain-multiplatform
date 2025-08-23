@@ -31,7 +31,7 @@ use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::Snapshot;
-use crate::protocol_config::{GTAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WeightingPowerPolicy};
+use crate::protocol_config::{GTAuthPolicy, PermManagerAuthPolicy, SplashPolicy};
 use crate::routines::actions::compute_epoch_asset_name;
 use crate::routines::{slot_to_epoch, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
@@ -82,7 +82,7 @@ where
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
         + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
-        + Has<WeightingPowerPolicy>
+        + Has<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>
         + Has<GTAuthPolicy>
         + Has<NetworkId>,
 {
@@ -90,10 +90,13 @@ where
         let wp_auth_policy = ctx
             .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
             .hash;
+        let weighting_power_policy = ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>()
+            .hash;
         let datum = create_datum(
             &self,
             ctx.select::<GenesisEpochStartTime>(),
-            ctx.select::<WeightingPowerPolicy>().0,
+            weighting_power_policy,
             ctx.select::<PermManagerAuthPolicy>().0,
         );
 

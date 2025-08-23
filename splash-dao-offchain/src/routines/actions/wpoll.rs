@@ -57,10 +57,7 @@ use crate::entities::onchain::wpoll_vote_order::{
     WPollVoteAction, WPollVoteOnchainOrder, WPollVoteOrderBundle,
 };
 use crate::entities::Snapshot;
-use crate::protocol_config::{
-    GTAuthPolicy, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy, WeightingPowerPolicy,
-    WeightingPowerRefScriptOutput,
-};
+use crate::protocol_config::{GTAuthPolicy, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy};
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
 };
@@ -85,12 +82,11 @@ where
         + Has<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
-        + Has<WeightingPowerPolicy>
-        + Has<WeightingPowerRefScriptOutput>
         + Has<GTAuthPolicy>
         + Has<NetworkId>
         + Has<Collateral>
@@ -413,8 +409,12 @@ where
             .ctx
             .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>();
 
-        let mint_weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
-        let wpoll_auth_ref_script = mint_wp_auth_deployed_validator.reference_utxo;
+        let weighting_power_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>();
+
+        let mint_weighting_power_ref_input = weighting_power_deployed_validator.reference_utxo;
+        let wpoll_auth_ref_input = mint_wp_auth_deployed_validator.reference_utxo;
         let wpoll_script_hash = mint_wp_auth_deployed_validator.hash;
 
         enum T {
@@ -430,8 +430,8 @@ where
         // Need to determine the index of `perm_manager` within `reference_inputs`
         let mut indexed_ref_inputs = vec![
             (perm_manager_unspent_input, T::PermManager),
-            (mint_weighting_power_ref_script, T::Other),
-            (wpoll_auth_ref_script, T::Other),
+            (mint_weighting_power_ref_input, T::Other),
+            (wpoll_auth_ref_input, T::Other),
         ];
         indexed_ref_inputs.sort_by_key(|(input, _)| input.input.clone());
         let perm_manager_input_ix = indexed_ref_inputs
@@ -515,7 +515,7 @@ where
             dsd.mint_wp_auth_token.burn_ex_units.clone(),
         );
 
-        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+        let mint_weighting_power_policy = weighting_power_deployed_validator.hash;
 
         // If there exists weighting power, burn it.
         if let Some(weighting_power) = weighting_poll.get().weighting_power {
@@ -784,7 +784,11 @@ where
             .ctx
             .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
             .reference_utxo;
-        let weighting_power_ref_input = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
+
+        let weighting_power_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>();
+        let weighting_power_ref_input = weighting_power_deployed_validator.reference_utxo;
 
         let wpoll_vote_order_deployed_validator = self
             .ctx
@@ -867,7 +871,7 @@ where
             .collect::<Vec<_>>();
 
         // -----------------------------------------------------------------------------------------
-        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+        let mint_weighting_power_policy = weighting_power_deployed_validator.hash;
 
         let weighting_power_asset_name = compute_epoch_asset_name(weighting_poll.get().epoch);
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;

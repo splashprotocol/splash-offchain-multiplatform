@@ -55,12 +55,6 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
-pub struct WeightingPowerPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct WeightingPowerRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct PermManagerBoxRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
@@ -149,18 +143,6 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<WeightingPowerPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<WeightingPowerPolicy>>(&self) -> WeightingPowerPolicy {
-        WeightingPowerPolicy(self.deployed_validators.weighting_power.hash)
-    }
-}
-
-impl Has<WeightingPowerRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<WeightingPowerRefScriptOutput>>(&self) -> WeightingPowerRefScriptOutput {
-        WeightingPowerRefScriptOutput(self.deployed_validators.weighting_power.reference_utxo.clone())
-    }
-}
-
 impl Has<PermManagerBoxRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
         PermManagerBoxRefScriptOutput(self.deployed_validators.perm_manager.reference_utxo.clone())
@@ -223,6 +205,15 @@ has_deployed_validator!(GovProxy, ProtocolConfig, |ctx: &ProtocolConfig| ctx
 
 has_deployed_script_info!(GovProxy, ProtocolConfig, |ctx: &ProtocolConfig| {
     (&ctx.deployed_validators.gov_proxy).into()
+});
+
+has_deployed_validator!(WeightingPower, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .weighting_power
+    .clone());
+
+has_deployed_script_info!(WeightingPower, ProtocolConfig, |ctx: &ProtocolConfig| {
+    (&ctx.deployed_validators.weighting_power).into()
 });
 
 has_deployed_validator!(MintWpAuthPolicy, ProtocolConfig, |ctx: &ProtocolConfig| ctx
