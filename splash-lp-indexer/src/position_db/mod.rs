@@ -137,7 +137,7 @@ pub(crate) const ACCOUNTS_CF: &str = "accounts";
 pub(crate) const ACTIVE_FARMS_CF: &str = "farms";
 
 // Aggregate data
-pub(crate) const AGGREGATE_CF: &str = "aggregates";
+pub(crate) const KV_CF: &str = "aggregates";
 
 pub(crate) const SUS_EVENTS_CF: &str = "sus_events";
 
@@ -147,13 +147,13 @@ pub(crate) const POOL_LQ_FRAMES_INDEX_CF: &str = "pool_frames_index";
 
 pub(crate) const ACCOUNT_FEED_CF: &str = "account_events";
 
-pub(crate) const MAX_BLOCK_NUM_KEY: [u8; 4] = [0u8; 4];
+pub(crate) const MAX_SLOT_KEY: [u8; 4] = [0u8; 4];
 
 pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
     EVENTS_CF,
     ACCOUNTS_CF,
     ACTIVE_FARMS_CF,
-    AGGREGATE_CF,
+    KV_CF,
     SUS_EVENTS_CF,
     CREDS_INDEX_CF,
     ACCOUNT_FEED_CF,

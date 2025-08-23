@@ -1,7 +1,7 @@
 use crate::account::{LockId, PoolAccountState};
 use crate::position_db::{
     account_key, cred_index_prefix, from_cred_index_key, get_range_iterator, PositionDB, ACCOUNTS_CF,
-    AGGREGATE_CF, CREDS_INDEX_CF, MAX_BLOCK_NUM_KEY,
+    KV_CF, CREDS_INDEX_CF, MAX_SLOT_KEY,
 };
 use cml_chain::certs::Credential;
 use cml_core::Slot;
@@ -25,10 +25,10 @@ impl Accounts for PositionDB {
             let tx = db.snapshot();
             let accounts_cf = db.cf_handle(ACCOUNTS_CF).unwrap();
             let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
-            let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
+            let aggregates_cf = db.cf_handle(KV_CF).unwrap();
             let prefix = cred_index_prefix(cred.clone());
             let current_slot = tx
-                .get_cf(aggregates_cf, MAX_BLOCK_NUM_KEY)
+                .get_cf(aggregates_cf, MAX_SLOT_KEY)
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())?;
             let mut iter = get_range_iterator(&db, cred_index_cf, prefix);
@@ -62,10 +62,10 @@ impl Accounts for PositionDB {
             let tx = db.transaction();
             let accounts_cf = db.cf_handle(ACCOUNTS_CF).unwrap();
             let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
-            let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
+            let kv_cf = db.cf_handle(KV_CF).unwrap();
             let prefix = cred_index_prefix(cred.clone());
             let current_slot = tx
-                .get_cf(aggregates_cf, MAX_BLOCK_NUM_KEY)
+                .get_cf(kv_cf, MAX_SLOT_KEY)
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap());
             let current_slot = match current_slot {
