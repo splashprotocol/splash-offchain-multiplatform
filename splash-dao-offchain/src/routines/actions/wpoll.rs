@@ -59,8 +59,7 @@ use crate::entities::onchain::wpoll_vote_order::{
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     GTAuthPolicy, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy, VotingEscrowRefScriptOutput,
-    VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput, WPollVoteOrderScriptHash, WeightingPowerPolicy,
-    WeightingPowerRefScriptOutput,
+    VotingEscrowScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
 };
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
@@ -84,14 +83,13 @@ where
         + Has<DeployedValidator<{ ProtocolValidator::Inflation as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
         + Has<WeightingPowerPolicy>
         + Has<WeightingPowerRefScriptOutput>
-        + Has<WPollVoteOrderScriptHash>
-        + Has<WPollVoteOrderRefScriptOutput>
         + Has<GTAuthPolicy>
         + Has<NetworkId>
         + Has<Collateral>
@@ -784,7 +782,11 @@ where
             .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
             .reference_utxo;
         let weighting_power_ref_input = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
-        let wpoll_vote_order_ref_input = self.ctx.select::<WPollVoteOrderRefScriptOutput>().0;
+
+        let wpoll_vote_order_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>>();
+        let wpoll_vote_order_ref_input = wpoll_vote_order_deployed_validator.reference_utxo;
 
         let reference_inputs = vec![
             voting_escrow_ref_input,
@@ -794,7 +796,7 @@ where
         ];
 
         // order input -----------------------------------------------------------------------------
-        let order_script_hash = self.ctx.select::<WPollVoteOrderScriptHash>().0;
+        let order_script_hash = wpoll_vote_order_deployed_validator.hash;
         let order_action = WPollVoteAction::CastVote {
             voting_escrow_input_ix,
             wpoll_input_ix,

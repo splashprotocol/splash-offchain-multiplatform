@@ -55,12 +55,6 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
-pub struct WPollVoteOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct WPollVoteOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
 
 #[derive(Debug, Clone)]
@@ -170,18 +164,6 @@ impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
         VEFactoryAuthPolicy(self.tokens.ve_factory_auth.clone())
-    }
-}
-
-impl Has<WPollVoteOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<WPollVoteOrderScriptHash>>(&self) -> WPollVoteOrderScriptHash {
-        WPollVoteOrderScriptHash(self.deployed_validators.wpoll_vote_order.hash)
-    }
-}
-
-impl Has<WPollVoteOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<WPollVoteOrderRefScriptOutput>>(&self) -> WPollVoteOrderRefScriptOutput {
-        WPollVoteOrderRefScriptOutput(self.deployed_validators.wpoll_vote_order.reference_utxo.clone())
     }
 }
 
