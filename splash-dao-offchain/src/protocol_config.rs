@@ -46,12 +46,6 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 pub struct SplashPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct FarmAuthPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct FarmAuthRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct FarmFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -121,7 +115,6 @@ pub trait NotOutputRefNorSlotNumber {}
 
 impl NotOutputRefNorSlotNumber for OperatorCreds {}
 impl NotOutputRefNorSlotNumber for SplashPolicy {}
-impl NotOutputRefNorSlotNumber for FarmAuthPolicy {}
 impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
 impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
@@ -159,19 +152,6 @@ impl Has<SplashPolicy> for ProtocolConfig {
 impl Has<InflationAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<InflationAuthPolicy>>(&self) -> InflationAuthPolicy {
         InflationAuthPolicy(self.tokens.inflation_auth.policy_id)
-    }
-}
-
-impl Has<FarmAuthPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
-        // Note that this policy is a multivalidator with `smart_farm`
-        FarmAuthPolicy(self.deployed_validators.smart_farm.hash)
-    }
-}
-
-impl Has<FarmAuthRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<FarmAuthRefScriptOutput>>(&self) -> FarmAuthRefScriptOutput {
-        FarmAuthRefScriptOutput(self.deployed_validators.smart_farm.reference_utxo.clone())
     }
 }
 

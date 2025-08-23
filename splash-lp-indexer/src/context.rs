@@ -11,8 +11,8 @@ use spectrum_offchain_cardano::has_deployed_script_info;
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy,
-    PermManagerBoxRefScriptOutput, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
+    WPFactoryAuthPolicy,
 };
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use type_equalities::IsEqual;
@@ -42,12 +42,6 @@ impl Has<PermManagerAuthPolicy> for RuntimeContext {
 impl Has<WPFactoryAuthPolicy> for RuntimeContext {
     fn select<U: IsEqual<WPFactoryAuthPolicy>>(&self) -> WPFactoryAuthPolicy {
         WPFactoryAuthPolicy(self.dao_tokens.wp_factory_auth.policy_id)
-    }
-}
-
-impl Has<FarmAuthPolicy> for RuntimeContext {
-    fn select<U: IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
-        FarmAuthPolicy(self.dao_deployment.smart_farm.hash)
     }
 }
 
@@ -193,12 +187,6 @@ impl Has<DeployedValidator<{ HarvestOrder as u8 }>> for RuntimeContext {
 
 impl Has<PermManagerBoxRefScriptOutput> for RuntimeContext {
     fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
-        todo!()
-    }
-}
-
-impl Has<FarmAuthRefScriptOutput> for RuntimeContext {
-    fn select<U: IsEqual<FarmAuthRefScriptOutput>>(&self) -> FarmAuthRefScriptOutput {
         todo!()
     }
 }

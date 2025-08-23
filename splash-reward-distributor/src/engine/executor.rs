@@ -49,8 +49,7 @@ use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBox
 use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, FarmAuthRefScriptOutput, OperatorCreds,
-    PermManagerBoxRefScriptOutput, SplashPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
@@ -443,9 +442,8 @@ where
         + Has<BufferWalletScript>
         + Has<Collateral>
         + Has<PermManagerBoxRefScriptOutput>
-        + Has<FarmAuthRefScriptOutput>
-        + Has<FarmAuthPolicy>
         + Has<OperatorCreds>
+        + Has<DeployedValidator<{ SmartFarm as u8 }>>
         + Has<SplashPolicy>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
@@ -501,7 +499,9 @@ where
                     )
                     .unwrap();
 
-            let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
+            let smart_farm_deployed_validator = self.ctx.select::<DeployedValidator<{ SmartFarm as u8 }>>();
+
+            let smart_farm_ref_input = smart_farm_deployed_validator.reference_utxo;
 
             let Bundled(_, tx_out) = batch.auth_manager;
 
@@ -510,7 +510,7 @@ where
 
             let mut typed_ref_inputs = vec![
                 (RefInputT::AuthManager, perm_manager_unspent_input),
-                (RefInputT::Gauge, smart_farm_ref_script),
+                (RefInputT::Gauge, smart_farm_ref_input),
             ];
             typed_ref_inputs.sort_by_key(|(_, input)| input.input.clone());
 
@@ -608,7 +608,7 @@ where
 
             let mut buffer_wallet_out = bw_tx_out;
 
-            let gauge_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
+            let gauge_script_hash = smart_farm_deployed_validator.hash;
             let gauge_ex_units = Some(DaoScriptData::global().mint_farm_auth_token.ex_units.clone());
 
             // The TX output is arranged as:

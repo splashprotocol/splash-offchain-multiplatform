@@ -18,11 +18,11 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, FarmAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_yf_offchain::events::OnChainEvent;
-use std::collections::HashSet;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use std::collections::HashSet;
 
 pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
     mut upstream: U,
@@ -54,8 +54,7 @@ pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
         + Has<NetworkId>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
-        + Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>,
+        + Has<PermManagerAuthPolicy>,
     I: HarvestOrderIndex<OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
         + GaugeIndex<FarmId, OutputRef, FinalizedTxOut>

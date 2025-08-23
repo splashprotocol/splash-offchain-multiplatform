@@ -17,9 +17,8 @@ use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::Slot;
 use splash_dao_offchain::{
-    deployment::ProtocolValidator as DaoProtocolValidator,
-    entities::onchain::smart_farm::FarmId,
-    protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy},
+    deployment::ProtocolValidator as DaoProtocolValidator, entities::onchain::smart_farm::FarmId,
+    protocol_config::PermManagerAuthPolicy,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,7 +49,6 @@ pub struct SplashPayout(pub u64);
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent<FarmId, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<MinLovelacePerHarvest>
         + Has<NetworkId>
         + Has<SplashPolicy>

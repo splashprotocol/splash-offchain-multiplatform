@@ -29,9 +29,8 @@ use crate::entities::onchain::smart_farm::{self};
 use crate::entities::onchain::weighting_poll::{self, unsafe_update_wp_state};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy,
-    GovProxyRefScriptOutput, InflationAuthPolicy, OperatorCreds, PermManagerAuthPolicy,
-    PermManagerBoxRefScriptOutput, SplashPolicy,
+    EDaoMSigAuthPolicy, FarmFactoryAuthPolicy, GovProxyRefScriptOutput, InflationAuthPolicy, OperatorCreds,
+    PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use crate::routines::actions::select_funding_boxes;
 use crate::routines::TimedOutputRef;
@@ -49,8 +48,6 @@ where
         + Clone
         + Has<Collateral>
         + Has<InflationAuthPolicy>
-        + Has<FarmAuthPolicy>
-        + Has<FarmAuthRefScriptOutput>
         + Has<FarmFactoryAuthPolicy>
         + Has<PermManagerBoxRefScriptOutput>
         + Has<GovProxyRefScriptOutput>
@@ -59,6 +56,7 @@ where
         + Has<OperatorCreds>
         + Has<SplashPolicy>
         + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn distribute_inflation(
@@ -81,8 +79,12 @@ where
             .ctx
             .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>();
 
+        let smart_farm_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>();
+
         let wpoll_auth_ref_input = wpoll_auth_deployed_validator.reference_utxo;
-        let smart_farm_ref_input = self.ctx.select::<FarmAuthRefScriptOutput>().0;
+        let smart_farm_ref_input = smart_farm_deployed_validator.reference_utxo;
 
         let mut next_weighting_poll = weighting_poll.get().clone();
         let farm_distribution_ix = next_weighting_poll
@@ -195,7 +197,7 @@ where
                     }
                     .into_pd();
 
-                    let smart_farm_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
+                    let smart_farm_script_hash = smart_farm_deployed_validator.hash;
                     let smart_farm_script =
                         PartialPlutusWitness::new(PlutusScriptWitness::Ref(smart_farm_script_hash), redeemer);
 

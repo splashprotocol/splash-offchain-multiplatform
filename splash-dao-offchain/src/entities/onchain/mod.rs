@@ -28,8 +28,8 @@ use wpoll_vote_order::{WPollVoteOnchainOrder, WPollVoteOrderBundle};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        FarmAuthPolicy, GTAuthPolicy, InflationAuthPolicy, OperatorCreds, PermManagerAuthPolicy,
-        SplashPolicy, VEFactoryAuthPolicy, WPFactoryAuthPolicy,
+        GTAuthPolicy, InflationAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+        VEFactoryAuthPolicy, WPFactoryAuthPolicy,
     },
     routines::TimedOutputRef,
     CurrentEpoch, GenesisEpochStartTime,
@@ -74,7 +74,6 @@ impl<C> TryFromLedger<TransactionOutput, C> for DaoEntitySnapshot
 where
     C: Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<InflationAuthPolicy>
         + Has<WPFactoryAuthPolicy>
