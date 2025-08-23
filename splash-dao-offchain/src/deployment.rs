@@ -12,7 +12,7 @@ use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{GTAuthPolicy, MintVECompositionPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy},
+    protocol_config::{GTAuthPolicy, MintVECompositionPolicy, VEFactoryAuthPolicy},
     GenesisEpochStartTime,
 };
 
@@ -296,12 +296,6 @@ impl Has<MintVECompositionPolicy> for CompleteDeployment {
 impl Has<NetworkId> for CompleteDeployment {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
-    }
-}
-
-impl Has<MintWPAuthPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
-        MintWPAuthPolicy(self.deployed_validators.mint_wpauth_token.hash)
     }
 }
 

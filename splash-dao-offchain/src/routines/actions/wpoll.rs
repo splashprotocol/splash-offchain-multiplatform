@@ -21,7 +21,7 @@ use log::trace;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_offchain::domain::event::{Predicted, Traced};
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, DeployedValidator};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -58,10 +58,9 @@ use crate::entities::onchain::wpoll_vote_order::{
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    GTAuthPolicy, InflationBoxRefScriptOutput, MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds,
-    PermManagerAuthPolicy, PollFactoryRefScriptOutput, Reward, SplashPolicy, VotingEscrowRefScriptOutput,
-    VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput, WPollVoteOrderScriptHash, WeightingPowerPolicy,
-    WeightingPowerRefScriptOutput,
+    GTAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy,
+    VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
+    WPollVoteOrderScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
 };
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
@@ -82,12 +81,11 @@ where
     Ctx: Send
         + Sync
         + Clone
-        + Has<InflationBoxRefScriptOutput>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<SplashPolicy>
-        + Has<PollFactoryRefScriptOutput>
         + Has<OperatorCreds>
-        + Has<MintWPAuthPolicy>
         + Has<MintWPAuthRefScriptOutput>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
@@ -100,8 +98,7 @@ where
         + Has<Collateral>
         + Has<Reward>
         + Has<VotingEscrowScriptHash>
-        + Has<VotingEscrowRefScriptOutput>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+        + Has<VotingEscrowRefScriptOutput>,
 {
     async fn create_wpoll(
         &self,
@@ -123,10 +120,11 @@ where
         tx_builder.set_validity_start_interval(current_slot.0);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
-        let inflation_script_hash = self
+        let inflation_deployed_validator = self
             .ctx
-            .select::<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>()
-            .script_hash;
+            .select::<DeployedValidator<{ ProtocolValidator::Inflation as u8 }>>();
+
+        let inflation_script_hash = inflation_deployed_validator.hash;
         let inflation_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(inflation_script_hash),
             cml_chain::plutus::PlutusData::Integer(BigInteger::from(0)),
@@ -139,7 +137,7 @@ where
         .plutus_script_inline_datum(inflation_script, RequiredSigners::from(vec![]))
         .unwrap();
 
-        tx_builder.add_reference_input(self.ctx.select::<InflationBoxRefScriptOutput>().0.clone());
+        tx_builder.add_reference_input(inflation_deployed_validator.reference_utxo);
 
         let (next_inflation_box, emission_rate) = inflation_box.get().release_next_tranche();
         let mut inflation_box_out = inflation_box_in.clone();
@@ -158,8 +156,8 @@ where
 
         let wp_factory_script_hash = self
             .ctx
-            .select::<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>()
-            .script_hash;
+            .select::<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>()
+            .hash;
 
         let factory_redeemer = FactoryRedeemer {
             successor_ix: 2,
@@ -177,7 +175,11 @@ where
         .plutus_script_inline_datum(wp_factory_script, RequiredSigners::from(vec![]))
         .unwrap();
 
-        tx_builder.add_reference_input(self.ctx.select::<PollFactoryRefScriptOutput>().0.clone());
+        tx_builder.add_reference_input(
+            self.ctx
+                .select::<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>()
+                .reference_utxo,
+        );
 
         let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(emission_rate);
         let mut factory_out = factory_in;
@@ -244,7 +246,10 @@ where
             inflation_box_in_ix: inflation_box_in_ix as u32,
         };
 
-        let wp_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
+        let wp_auth_policy = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .hash;
         let mint_wp_auth_token_witness =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wp_auth_policy), mint_action.into_pd());
         let OperatorCreds(_operator_pkh, _operator_addr) = self.ctx.select::<OperatorCreds>();
@@ -408,9 +413,13 @@ where
         tx_builder.set_validity_start_interval(current_slot.0);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
+        let mint_wp_auth_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>();
+
         let mint_weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
-        let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        let wpoll_script_hash = mint_wp_auth_deployed_validator.hash;
 
         enum T {
             PermManager,
@@ -825,7 +834,10 @@ where
         .unwrap();
 
         // weighting_poll input --------------------------------------------------------------------
-        let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        let weighting_poll_script_hash = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .hash;
         let weighting_poll_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(weighting_poll_script_hash),
             weighting_poll::PollAction::Vote.into_pd(),

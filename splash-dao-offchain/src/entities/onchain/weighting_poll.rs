@@ -11,7 +11,7 @@ use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo, DeployedValidator};
 use uplc_pallas_codec::utils::Int;
 
 use spectrum_cardano_lib::plutus_data::{
@@ -31,9 +31,7 @@ use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::Snapshot;
-use crate::protocol_config::{
-    GTAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WeightingPowerPolicy,
-};
+use crate::protocol_config::{GTAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::actions::compute_epoch_asset_name;
 use crate::routines::{slot_to_epoch, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
@@ -83,13 +81,15 @@ where
     Ctx: Has<SplashPolicy>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
-        + Has<MintWPAuthPolicy>
+        + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<WeightingPowerPolicy>
         + Has<GTAuthPolicy>
         + Has<NetworkId>,
 {
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
+        let wp_auth_policy = ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .hash;
         let datum = create_datum(
             &self,
             ctx.select::<GenesisEpochStartTime>(),
@@ -234,7 +234,6 @@ impl<C> TryFromLedger<TransactionOutput, C> for WeightingPollSnapshot
 where
     C: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
-        + Has<MintWPAuthPolicy>
         + Has<NetworkId>
         + Has<TimedOutputRef>,
 {
@@ -253,7 +252,9 @@ where
             let network_id = ctx.select::<NetworkId>();
             let current_epoch = slot_to_epoch(slot.0, genesis_time_millis, network_id);
             let distribution = distribution.into_iter().map(|f| (f.id, f.weight)).collect();
-            let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
+            let wp_auth_policy = ctx
+                .select::<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+                .script_hash;
 
             for epoch in 0..=current_epoch.0 {
                 // wp_auth_token and weighting_power tokens have same asset name

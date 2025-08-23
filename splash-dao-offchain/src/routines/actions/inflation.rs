@@ -30,7 +30,7 @@ use crate::entities::onchain::weighting_poll::{self, unsafe_update_wp_state};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy,
-    GovProxyRefScriptOutput, InflationAuthPolicy, MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds,
+    GovProxyRefScriptOutput, InflationAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds,
     PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
 use crate::routines::actions::select_funding_boxes;
@@ -49,7 +49,6 @@ where
         + Clone
         + Has<Collateral>
         + Has<InflationAuthPolicy>
-        + Has<MintWPAuthPolicy>
         + Has<MintWPAuthRefScriptOutput>
         + Has<FarmAuthPolicy>
         + Has<FarmAuthRefScriptOutput>
@@ -60,6 +59,7 @@ where
         + Has<PermManagerAuthPolicy>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn distribute_inflation(
@@ -91,7 +91,10 @@ where
         assert!(old_weight >= farm_weight);
         next_weighting_poll.distribution[farm_distribution_ix].1 = old_weight - farm_weight;
 
-        let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        let weighting_poll_script_hash = self
+            .ctx
+            .select::<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .script_hash;
 
         let (input_results, funding_boxes_to_spend) = select_funding_boxes(
             DISTRIBUTE_INFLATION_MINIMUM_FUNDING,

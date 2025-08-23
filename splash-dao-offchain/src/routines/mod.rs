@@ -41,8 +41,8 @@ use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot, DaoOrder, DaoOrderB
 use crate::entities::Snapshot;
 use crate::funding::FundingRepo;
 use crate::protocol_config::{
-    GTAuthPolicy, MintVECompositionPolicy, MintWPAuthPolicy, NotOutputRefNorSlotNumber, OperatorCreds,
-    PermManagerAuthPolicy, ProtocolConfig, SplashPolicy, VEFactoryAuthPolicy,
+    GTAuthPolicy, MintVECompositionPolicy, NotOutputRefNorSlotNumber, OperatorCreds, PermManagerAuthPolicy,
+    ProtocolConfig, SplashPolicy, VEFactoryAuthPolicy,
 };
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::actions::InflationActions;

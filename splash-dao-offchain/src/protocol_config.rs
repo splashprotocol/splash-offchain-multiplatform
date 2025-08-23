@@ -37,9 +37,6 @@ impl ProtocolConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct InflationBoxRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct InflationAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -47,12 +44,6 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 
 #[derive(Debug, Clone)]
 pub struct SplashPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct PollFactoryRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct MintWPAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct MintWPAuthRefScriptOutput(pub TransactionUnspentOutput);
@@ -143,7 +134,6 @@ impl NotOutputRefNorSlotNumber for FarmAuthPolicy {}
 impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
 impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
-impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
@@ -176,27 +166,9 @@ impl Has<SplashPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<InflationBoxRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<InflationBoxRefScriptOutput>>(&self) -> InflationBoxRefScriptOutput {
-        InflationBoxRefScriptOutput(self.deployed_validators.inflation.reference_utxo.clone())
-    }
-}
-
 impl Has<InflationAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<InflationAuthPolicy>>(&self) -> InflationAuthPolicy {
         InflationAuthPolicy(self.tokens.inflation_auth.policy_id)
-    }
-}
-
-impl Has<PollFactoryRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<PollFactoryRefScriptOutput>>(&self) -> PollFactoryRefScriptOutput {
-        PollFactoryRefScriptOutput(self.deployed_validators.wp_factory.reference_utxo.clone())
-    }
-}
-
-impl Has<MintWPAuthPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
-        MintWPAuthPolicy(self.deployed_validators.mint_wpauth_token.hash)
     }
 }
 
