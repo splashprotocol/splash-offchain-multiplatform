@@ -1,5 +1,5 @@
 use cml_chain::certs::Credential;
-use cml_core::serialization::{Deserialize, Serialize, ToBytes};
+use cml_core::serialization::{Deserialize, Serialize};
 use cml_core::Slot;
 use rocksdb::{
     ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions, Transaction,
@@ -7,6 +7,7 @@ use rocksdb::{
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
+use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -29,6 +30,17 @@ impl PositionDB {
         let db_opts = TransactionDBOptions::default();
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, COLUMN_FAMILIES).unwrap()),
+        }
+    }
+
+    pub fn column_families(&self) -> ColumnFamilies {
+        ColumnFamilies {
+            events: self.db.cf_handle(EVENTS_CF).unwrap(),
+            account_positions: self.db.cf_handle(ACCOUNT_POSITIONS_CF).unwrap(),
+            account_pools: self.db.cf_handle(ACCOUNT_POOLS_CF).unwrap(),
+            account_feed_export: self.db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap(),
+            gauges: self.db.cf_handle(GAUGES).unwrap(),
+            kv: self.db.cf_handle(KV_CF).unwrap(),
         }
     }
 }
@@ -128,37 +140,51 @@ pub(crate) fn from_cred_index_key(key: Vec<u8>) -> Option<(Credential, PoolId)> 
 const TUPLE_PREFIX: u8 = 0x92;
 
 // Unconfirmed LP events
+// key: [slot:index], value: [event]
 pub(crate) const EVENTS_CF: &str = "events";
 
 // Accounts
-pub(crate) const ACCOUNTS_CF: &str = "accounts";
+// key: [pool_id:credential:epoch], value: [account_position]
+pub(crate) const ACCOUNT_POSITIONS_CF: &str = "account_positions";
 
-// Active farms
-pub(crate) const ACTIVE_FARMS_CF: &str = "farms";
+// Accounts to pools mapping
+// key: [credential:pool_id], value: []
+pub(crate) const ACCOUNT_POOLS_CF: &str = "account_pools";
 
-// Aggregate data
+// Gauges
+// key: [pool_id:epoch], value: [gauge_weight]
+pub(crate) const GAUGES: &str = "gauges";
+
+// Key-value store for other stuff
 pub(crate) const KV_CF: &str = "aggregates";
 
-pub(crate) const SUS_EVENTS_CF: &str = "sus_events";
+pub(crate) const ACCOUNT_FEED_EXPORT_CF: &str = "account_feed_export";
 
-pub(crate) const CREDS_INDEX_CF: &str = "creds_index";
+pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
 
-pub(crate) const POOL_LQ_FRAMES_INDEX_CF: &str = "pool_frames_index";
+pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
+    db.get_cf(cf, CURRENT_SLOT_KEY)
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
+}
 
-pub(crate) const ACCOUNT_FEED_CF: &str = "account_events";
-
-pub(crate) const MAX_SLOT_KEY: [u8; 4] = [0u8; 4];
-
-pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
+pub(crate) const COLUMN_FAMILIES: [&str; 6] = [
     EVENTS_CF,
-    ACCOUNTS_CF,
-    ACTIVE_FARMS_CF,
+    ACCOUNT_POSITIONS_CF,
+    ACCOUNT_POOLS_CF,
+    ACCOUNT_FEED_EXPORT_CF,
+    GAUGES,
     KV_CF,
-    SUS_EVENTS_CF,
-    CREDS_INDEX_CF,
-    ACCOUNT_FEED_CF,
-    POOL_LQ_FRAMES_INDEX_CF,
 ];
+
+pub(crate) struct ColumnFamilies<'a> {
+    pub events: &'a ColumnFamily,
+    pub account_positions: &'a ColumnFamily,
+    pub account_pools: &'a ColumnFamily,
+    pub account_feed_export: &'a ColumnFamily,
+    pub gauges: &'a ColumnFamily,
+    pub kv: &'a ColumnFamily,
+}
 
 #[cfg(test)]
 pub mod tests {

@@ -52,8 +52,8 @@ use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, Sp
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
+use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
-use splash_yf_offchain::entities::smart_farm::Gauge;
 use splash_yf_offchain::events::EntityUpdated;
 use std::fmt::Display;
 use std::hash::Hash;

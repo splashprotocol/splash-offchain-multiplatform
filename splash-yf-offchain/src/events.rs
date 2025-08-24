@@ -1,8 +1,8 @@
 use crate::entities::auth_manager::AuthManager;
 use crate::entities::buffer_wallet::BufferWallet;
 use crate::entities::funding_box::ConfirmedFundingBoxChanges;
+use crate::entities::gauge::{Gauge, UpdatedGauges};
 use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
-use crate::entities::smart_farm::{Gauge, UpdatedGauges};
 use crate::settings::MinLovelacePerHarvest;
 use cml_crypto::TransactionHash;
 use spectrum_cardano_lib::output::FinalizedTxOut;

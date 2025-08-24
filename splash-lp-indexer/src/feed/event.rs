@@ -1,4 +1,4 @@
-use crate::account::PoolAccountState;
+use crate::account::AccountPosition;
 use cml_chain::certs::Credential;
 use serde::{Deserialize, Serialize};
 use spectrum_offchain_cardano::data::PoolId;
@@ -7,12 +7,12 @@ use spectrum_offchain_cardano::data::PoolId;
 pub struct ExportAccountEvent {
     pub account_cred: Credential,
     pub pool_id: PoolId,
-    pub update: PoolAccountState,
+    pub update: AccountPosition,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::account::PoolAccountState;
+    use crate::account::AccountPosition;
     use crate::feed::event::ExportAccountEvent;
     use cml_chain::certs::Credential;
     use cml_crypto::Ed25519KeyHash;
@@ -23,7 +23,7 @@ mod tests {
         let sample = ExportAccountEvent {
             account_cred: Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28])),
             pool_id: PoolId::random(),
-            update: PoolAccountState::new(1, true),
+            update: AccountPosition::new(1, true),
         };
         println!("{}", serde_json::to_string(&sample).unwrap());
     }

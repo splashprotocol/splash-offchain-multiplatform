@@ -1,3 +1,5 @@
+use spectrum_offchain::display::display_tuple;
+use spectrum_offchain::display::display_vec;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
@@ -24,6 +26,7 @@ use splash_dao_offchain::protocol_config::{
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_yf_offchain::events::OnChainEvent as RewardOnChainEvent;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use splash_yf_offchain::Epoch;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
@@ -31,18 +34,17 @@ use std::fmt::{Display, Formatter};
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
-    MultipleHarvest(MultiAccountHarvested),
-    FarmCreated(FarmCreated),
-    PollFactory(PollFactoryEvents),
-    PoolCreated(PoolCreated),
+    Gauge(GaugeCreated),
+    Pool(PoolCreated),
+    WeightingPoll(WeightingPollCompleted) // todo: add parser
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum OnChainEvent {
-    Account(AccountEvent),
-    FarmEvent(FarmEvent),
-    PoolEvent(PoolEvent),
+    Account(PositionEvent),
+    Gauge(GaugeEvent),
+    Pool(PoolCreated),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for StatelessOnChainEvent
@@ -72,49 +74,17 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         PositionEvent::try_from_ledger(repr, ctx)
             .map(StatelessOnChainEvent::Position)
-            .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
-            .or_else(|| PollFactoryEvents::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactory))
-            .or_else(|| {
-                MultiAccountHarvested::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::MultipleHarvest)
-            })
-            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated))
+            .or_else(|| GaugeCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Gauge))
+            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Pool))
     }
 }
 
 impl OnChainEvent {
-    pub fn slot(&self) -> Option<Slot> {
-        match self {
-            OnChainEvent::FarmEvent(FarmEvent::FarmActivated(event)) => Some(event.slot),
-            _ => None,
-        }
-    }
-
     pub fn pool_id(&self) -> PoolId {
         match self {
             OnChainEvent::Account(dr) => dr.pool_id(),
-            OnChainEvent::FarmEvent(fe) => fe.pool_id(),
-            OnChainEvent::PoolEvent(fe) => fe.pool_id(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum AccountEvent {
-    Position(PositionEvent),
-    Harvest(AccountPoolHarvested),
-}
-
-impl AccountEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            AccountEvent::Position(d) => d.pool_id(),
-            AccountEvent::Harvest(h) => h.pool_id,
-        }
-    }
-    pub fn account(&self) -> Credential {
-        match self {
-            AccountEvent::Position(d) => d.account(),
-            AccountEvent::Harvest(h) => h.account.clone(),
+            OnChainEvent::Gauge(fe) => fe.pool_id(),
+            OnChainEvent::Pool(fe) => fe.pool_id,
         }
     }
 }
@@ -367,13 +337,18 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FarmCreated {
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[display(
+    "FarmCreated ( farm_id = {}, pool_id = {})",
+    farm_id,
+    pool_id
+)]
+pub struct GaugeCreated {
     pub farm_id: FarmId,
     pub pool_id: PoolId,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for GaugeCreated
 where
     Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
@@ -399,7 +374,7 @@ where
                 None
             }
         });
-        new_farms.next().map(|sm| FarmCreated {
+        new_farms.next().map(|sm| GaugeCreated {
             farm_id: sm.farm_id,
             pool_id: sm.pool_id,
         })
@@ -452,44 +427,38 @@ pub struct PollFactoryUpdated {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum FarmEvent {
-    FarmActivated(FarmActivated),
-    FarmDeactivated(FarmDeactivated),
+pub enum GaugeEvent {
+    GaugeCreated(GaugeCreated),
+    GaugeWeighted(GaugeWeighted),
 }
 
-impl FarmEvent {
+impl GaugeEvent {
     pub fn pool_id(&self) -> PoolId {
         match self {
-            FarmEvent::FarmActivated(a) => a.pool_id,
-            FarmEvent::FarmDeactivated(d) => d.pool_id,
+            GaugeEvent::GaugeCreated(a) => a.pool_id,
+            GaugeEvent::GaugeWeighted(d) => d.pool_id,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("FarmActivated ( pool_id = {}, slot = {})", pool_id, slot)]
-pub struct FarmActivated {
+#[display(
+    "GaugeWeighted ( pool_id = {}, weight = {}, epoch = {})",
+    pool_id,
+    weight,
+    epoch
+)]
+pub struct GaugeWeighted {
     pub pool_id: PoolId,
-    pub slot: Slot,
+    pub weight: u64,
+    pub epoch: Epoch,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("FarmDeactivated ( pool_id = {})", pool_id)]
-pub struct FarmDeactivated {
-    pub pool_id: PoolId,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum PoolEvent {
-    PoolCreated(PoolCreated),
-}
-
-impl PoolEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            PoolEvent::PoolCreated(d) => d.pool_id,
-        }
-    }
+#[display("WeightingPollCompleted (distribution = {}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), epoch)]
+pub struct WeightingPollCompleted {
+    pub distribution: Vec<(FarmId, u64)>,
+    pub epoch: Epoch,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]

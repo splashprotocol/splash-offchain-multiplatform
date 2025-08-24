@@ -1,5 +1,5 @@
 use crate::feed::event::ExportAccountEvent;
-use crate::position_db::{read_max_key, read_min_kv, PositionDB, ACCOUNT_FEED_CF};
+use crate::position_db::{read_max_key, read_min_kv, PositionDB, ACCOUNT_FEED_EXPORT_CF};
 use async_trait::async_trait;
 use rocksdb::{Transaction, TransactionDB};
 use tokio::task::spawn_blocking;
@@ -29,7 +29,7 @@ impl ExportEventFeed for PositionDB {
     async fn next(&self) -> Option<(u64, ExportAccountEvent)> {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let account_feed_cf = db.cf_handle(ACCOUNT_FEED_CF).unwrap();
+            let account_feed_cf = db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap();
             read_min_kv(&db, account_feed_cf)
         })
         .await
@@ -39,7 +39,7 @@ impl ExportEventFeed for PositionDB {
     async fn delete(&self, seq_num: u64) {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let account_feed_cf = db.cf_handle(ACCOUNT_FEED_CF).unwrap();
+            let account_feed_cf = db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap();
             let event_key = rmp_serde::to_vec(&seq_num).unwrap();
             db.delete_cf(account_feed_cf, &event_key).unwrap();
         })

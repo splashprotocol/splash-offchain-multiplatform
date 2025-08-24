@@ -20,7 +20,7 @@ use tokio::task::spawn_blocking;
 
 use crate::entity_index::{HarvestOrderIndex, HarvestOrderStatus, Mod};
 use splash_yf_offchain::entities::{
-    auth_manager::AuthManager, buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge,
+    auth_manager::AuthManager, buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder,
 };
 
 #[async_trait::async_trait]
@@ -543,7 +543,7 @@ mod tests {
 
     use crate::entity_index::rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex};
     use splash_yf_offchain::entities::{
-        buffer_wallet::BufferWallet, harvest_order::HarvestOrder, smart_farm::Gauge,
+        buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder,
     };
 
     #[tokio::test]
