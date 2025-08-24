@@ -11,8 +11,7 @@ use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy,
-    SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use type_equalities::IsEqual;

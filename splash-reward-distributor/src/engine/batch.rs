@@ -1,8 +1,8 @@
 use bloom_offchain::execution_engine::bundled::Bundled;
 use splash_yf_offchain::entities::auth_manager::AuthManager;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
+use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::HarvestOrder;
-use splash_yf_offchain::entities::smart_farm::Gauge;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestBatch<StateId, Bearer> {

@@ -144,7 +144,7 @@ mod tests {
 
         let last_event = db.next().await;
 
-        let account_is_activated = last_event.map(|(_, event)| event.update.activated_at.is_some());
+        let account_is_activated = last_event.map(|(_, event)| event.update.created_at.is_some());
 
         assert_eq!(account_is_activated, Some(true));
     }

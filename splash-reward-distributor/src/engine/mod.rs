@@ -14,7 +14,7 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
-use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
+use splash_yf_offchain::entities::gauge::UpdatedGauges;
 use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;

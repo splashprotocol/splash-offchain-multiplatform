@@ -1,17 +1,18 @@
 use crate::onchain::event::OnChainEvent;
-use crate::position_db::{event_key, PositionDB, KV_CF, EVENTS_CF, MAX_SLOT_KEY};
+use crate::position_db::{event_key, PositionDB, CURRENT_SLOT_KEY, EVENTS_CF, KV_CF};
 use async_trait::async_trait;
+use cml_core::Slot;
 use tokio::task::spawn_blocking;
 
 #[async_trait]
 pub trait EventLog {
-    async fn batch_append(&self, block_slot: u64, events: Vec<OnChainEvent>);
-    async fn batch_discard(&self, block_slot: u64, events: Vec<OnChainEvent>);
+    async fn batch_append(&self, block_slot: Slot, events: Vec<OnChainEvent>);
+    async fn batch_discard(&self, block_slot: Slot, events: Vec<OnChainEvent>);
 }
 
 #[async_trait]
 impl EventLog for PositionDB {
-    async fn batch_append(&self, block_slot: u64, events: Vec<OnChainEvent>) {
+    async fn batch_append(&self, block_slot: Slot, events: Vec<OnChainEvent>) {
         let db = self.db.clone();
         spawn_blocking(move || {
             let events_cf = db.cf_handle(EVENTS_CF).unwrap();
@@ -19,7 +20,7 @@ impl EventLog for PositionDB {
             let tx = db.transaction();
             tx.put_cf(
                 aggregates_cf,
-                MAX_SLOT_KEY,
+                CURRENT_SLOT_KEY,
                 &rmp_serde::to_vec(&block_slot).unwrap(),
             )
             .unwrap();
@@ -34,7 +35,7 @@ impl EventLog for PositionDB {
         .unwrap()
     }
 
-    async fn batch_discard(&self, block_slot: u64, events: Vec<OnChainEvent>) {
+    async fn batch_discard(&self, block_slot: Slot, events: Vec<OnChainEvent>) {
         let db = self.db.clone();
         spawn_blocking(move || {
             let events_cf = db.cf_handle(EVENTS_CF).unwrap();

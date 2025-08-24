@@ -13,8 +13,8 @@ use splash_dao_offchain::funding::FundingRepo;
 use splash_yf_offchain::entities::auth_manager::{AuthManager, AuthManagerId};
 use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletId};
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
+use splash_yf_offchain::entities::gauge::{Gauge, UpdatedGauges};
 use splash_yf_offchain::entities::harvest_order::HarvestOrder;
-use splash_yf_offchain::entities::smart_farm::{Gauge, UpdatedGauges};
 use splash_yf_offchain::events::OnChainEvent;
 
 #[async_trait]

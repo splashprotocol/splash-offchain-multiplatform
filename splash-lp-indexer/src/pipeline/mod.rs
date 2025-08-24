@@ -1,14 +1,11 @@
-use crate::config::HarvestLimits;
 use crate::pipeline::log_events::log_onchain_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
 use crate::position_db::mature_events::MatureEvents;
-use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
-use cml_chain::transaction::{Transaction, TransactionOutput};
-use cml_core::Slot;
+use cml_chain::transaction::Transaction;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
@@ -46,7 +43,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
             TransactionHandle,
         ),
     >,
-    Log: EventLog + Accounts + PoolFrames,
+    Log: EventLog + Accounts,
     Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Gauges: VoteEscrowIndex,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
@@ -76,7 +73,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     log_onchain_events(
         upstream.then(|(block, tx_handle)| {
             read_events(block, &context, &utxos, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges, &log))
+                .then(|batch| resolve_gauges(batch, &gauges))
                 .map(|events| (events, tx_handle))
         }),
         &log,
