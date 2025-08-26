@@ -7,40 +7,39 @@ use rocksdb::{
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
+use splash_yf_offchain::Epoch;
+use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
+use splash_yf_offchain::ve_config::VeConfig;
 
 pub mod accounts;
 pub mod event_log;
 pub mod export_feed;
 pub mod mature_events;
-pub mod pool_frames;
 
 #[derive(Clone)]
 pub struct PositionDB {
     pub db: Arc<TransactionDB>,
+    pub confirmation_delay_slots: u64,
+    pub ve_config: VeConfig,
 }
 
 impl PositionDB {
-    pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(
+        db_path: P,
+        confirmation_delay_slots: u64,
+        ve_config: VeConfig,
+    ) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
         let db_opts = TransactionDBOptions::default();
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, COLUMN_FAMILIES).unwrap()),
-        }
-    }
-
-    pub fn column_families(&self) -> ColumnFamilies {
-        ColumnFamilies {
-            events: self.db.cf_handle(EVENTS_CF).unwrap(),
-            account_positions: self.db.cf_handle(ACCOUNT_POSITIONS_CF).unwrap(),
-            account_pools: self.db.cf_handle(ACCOUNT_POOLS_CF).unwrap(),
-            account_feed_export: self.db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap(),
-            gauges: self.db.cf_handle(GAUGES).unwrap(),
-            kv: self.db.cf_handle(KV_CF).unwrap(),
+            confirmation_delay_slots,
+            ve_config,
         }
     }
 }
@@ -83,20 +82,31 @@ pub(crate) fn pool_key(pool_id: PoolId) -> Vec<u8> {
     pool_id.into()
 }
 
-pub(crate) fn account_key(pool_id: PoolId, credential: Credential) -> Vec<u8> {
+pub(crate) fn position_key(pool_id: PoolId, credential: &Credential, epoch: Epoch) -> Vec<u8> {
     let mut key: Vec<u8> = pool_id.into();
     key.extend(credential.to_canonical_cbor_bytes());
+    key.extend(epoch.unwrap().to_be_bytes());
     key
 }
 
-pub(crate) fn from_account_key(key: Vec<u8>) -> Option<(PoolId, Credential)> {
+pub(crate) fn parse_position_key(mut key: Vec<u8>) -> Option<(PoolId, Credential, u64)> {
     PoolId::try_from(&key[..PoolId::BYTE_COUNT])
         .ok()
         .and_then(|pool_id| {
-            Credential::from_cbor_bytes(&key[PoolId::BYTE_COUNT..])
+            let slot_position = key.len() - 8;
+            Credential::from_cbor_bytes(&key[PoolId::BYTE_COUNT..slot_position])
                 .ok()
-                .map(|cred| (pool_id, cred))
+                .and_then(|cred| {
+                    let epoch = Slot::from_be_bytes(key[slot_position..].try_into().ok()?);
+                    Some((pool_id, cred, epoch))
+                })
         })
+}
+
+pub(crate) fn gauge_key(pool_id: PoolId, epoch: Epoch) -> Vec<u8> {
+    let mut key: Vec<u8> = pool_id.into();
+    key.extend(epoch.unwrap().to_be_bytes());
+    key
 }
 
 pub(crate) fn event_key(slot: Slot, event_index: usize) -> Vec<u8> {
@@ -115,25 +125,17 @@ pub(crate) fn from_event_key(key: Vec<u8>) -> Option<(Slot, usize)> {
     None
 }
 
-pub(crate) fn sus_event_key(cred: Credential, slot: Slot) -> Vec<u8> {
-    rmp_serde::to_vec(&(cred, slot)).unwrap()
-}
-
-pub(crate) fn from_sus_event_key(key: Vec<u8>) -> Option<(Credential, Slot)> {
-    rmp_serde::from_slice(&key).ok()
-}
-
-pub(crate) fn cred_index_key(credential: &Credential, pool_id: PoolId) -> Vec<u8> {
+pub(crate) fn account_to_pools_index(credential: &Credential, pool_id: PoolId) -> Vec<u8> {
     rmp_serde::to_vec(&(credential, pool_id)).unwrap()
 }
 
-pub(crate) fn cred_index_prefix(credential: Credential) -> Vec<u8> {
+pub(crate) fn account_to_pools_index_prefix(credential: &Credential) -> Vec<u8> {
     let mut prefix: Vec<u8> = vec![TUPLE_PREFIX];
     prefix.extend(rmp_serde::to_vec(&credential).unwrap());
     prefix
 }
 
-pub(crate) fn from_cred_index_key(key: Vec<u8>) -> Option<(Credential, PoolId)> {
+pub(crate) fn parse_account_to_pools_index(key: Vec<u8>) -> Option<(Credential, PoolId)> {
     rmp_serde::from_slice(&key).ok()
 }
 
@@ -151,9 +153,13 @@ pub(crate) const ACCOUNT_POSITIONS_CF: &str = "account_positions";
 // key: [credential:pool_id], value: []
 pub(crate) const ACCOUNT_POOLS_CF: &str = "account_pools";
 
-// Gauges
+// Gauge weights
 // key: [pool_id:epoch], value: [gauge_weight]
-pub(crate) const GAUGES: &str = "gauges";
+pub(crate) const GAUGE_WEIGHTS_CF: &str = "gauges";
+
+// LQ supply by pool
+// key: [pool_id], value: [lq_supply]
+pub(crate) const POOL_LQ_CF: &str = "pools";
 
 // Key-value store for other stuff
 pub(crate) const KV_CF: &str = "aggregates";
@@ -168,12 +174,13 @@ pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamil
         .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
 }
 
-pub(crate) const COLUMN_FAMILIES: [&str; 6] = [
+pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
     EVENTS_CF,
     ACCOUNT_POSITIONS_CF,
     ACCOUNT_POOLS_CF,
     ACCOUNT_FEED_EXPORT_CF,
-    GAUGES,
+    GAUGE_WEIGHTS_CF,
+    POOL_LQ_CF,
     KV_CF,
 ];
 
@@ -182,13 +189,28 @@ pub(crate) struct ColumnFamilies<'a> {
     pub account_positions: &'a ColumnFamily,
     pub account_pools: &'a ColumnFamily,
     pub account_feed_export: &'a ColumnFamily,
-    pub gauges: &'a ColumnFamily,
+    pub gauge_weights: &'a ColumnFamily,
+    pub pool_lq: &'a ColumnFamily,
     pub kv: &'a ColumnFamily,
+}
+
+impl<'a> ColumnFamilies<'a> {
+    pub(crate) fn new(db: &'a Arc<TransactionDB>) -> Self {
+        ColumnFamilies {
+            events: db.cf_handle(EVENTS_CF).unwrap(),
+            account_positions: db.cf_handle(ACCOUNT_POSITIONS_CF).unwrap(),
+            account_pools: db.cf_handle(ACCOUNT_POOLS_CF).unwrap(),
+            account_feed_export: db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap(),
+            gauge_weights: db.cf_handle(GAUGE_WEIGHTS_CF).unwrap(),
+            pool_lq: db.cf_handle(POOL_LQ_CF).unwrap(),
+            kv: db.cf_handle(KV_CF).unwrap(),
+        }
+    }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::position_db::{cred_index_key, cred_index_prefix, read_max_key};
+    use crate::position_db::{account_to_pools_index, account_to_pools_index_prefix, read_max_key};
     use cml_chain::certs::Credential;
     use cml_crypto::Ed25519KeyHash;
     use rand::RngCore;
@@ -206,9 +228,9 @@ pub mod tests {
         let random_credential = Credential::new_pub_key(random_cred_bytes);
         let random_pool_id = PoolId::random();
 
-        let credential_index_key = cred_index_key(&random_credential, random_pool_id);
+        let credential_index_key = account_to_pools_index(&random_credential, random_pool_id);
 
-        let cred_index_prefix = cred_index_prefix(random_credential);
+        let cred_index_prefix = account_to_pools_index_prefix(&random_credential);
 
         let cred_index_prefix_is_correct = credential_index_key.starts_with(cred_index_prefix.as_ref());
 

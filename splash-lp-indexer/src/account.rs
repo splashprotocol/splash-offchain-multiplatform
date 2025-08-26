@@ -10,6 +10,7 @@ pub struct AccountPosition {
     pub share: (u64, u64),
     pub created_at: Slot,
     pub updated_at: Slot,
+    pub finalized: bool,
 }
 
 impl AccountPosition {
@@ -19,10 +20,11 @@ impl AccountPosition {
             share: (0, 1),
             created_at: current_slot,
             updated_at: current_slot,
+            finalized: false,
         }
     }
 
-    pub fn adjusted(mut self, current_slot: Slot, total_lq: u64, events: Vec<PositionEvent>) -> Self {
+    pub fn updated(mut self, current_slot: Slot, total_lq: u64, events: Vec<PositionEvent>) -> Self {
         let prev_avg_share_bps = self.avg_share_bps;
         let past_period_weight = self.updated_at - self.created_at;
         let curr_period_weight = current_slot - self.updated_at;
@@ -67,7 +69,7 @@ mod tests {
             lp_mint: personal_position_lq,
             lp_supply: total_lq,
         })];
-        let init_acc = acc.adjusted(s0, total_lq, events);
+        let init_acc = acc.updated(s0, total_lq, events);
         assert_eq!(
             init_acc,
             AccountPosition {
@@ -75,6 +77,7 @@ mod tests {
                 share: (personal_position_lq, total_lq),
                 created_at: s0,
                 updated_at: s0,
+                finalized: false,
             }
         );
     }
@@ -95,7 +98,7 @@ mod tests {
             lp_mint: personal_delta_lq_0,
             lp_supply: total_lq_0,
         })];
-        let init_acc = acc.adjusted(s0, total_lq_0, events_0);
+        let init_acc = acc.updated(s0, total_lq_0, events_0);
         let personal_delta_lq_1 = 500_000;
         let total_lq_1 = 4_000_000;
         let events_1 = vec![PositionEvent::Redeem(Redeem {
@@ -104,7 +107,7 @@ mod tests {
             lp_burned: personal_delta_lq_1,
             lp_supply: total_lq_1,
         })];
-        let updated_acc_0 = init_acc.adjusted(s1, total_lq_1, events_1);
+        let updated_acc_0 = init_acc.updated(s1, total_lq_1, events_1);
         let personal_delta_lq_2 = 1_000_000;
         let total_lq_2 = 4_000_000;
         let events_2 = vec![PositionEvent::Deposit(Deposit {
@@ -113,7 +116,7 @@ mod tests {
             lp_mint: personal_delta_lq_2,
             lp_supply: total_lq_2,
         })];
-        let updated_acc_2 = updated_acc_0.adjusted(s2, total_lq_2, events_2);
+        let updated_acc_2 = updated_acc_0.updated(s2, total_lq_2, events_2);
         assert_eq!(
             updated_acc_2,
             AccountPosition {
@@ -121,7 +124,25 @@ mod tests {
                 share: (1000000, 4000000,),
                 updated_at: 30,
                 created_at: 10,
+                finalized: false,
             },
         );
+    }
+
+    #[test]
+    fn flat_share() {
+        let pos = AccountPosition {
+            avg_share_bps: 2500,
+            share: (1000000, 4000000),
+            updated_at: 30,
+            created_at: 10,
+            finalized: false,
+        };
+        let pos1 = pos.updated(30, 4000000, vec![]);
+        let pos2 = pos.updated(130, 4000000, vec![]);
+        assert_eq!(pos1.share, pos.share);
+        assert_eq!(pos1.avg_share_bps, pos.avg_share_bps);
+        assert_eq!(pos2.share, pos.share);
+        assert_eq!(pos2.avg_share_bps, pos.avg_share_bps);
     }
 }

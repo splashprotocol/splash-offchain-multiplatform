@@ -1,4 +1,4 @@
-use crate::feed::event::ExportAccountEvent;
+use crate::feed::event::ExportAccountPositionEvent;
 use crate::position_db::{read_max_key, read_min_kv, PositionDB, ACCOUNT_FEED_EXPORT_CF};
 use async_trait::async_trait;
 use rocksdb::{Transaction, TransactionDB};
@@ -6,7 +6,7 @@ use tokio::task::spawn_blocking;
 
 pub(crate) fn batch_append(
     tx: &Transaction<TransactionDB>,
-    events: Vec<ExportAccountEvent>,
+    events: Vec<ExportAccountPositionEvent>,
     cf: &rocksdb::ColumnFamily,
 ) {
     let mut seq_num = read_max_key(&tx, cf);
@@ -20,13 +20,13 @@ pub(crate) fn batch_append(
 
 #[async_trait]
 pub trait ExportEventFeed {
-    async fn next(&self) -> Option<(u64, ExportAccountEvent)>;
+    async fn next(&self) -> Option<(u64, ExportAccountPositionEvent)>;
     async fn delete(&self, seq_num: u64);
 }
 
 #[async_trait]
 impl ExportEventFeed for PositionDB {
-    async fn next(&self) -> Option<(u64, ExportAccountEvent)> {
+    async fn next(&self) -> Option<(u64, ExportAccountPositionEvent)> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let account_feed_cf = db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap();
