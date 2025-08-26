@@ -1,5 +1,5 @@
 use crate::pipeline::log_events::log_onchain_events;
-use crate::pipeline::resolve_gauges::resolve_gauges;
+use crate::pipeline::resolve_gauges::translate_events;
 use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
 use crate::position_db::mature_events::MatureEvents;
@@ -73,7 +73,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     log_onchain_events(
         upstream.then(|(block, tx_handle)| {
             read_events(block, &context, &utxos, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges))
+                .then(|batch| translate_events(batch, &gauges))
                 .map(|events| (events, tx_handle))
         }),
         &log,
@@ -81,9 +81,9 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     .await
 }
 
-pub async fn process_mature_events<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
+pub async fn process_mature_events<DB: MatureEvents>(db: DB) {
     loop {
-        if !db.try_process_mature_events(confirmation_delay_blocks).await {
+        if !db.try_process_mature_events().await {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }

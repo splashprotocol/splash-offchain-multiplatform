@@ -22,7 +22,7 @@ use splash_dao_offchain::deployment::{
 };
 use splash_lp_index::config::AppConfig;
 use splash_lp_index::context::RuntimeContext;
-use splash_lp_index::feed::event::ExportAccountEvent;
+use splash_lp_index::feed::event::ExportAccountPositionEvent;
 use splash_lp_index::feed::event_publisher::EventPublisher;
 use splash_lp_index::http_api::build_api_server;
 use splash_lp_index::pipeline::{event_pipeline, process_mature_events};
@@ -90,7 +90,7 @@ async fn main() {
     );
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let position_db = PositionDB::new(config.accounts_db_path);
+    let position_db = PositionDB::new(config.accounts_db_path, config.confirmation_delay_slots, config.ve_config);
     let filter = HashSet::from([
         dex_protocol_deployment.balance_fn_pool_v1.hash,
         dex_protocol_deployment.balance_fn_pool_v2.hash,
@@ -121,8 +121,11 @@ async fn main() {
         .set("bootstrap.servers", &config.bootstrap_servers)
         .create::<FutureProducer>()
         .expect("Failed to create kafka producer");
-    let publisher =
-        EventPublisher::<ExportAccountEvent, _>::new(position_db.clone(), kafka, config.events_export_topic);
+    let publisher = EventPublisher::<ExportAccountPositionEvent, _>::new(
+        position_db.clone(),
+        kafka,
+        config.events_export_topic,
+    );
 
     let gauges_db = VoteEscrowDB::new(config.gauges_db_path);
 
@@ -143,7 +146,6 @@ async fn main() {
 
     let process_mature_events_handle = tokio::spawn(process_mature_events(
         position_db,
-        config.confirmation_delay_blocks,
     ));
     processes.push(process_mature_events_handle);
 

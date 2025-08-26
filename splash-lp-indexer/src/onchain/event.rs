@@ -1,5 +1,3 @@
-use spectrum_offchain::display::display_tuple;
-use spectrum_offchain::display::display_vec;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
@@ -8,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
 use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, Token};
+use spectrum_offchain::display::display_tuple;
+use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
@@ -36,14 +36,14 @@ pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     Gauge(GaugeCreated),
     Pool(PoolCreated),
-    WeightingPoll(WeightingPollCompleted) // todo: add parser
+    WeightingPoll(WeightingPollCompleted), // todo: add parser
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum OnChainEvent {
     Account(PositionEvent),
-    Gauge(GaugeEvent),
+    Gauge(GaugeWeighted),
     Pool(PoolCreated),
 }
 
@@ -83,7 +83,7 @@ impl OnChainEvent {
     pub fn pool_id(&self) -> PoolId {
         match self {
             OnChainEvent::Account(dr) => dr.pool_id(),
-            OnChainEvent::Gauge(fe) => fe.pool_id(),
+            OnChainEvent::Gauge(fe) => fe.pool_id,
             OnChainEvent::Pool(fe) => fe.pool_id,
         }
     }
@@ -338,11 +338,7 @@ where
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display(
-    "FarmCreated ( farm_id = {}, pool_id = {})",
-    farm_id,
-    pool_id
-)]
+#[display("FarmCreated ( farm_id = {}, pool_id = {})", farm_id, pool_id)]
 pub struct GaugeCreated {
     pub farm_id: FarmId,
     pub pool_id: PoolId,
@@ -424,21 +420,6 @@ where
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub struct PollFactoryUpdated {
     pub new_state: PollFactory,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum GaugeEvent {
-    GaugeCreated(GaugeCreated),
-    GaugeWeighted(GaugeWeighted),
-}
-
-impl GaugeEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            GaugeEvent::GaugeCreated(a) => a.pool_id,
-            GaugeEvent::GaugeWeighted(d) => d.pool_id,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
