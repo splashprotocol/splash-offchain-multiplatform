@@ -17,6 +17,7 @@ use tokio::task::spawn_blocking;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QueueCmd<TaskId, Task> {
     Schedule(TaskId, Task, StrikeTime),
+    Reschedule(TaskId, StrikeTime),
     Update(TaskId, Task),
     Cancel(TaskId),
     Done(TaskId, TransactionHash),
@@ -28,7 +29,7 @@ pub enum QueueCmd<TaskId, Task> {
 pub trait TaskQueue<TaskId, Task> {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>);
     /// Removes all Done task_ids associated with the given TX hash from the index and returns them.
-    async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>>;
+    async fn drop_unconfirmed_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>>;
     fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
     fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
 }
@@ -127,6 +128,10 @@ where
                         let ct = self.read_current_time(&tx).unwrap();
                         schedule(&tx, &tables, id, task, time, ct)
                     }
+                    QueueCmd::Reschedule(id, time) => {
+                        let ct = self.read_current_time(&tx).unwrap();
+                        reschedule(&tx, &tables, id, time, ct);
+                    }
                     QueueCmd::Update(id, task) => update(&tx, &tables, id, task),
                     QueueCmd::Cancel(id) => cancel(&tx, &tables, id),
                     QueueCmd::Done(id, tx_hash) => {
@@ -143,7 +148,7 @@ where
         .unwrap();
     }
 
-    async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>> {
+    async fn drop_unconfirmed_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>> {
         spawn_blocking(move || {
             let tx = self.db.transaction();
             let tables = self.tables();
@@ -260,6 +265,27 @@ fn schedule<TaskId: Copy + AsRef<[u8]>, Task: Serialize>(
     };
     let task_bytes = rmp_serde::to_vec(&task).unwrap();
     tx.put_cf(tables.index, id, task_bytes).unwrap();
+    tx.put_cf(
+        tables.pending,
+        PendingKey::new(exact_strike_time, id).as_bytes(),
+        [],
+    )
+    .unwrap();
+}
+
+fn reschedule<TaskId: Copy + AsRef<[u8]>>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    id: TaskId,
+    time: StrikeTime,
+    current_time: u64,
+) {
+    let exact_strike_time = match time {
+        StrikeTime::Ready => current_time,
+        StrikeTime::At(t) => t,
+        StrikeTime::In(t) => current_time + t,
+    };
+    matches!(tx.get_cf(tables.index, id), Ok(Some(_)));
     tx.put_cf(
         tables.pending,
         PendingKey::new(exact_strike_time, id).as_bytes(),
@@ -529,7 +555,7 @@ mod tests {
         ];
 
         db.clone().batch_execute(cmds).await;
-        let result: Vec<TaskId> = <RocksDB as TaskQueue<TaskId, Task>>::drop_tx(db, tx_hash)
+        let result: Vec<TaskId> = <RocksDB as TaskQueue<TaskId, Task>>::drop_unconfirmed_tx(db, tx_hash)
             .await
             .unwrap();
 

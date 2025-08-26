@@ -124,7 +124,7 @@ where
     }
 }
 
-fn try_extract_gauge<C>(
+pub fn try_extract_gauge<C>(
     output: &TransactionOutput,
     timed_output_ref: TimedOutputRef,
     ctx: &C,

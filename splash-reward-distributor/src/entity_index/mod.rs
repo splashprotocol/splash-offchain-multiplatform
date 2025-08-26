@@ -245,7 +245,7 @@ where
                     OnChainEvent::Funding(funding_updates) => {
                         let ConfirmedFundingBoxChanges { consumed, created } = funding_updates;
                         for id in consumed {
-                            funding.unspend_confirmed(id.clone()).await;
+                            funding.unspend_confirmed(*id).await;
                         }
 
                         for f in created {
