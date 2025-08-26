@@ -30,6 +30,7 @@ pub trait TaskQueue<TaskId, Task> {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>);
     /// Removes all Done task_ids associated with the given TX hash from the index and returns them.
     async fn drop_unconfirmed_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>>;
+    async fn confirm_tx(self, tx_hash: TransactionHash, block_height: u64);
     fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
     fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
 }
@@ -46,9 +47,17 @@ const DONE: &str = "done";
 const DONE_WITH_TX_HASH: &str = "done_tx_hash";
 const INDEX: &str = "index";
 const CLOCKS: &str = "clocks";
+const TX_SETTLEMENT_SLOT: &str = "tx_settlement_slot";
 const DONE_TASK_ID_IX_START: usize = 32;
 
-const TABLES: [&str; 5] = [PENDING, DONE, DONE_WITH_TX_HASH, INDEX, CLOCKS];
+const TABLES: [&str; 6] = [
+    PENDING,
+    DONE,
+    DONE_WITH_TX_HASH,
+    INDEX,
+    CLOCKS,
+    TX_SETTLEMENT_SLOT,
+];
 
 struct PendingKey<TaskId>(u64, TaskId);
 impl<TaskId> PendingKey<TaskId> {
@@ -73,6 +82,7 @@ struct Tables<'a> {
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
+    tx_settlement_slot: &'a ColumnFamily,
 }
 
 #[derive(Clone)]
@@ -98,6 +108,7 @@ impl RocksDB {
             done_with_tx_hash: self.db.cf_handle(DONE_WITH_TX_HASH).unwrap(),
             index: self.db.cf_handle(INDEX).unwrap(),
             clocks: self.db.cf_handle(CLOCKS).unwrap(),
+            tx_settlement_slot: self.db.cf_handle(TX_SETTLEMENT_SLOT).unwrap(),
         }
     }
 
@@ -182,6 +193,19 @@ where
             } else {
                 None
             }
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn confirm_tx(self, tx_hash: TransactionHash, slot: u64) {
+        spawn_blocking(move || {
+            let tx = self.db.transaction();
+            let tables = self.tables();
+            let key = tx_hash.to_raw_bytes().to_vec();
+            tx.put_cf(&tables.tx_settlement_slot, key, slot.to_be_bytes())
+                .unwrap();
+            tx.commit().unwrap();
         })
         .await
         .unwrap()
@@ -321,7 +345,44 @@ fn done<TaskId: Copy + AsRef<[u8]>>(
 }
 
 fn advance_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
-    tx.put_cf(tables.clocks, time.to_be_bytes(), []).unwrap()
+    tx.put_cf(tables.clocks, time.to_be_bytes(), []).unwrap();
+
+    let mut settled_txs = tx.iterator_cf_opt(
+        tables.tx_settlement_slot,
+        ReadOptions::default(),
+        IteratorMode::Start,
+    );
+    // Remove all task ids more than 6 slots older than present slot
+    let mut tx_hashes_to_remove = vec![];
+    while let Some(Ok((tx_hash_bytes, slot_bytes))) = settled_txs.next() {
+        let slot_arr: &[u8; 8] = slot_bytes.as_ref().try_into().unwrap();
+        let slot = u64::from_be_bytes(*slot_arr);
+
+        if slot < time && (time - slot) > 6 {
+            tx_hashes_to_remove.push(tx_hash_bytes.clone());
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(tx_hash_bytes.clone()));
+            let mut to_delete = vec![];
+            let mut done_tasks = tx.iterator_cf_opt(
+                &tables.done_with_tx_hash,
+                readopts,
+                IteratorMode::From(&tx_hash_bytes, Direction::Forward),
+            );
+            while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+                let task_id_bytes = key_with_tx_hash[DONE_TASK_ID_IX_START..].to_vec();
+                to_delete.push((task_id_bytes, key_with_tx_hash.to_vec()));
+            }
+
+            for (task_id_key, key_with_tx_hash) in to_delete {
+                tx.delete_cf(&tables.done, task_id_key).unwrap();
+                tx.delete_cf(&tables.done_with_tx_hash, key_with_tx_hash).unwrap();
+            }
+        }
+    }
+
+    for tx_hash_bytes in tx_hashes_to_remove {
+        tx.delete_cf(&tables.tx_settlement_slot, tx_hash_bytes).unwrap();
+    }
 }
 
 fn downgrade_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
