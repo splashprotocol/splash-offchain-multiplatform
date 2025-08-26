@@ -174,8 +174,9 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
 where
     GaugeId: Copy + Into<TaskId>,
     StateId: Copy + Into<TaskId>,
-    Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
+    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
+    let mut confirm_tx = None;
     let commands = match events {
         BlockEvents::RollForward {
             events, block_slot, ..
@@ -200,25 +201,31 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => Some(
-                    payouts
-                        .into_iter()
-                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
-                        .collect(),
-                ),
+                OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {
+                    confirm_tx = Some((tx_hash, block_slot));
+                    Some(
+                        payouts
+                            .into_iter()
+                            .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
+                            .collect(),
+                    )
+                }
                 OnChainEvent::BotGaugeBufferingAction {
                     drained_gauges,
                     tx_hash,
                     ..
-                } => Some(
-                    drained_gauges
-                        .into_iter()
-                        .map(|gauge_update| {
-                            let task_id = gauge_update.created.0.id.into();
-                            QueueCmd::Done(task_id, tx_hash)
-                        })
-                        .collect(),
-                ),
+                } => {
+                    confirm_tx = Some((tx_hash, block_slot));
+                    Some(
+                        drained_gauges
+                            .into_iter()
+                            .map(|gauge_update| {
+                                let task_id = gauge_update.created.0.id.into();
+                                QueueCmd::Done(task_id, tx_hash)
+                            })
+                            .collect(),
+                    )
+                }
                 OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
                     updated_gauges
                         .into_iter()
@@ -306,7 +313,10 @@ where
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])
             .collect(),
     };
-    queue.batch_execute(commands).await;
+    queue.clone().batch_execute(commands).await;
+    if let Some((tx_hash, block_slot)) = confirm_tx {
+        queue.confirm_tx(tx_hash, block_slot).await;
+    }
     tx.commit();
     ControlFlow::Continue(())
 }
@@ -400,6 +410,7 @@ pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
                 output_ref,
             };
             if let Some(TimedOutput { output, .. }) = utxos.get(output_ref).await {
+                // We don't need the actual slot value to parse the following entity; a dummy value suffices
                 if try_extract_harvest_order(&output, output_ref, Slot(100), &ctx).is_some() {
                     index.unconsume_harvest_order(output_ref).await;
                 } else if FundingBoxSnapshot::try_from_ledger(&output, &funding_ctx).is_some() {
@@ -410,7 +421,7 @@ pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
 
         for (ix, output) in tx.body.outputs.into_iter().enumerate() {
             let output_ref = OutputRef::new(tx_hash, ix as u64);
-            // We don't need the actual slot value to parse the gauge entity; a dummy value suffices
+            // Again, it's fine to have a dummy slot value
             let timed_output_ref = TimedOutputRef::new(output_ref, Slot(100));
 
             let funding_ctx = FundingCtx {
