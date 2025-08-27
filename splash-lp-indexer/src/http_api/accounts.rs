@@ -9,6 +9,8 @@ use cml_core::Slot;
 use serde::Serialize;
 use spectrum_offchain_cardano::data::PoolId;
 use std::marker::PhantomData;
+use splash_yf_offchain::Epoch;
+use crate::position_db::accounts::AccountReward;
 
 pub struct AccountsApi<Accounts>(pub PhantomData<Accounts>);
 
@@ -23,7 +25,7 @@ impl<Accounts: accounts::Accounts + 'static> HttpServiceFactory for AccountsApi<
                 .and_then(|xs| Credential::from_bytes(xs).ok())
             {
                 None => HttpResponse::BadRequest().finish(),
-                Some(cred) => match accounts.get_ref().query_account(cred).await {
+                Some(cred) => match accounts.get_ref().query_account(cred, Epoch::from(0)).await {
                     None => HttpResponse::NotFound().finish(),
                     Some(state) => HttpResponse::Ok().json(AccountStateResponse::new(state)),
                 },
@@ -46,7 +48,7 @@ pub struct AccountStateResponse {
 }
 
 impl AccountStateResponse {
-    fn new(accounts: Vec<(PoolId, AccountPosition)>) -> Self {
+    fn new(rew: AccountReward) -> Self {
         todo!()
     }
 }

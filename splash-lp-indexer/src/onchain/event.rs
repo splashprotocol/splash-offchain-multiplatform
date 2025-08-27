@@ -1,4 +1,5 @@
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
+use crate::onchain::GaugeWeight;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use derive_more::Display;
@@ -431,14 +432,16 @@ pub struct PollFactoryUpdated {
 )]
 pub struct GaugeWeighted {
     pub pool_id: PoolId,
-    pub weight: u64,
+    pub weight: GaugeWeight,
     pub epoch: Epoch,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("WeightingPollCompleted (distribution = {}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), epoch)]
+#[display("WeightingPollCompleted (distribution = {}, total_poll_weight = {}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
 pub struct WeightingPollCompleted {
     pub distribution: Vec<(FarmId, u64)>,
+    /// Total number of voting tokens used in the poll.
+    pub total_poll_weight: u64,
     pub epoch: Epoch,
 }
 

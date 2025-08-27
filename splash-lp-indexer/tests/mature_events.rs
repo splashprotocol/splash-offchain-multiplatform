@@ -30,8 +30,8 @@ mod tests {
     use splash_lp_index::position_db::PositionDB;
     use splash_lp_index::ve_index::VoteEscrowDB;
     use splash_testing::db_path::DBPath;
-    use std::collections::HashSet;
     use splash_yf_offchain::ve_config::VeConfig;
+    use std::collections::HashSet;
 
     #[tokio::test]
     #[ignore]
@@ -98,7 +98,14 @@ mod tests {
         let confirmation_blocks_delay = 5;
 
         let db_path = DBPath::new("position_db");
-        let db = PositionDB::new(&db_path, confirmation_blocks_delay, VeConfig { epoch_start: 0, slots_in_epoch: 10 });
+        let db = PositionDB::new(
+            &db_path,
+            confirmation_blocks_delay,
+            VeConfig {
+                epoch_start: 0,
+                slots_in_epoch: 10,
+            },
+        );
         let gauges_db_path = DBPath::new("gauges_index");
         let gauges_db = VoteEscrowDB::new(&gauges_db_path);
 
