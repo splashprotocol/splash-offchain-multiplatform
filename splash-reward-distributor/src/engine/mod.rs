@@ -176,7 +176,7 @@ where
     StateId: Copy + Into<TaskId>,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
-    let mut confirm_tx = None;
+    let mut confirm_tx = vec![];
     let commands = match events {
         BlockEvents::RollForward {
             events, block_slot, ..
@@ -202,7 +202,7 @@ where
                         .collect(),
                 ),
                 OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {
-                    confirm_tx = Some((tx_hash, block_slot));
+                    confirm_tx.push((tx_hash, block_slot));
                     Some(
                         payouts
                             .into_iter()
@@ -215,7 +215,7 @@ where
                     tx_hash,
                     ..
                 } => {
-                    confirm_tx = Some((tx_hash, block_slot));
+                    confirm_tx.push((tx_hash, block_slot));
                     Some(
                         drained_gauges
                             .into_iter()
@@ -314,8 +314,8 @@ where
             .collect(),
     };
     queue.clone().batch_execute(commands).await;
-    if let Some((tx_hash, block_slot)) = confirm_tx {
-        queue.confirm_tx(tx_hash, block_slot).await;
+    for (tx_hash, block_slot) in confirm_tx {
+        queue.clone().confirm_tx(tx_hash, block_slot).await;
     }
     tx.commit();
     ControlFlow::Continue(())
