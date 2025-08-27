@@ -290,14 +290,14 @@ impl Display for AccountPoolHarvested {
     }
 }
 
-/// Harvest has been executed on-chain.
+/// Batch of harvest orders have been executed on-chain.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct MultiAccountHarvested {
+pub struct BatchHarvestExecuted {
     pub accounts: Vec<Credential>,
     pub harvested_till: Slot,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultiAccountHarvested
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for BatchHarvestExecuted
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<SplashPolicy>

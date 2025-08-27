@@ -23,6 +23,8 @@ pub mod ve_config;
 pub struct Epoch(u64);
 
 impl Epoch {
+    pub const FIRST: Epoch = Epoch(0);
+
     /// @panic if slots_in_epoch is 0
     pub fn unsafe_from_slot(slot: u64, slots_in_epoch: u64, epoch_start: Slot) -> Self {
         Self((slot - epoch_start) / slots_in_epoch)
