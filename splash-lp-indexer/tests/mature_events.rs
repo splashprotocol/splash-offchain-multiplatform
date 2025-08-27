@@ -20,6 +20,7 @@ mod tests {
         DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment,
     };
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
+    use splash_dao_offchain::GenesisEpochStartTime;
     use splash_lp_index::config::AppConfig;
     use splash_lp_index::context::RuntimeContext;
     use splash_lp_index::pipeline::log_events::log_event;
@@ -93,6 +94,7 @@ mod tests {
             harvest_limits: config.harvest_limits,
             splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
             network_id: config.network_id,
+            genesis_epoch_start_time: GenesisEpochStartTime::from(100),
         };
 
         let confirmation_blocks_delay = 5;

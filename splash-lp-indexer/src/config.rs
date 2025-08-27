@@ -23,6 +23,7 @@ pub struct AppConfig {
     pub harvest_limits: HarvestLimits,
     pub splash_policy_id_hex: String,
     pub ve_config: VeConfig,
+    pub genesis_epoch_start_time: u64,
 }
 
 #[derive(serde::Deserialize)]

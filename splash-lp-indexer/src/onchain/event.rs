@@ -21,15 +21,18 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
+use splash_dao_offchain::entities::onchain::weighting_poll::WeightingPollSnapshot;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::events::OnChainEvent as RewardOnChainEvent;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use splash_yf_offchain::Epoch;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
+use type_equalities::IsEqual;
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -37,7 +40,7 @@ pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     Gauge(GaugeCreated),
     Pool(PoolCreated),
-    WeightingPoll(WeightingPollCompleted), // todo: add parser
+    WeightingPoll(WeightingPollCompleted),
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
@@ -63,6 +66,8 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<GenesisEpochStartTime>
         + Has<BufferWalletScript>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
@@ -77,6 +82,9 @@ where
             .map(StatelessOnChainEvent::Position)
             .or_else(|| GaugeCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Gauge))
             .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Pool))
+            .or_else(|| {
+                WeightingPollCompleted::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
+            })
     }
 }
 
@@ -445,6 +453,33 @@ pub struct WeightingPollCompleted {
     pub epoch: Epoch,
 }
 
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollCompleted
+where
+    Cx: Has<GenesisEpochStartTime>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<NetworkId>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+            let output_ref = OutputRef::new(repr.hash, ix as u64);
+            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
+
+            let ctx = WPollCtx {
+                timed_output_ref,
+                epoch_start_time: ctx.select::<GenesisEpochStartTime>(),
+                script_info: ctx
+                    .select::<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>(),
+                network_id: ctx.select::<NetworkId>(),
+            };
+
+            WeightingPollSnapshot::try_from_ledger(output, &ctx).map(|wp_snapshot| Self {
+                distribution: wp_snapshot.get().distribution.clone(),
+                epoch: Epoch::from(wp_snapshot.get().epoch as u64),
+            })
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 #[display("PoolCreated (pool_id = {}, supply_lq = {})", pool_id, supply_lq)]
 pub struct PoolCreated {
@@ -484,5 +519,38 @@ where
             });
         }
         None
+    }
+}
+
+struct WPollCtx {
+    epoch_start_time: GenesisEpochStartTime,
+    timed_output_ref: TimedOutputRef,
+    script_info: DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>,
+    network_id: NetworkId,
+}
+
+impl Has<TimedOutputRef> for WPollCtx {
+    fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
+        self.timed_output_ref
+    }
+}
+
+impl Has<GenesisEpochStartTime> for WPollCtx {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+        self.epoch_start_time
+    }
+}
+
+impl Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>> for WPollCtx {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }> {
+        self.script_info
+    }
+}
+
+impl Has<NetworkId> for WPollCtx {
+    fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+        self.network_id
     }
 }
