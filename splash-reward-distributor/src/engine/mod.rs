@@ -54,8 +54,6 @@ pub struct Engine<U, Q, E> {
     queue: Q,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
-    stashed_dropped_tx_hash: Option<TransactionHash>,
-    stashed_dropped_task_ids: Option<Vec<TaskId>>,
     dropped_unconfirmed_tx_hashes_recv: Receiver<TransactionHash>,
     conf: EngineConfig,
 }
@@ -74,8 +72,6 @@ impl<U, Q, E> Engine<U, Q, E> {
             executor,
             current_task: None,
             conf,
-            stashed_dropped_tx_hash: None,
-            stashed_dropped_task_ids: None,
             dropped_unconfirmed_tx_hashes_recv,
         }
     }
@@ -117,21 +113,6 @@ where
                 }
             }
 
-            if let Some(tx_hash) = self.stashed_dropped_tx_hash.take() {
-                if let Poll::Ready(failed_task_ids) =
-                    self.queue.clone().drop_unconfirmed_tx(tx_hash).poll_unpin(cx)
-                {
-                    let Some(failed_task_ids) = failed_task_ids else {
-                        panic!("Can't drop a TX with no associated task ids");
-                    };
-                    self.stashed_dropped_task_ids = Some(failed_task_ids);
-                    self.stashed_dropped_tx_hash = None;
-                } else {
-                    self.stashed_dropped_tx_hash = Some(tx_hash);
-                    continue;
-                }
-            }
-
             let queue = self.queue.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
                 let conf = self.conf;
@@ -139,27 +120,15 @@ where
                 continue;
             }
 
-            if self.stashed_dropped_tx_hash.is_none() {
-                if let Poll::Ready(Some(tx_hash)) =
-                    Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
-                {
-                    if let Poll::Ready(failed_task_ids) =
-                        self.queue.clone().drop_unconfirmed_tx(tx_hash).poll_unpin(cx)
-                    {
-                        let Some(failed_task_ids) = failed_task_ids else {
-                            panic!("Can't drop a TX with no associated task ids");
-                        };
-                        self.stashed_dropped_task_ids = Some(failed_task_ids);
-                        self.stashed_dropped_tx_hash = None;
-                    } else {
-                        self.stashed_dropped_tx_hash = Some(tx_hash);
-                        continue;
-                    }
-                }
-            }
+            let dropped_tx_hash = if let Poll::Ready(tx_hash) =
+                Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
+            {
+                tx_hash
+            } else {
+                None
+            };
             let executor = self.executor.clone();
-            let failed_tx_ids = self.stashed_dropped_task_ids.take();
-            self.block_on(process_tasks(queue, executor, failed_tx_ids));
+            self.block_on(process_tasks(queue, executor, dropped_tx_hash));
         }
         Poll::Pending
     }
@@ -176,7 +145,6 @@ where
     StateId: Copy + Into<TaskId>,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
-    let mut confirm_tx = vec![];
     let commands = match events {
         BlockEvents::RollForward {
             events, block_slot, ..
@@ -201,31 +169,27 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {
-                    confirm_tx.push((tx_hash, block_slot));
-                    Some(
-                        payouts
-                            .into_iter()
-                            .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
-                            .collect(),
-                    )
-                }
+                OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => Some(
+                    payouts
+                        .into_iter()
+                        .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
+                        .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
+                        .collect(),
+                ),
                 OnChainEvent::BotGaugeBufferingAction {
                     drained_gauges,
                     tx_hash,
                     ..
-                } => {
-                    confirm_tx.push((tx_hash, block_slot));
-                    Some(
-                        drained_gauges
-                            .into_iter()
-                            .map(|gauge_update| {
-                                let task_id = gauge_update.created.0.id.into();
-                                QueueCmd::Done(task_id, tx_hash)
-                            })
-                            .collect(),
-                    )
-                }
+                } => Some(
+                    drained_gauges
+                        .into_iter()
+                        .map(|gauge_update| {
+                            let task_id = gauge_update.created.0.id.into();
+                            QueueCmd::Done(task_id, tx_hash)
+                        })
+                        .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
+                        .collect(),
+                ),
                 OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
                     updated_gauges
                         .into_iter()
@@ -314,9 +278,6 @@ where
             .collect(),
     };
     queue.clone().batch_execute(commands).await;
-    for (tx_hash, block_slot) in confirm_tx {
-        queue.clone().confirm_tx(tx_hash, block_slot).await;
-    }
     tx.commit();
     ControlFlow::Continue(())
 }
@@ -324,7 +285,7 @@ where
 async fn process_tasks<GaugeId, StateId, Q, E>(
     queue: Q,
     mut executor: E,
-    failed_task_ids: Option<Vec<TaskId>>,
+    dropped_tx_hash: Option<TransactionHash>,
 ) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
@@ -332,12 +293,20 @@ where
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
-    if let Some(dropped_task_ids) = failed_task_ids {
-        let cmds = dropped_task_ids
-            .into_iter()
-            .map(|id| QueueCmd::Reschedule(id, StrikeTime::Ready))
-            .collect();
-        queue.clone().batch_execute(cmds).await;
+    if let Some(tx_hash) = dropped_tx_hash {
+        if let Some(tasks) = queue.clone().read_tasks(tx_hash).await {
+            let cmds = std::iter::once(QueueCmd::DropTx(tx_hash))
+                .chain(tasks.into_iter().map(|(task_id, task)| {
+                    // Reschedule tasks and prioritise gauge-buffering TXs
+                    let strike_time = match &task {
+                        Task::GaugeBuffering(_) => StrikeTime::Ready,
+                        Task::Harvesting(_) => StrikeTime::In(60),
+                    };
+                    QueueCmd::Reschedule(task_id, strike_time)
+                }))
+                .collect();
+            queue.clone().batch_execute(cmds).await;
+        }
     }
     loop {
         if let Some((task_id, task)) = stream.next().await {
