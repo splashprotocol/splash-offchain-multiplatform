@@ -3,13 +3,12 @@ use crate::feed::event::ExportAccountPositionEvent;
 use crate::onchain::event::{GaugeWeighted, OnChainEvent, PositionEvent};
 use crate::position_db::{
     account_to_pools_index, export_feed, from_event_key, gauge_key, get_current_slot, get_range_iterator,
-    parse_position_key, pool_key, position_key, ColumnFamilies, PositionDB, ACCOUNT_FEED_EXPORT_CF,
+    parse_position_key, pool_key, position_key, ColumnFamilies, PositionDB,
 };
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
 use cml_core::Slot;
 use rocksdb::{IteratorMode, ReadOptions};
-use serde::{Deserialize, Serialize};
 use spectrum_offchain_cardano::data::PoolId;
 use splash_yf_offchain::Epoch;
 use std::collections::hash_map::Entry;
@@ -56,7 +55,11 @@ impl MatureEvents for PositionDB {
                     }
                     let events_by_pool = aggregate_events(events);
                     let current_slot = next_mature_slot.unwrap();
-                    let current_epoch = Epoch::unsafe_from_slot(current_slot, ve_config.slots_in_epoch, ve_config.epoch_start);
+                    let current_epoch = Epoch::unsafe_from_slot(
+                        current_slot,
+                        ve_config.slots_in_epoch,
+                        ve_config.epoch_start,
+                    );
                     for (pool_id, pool_events) in events_by_pool {
                         let pool_key = pool_key(pool_id);
                         let pool_lp_supply = pool_events.lp_supply.unwrap();
@@ -67,12 +70,8 @@ impl MatureEvents for PositionDB {
                         } in pool_events.gauge_events
                         {
                             assert_eq!(current_epoch, epoch);
-                            tx.put_cf(
-                                cfs.gauge_weights,
-                                gauge_key(pool_id, epoch),
-                                weight.to_be_bytes(),
-                            )
-                            .unwrap();
+                            tx.put_cf(cfs.gauge_weights, gauge_key(pool_id, epoch), weight.to_be_bytes())
+                                .unwrap();
                         }
                         let iter_positions = get_range_iterator(&db, cfs.account_positions, pool_key)
                             .filter_map(|e| match e {
@@ -84,27 +83,30 @@ impl MatureEvents for PositionDB {
                                 }
                                 Err(_) => None,
                             });
-                        let positions_for_update = prepare_positions_for_update(
-                            pool_events.account_frames,
-                            iter_positions,
-                            current_slot,
-                            pool_lp_supply,
-                            ve_config.slots_in_epoch,
-                            ve_config.epoch_start,
-                        );
-                        for ((cred, epoch), position) in positions_for_update {
-                            let position_key = position_key(pool_id, &cred, epoch);
-                            let position_value = rmp_serde::to_vec_named(&position).unwrap();
-                            tx.put_cf(cfs.account_positions, position_key, position_value)
-                                .unwrap();
-                            let account_pools_index = account_to_pools_index(&cred, pool_id);
-                            tx.put_cf(cfs.account_pools, account_pools_index, vec![]).unwrap();
-                            export_events.push(ExportAccountPositionEvent {
-                                account_cred: cred,
-                                pool_id,
-                                epoch,
-                                update: position,
-                            });
+                        // We only store positions related to active gauges;
+                        if current_epoch >= Epoch::FIRST {
+                            let positions_for_update = prepare_positions_for_update(
+                                pool_events.account_frames,
+                                iter_positions,
+                                current_slot,
+                                pool_lp_supply,
+                                ve_config.slots_in_epoch,
+                                ve_config.epoch_start,
+                            );
+                            for ((cred, epoch), position) in positions_for_update {
+                                let position_key = position_key(pool_id, &cred, epoch);
+                                let position_value = rmp_serde::to_vec_named(&position).unwrap();
+                                tx.put_cf(cfs.account_positions, position_key, position_value)
+                                    .unwrap();
+                                let account_pools_index = account_to_pools_index(&cred, pool_id);
+                                tx.put_cf(cfs.account_pools, account_pools_index, vec![]).unwrap();
+                                export_events.push(ExportAccountPositionEvent {
+                                    account_cred: cred,
+                                    pool_id,
+                                    epoch,
+                                    update: position,
+                                });
+                            }
                         }
                     }
                     export_feed::batch_append(&tx, export_events, cfs.account_feed_export);
@@ -317,14 +319,21 @@ mod tests {
     use cml_crypto::Ed25519KeyHash;
     use spectrum_offchain_cardano::data::PoolId;
     use splash_testing::db_path::DBPath;
+    use splash_yf_offchain::ve_config::VeConfig;
     use splash_yf_offchain::Epoch;
     use std::collections::HashMap;
-    use splash_yf_offchain::ve_config::VeConfig;
 
     #[tokio::test]
     async fn process_export_mature_events() {
         let db_path = DBPath::new("_test_read_max_key");
-        let db = PositionDB::new(&db_path, 5, VeConfig { epoch_start: 0, slots_in_epoch: 100 });
+        let db = PositionDB::new(
+            &db_path,
+            5,
+            VeConfig {
+                epoch_start: 0,
+                slots_in_epoch: 100,
+            },
+        );
 
         let pid = PoolId::random();
         let account = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
@@ -337,7 +346,7 @@ mod tests {
         let event1 = OnChainEvent::Gauge(GaugeWeighted {
             pool_id: pid,
             weight: 1,
-            epoch: Epoch::from(1),
+            epoch: Epoch::from(0),
         });
         let event2 = OnChainEvent::Account(PositionEvent::Deposit(Deposit {
             pool_id: pid,
