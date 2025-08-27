@@ -1,4 +1,5 @@
 use crate::onchain::event::{GaugeWeighted, OnChainEvent, StatelessOnChainEvent};
+use crate::onchain::GaugeWeight;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
 
@@ -45,7 +46,7 @@ async fn resolve_gauges<I: VoteEscrowIndex>(
                     if let Some(pool_id) = index.get_gauge_binding(gauge).await {
                         translated_events.push(OnChainEvent::Gauge(GaugeWeighted {
                             pool_id,
-                            weight,
+                            weight: GaugeWeight(weight, weighting_poll_completed.total_poll_weight),
                             epoch: weighting_poll_completed.epoch,
                         }))
                     }

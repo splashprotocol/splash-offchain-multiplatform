@@ -2,17 +2,17 @@ use cml_chain::certs::Credential;
 use cml_core::serialization::{Deserialize, Serialize};
 use cml_core::Slot;
 use rocksdb::{
-    ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions, Transaction,
-    TransactionDB, TransactionDBOptions,
+    ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
+    SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
+use splash_yf_offchain::ve_config::VeConfig;
 use splash_yf_offchain::Epoch;
 use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
-use splash_yf_offchain::ve_config::VeConfig;
 
 pub mod accounts;
 pub mod event_log;
@@ -27,11 +27,7 @@ pub struct PositionDB {
 }
 
 impl PositionDB {
-    pub fn new<P: AsRef<Path>>(
-        db_path: P,
-        confirmation_delay_slots: u64,
-        ve_config: VeConfig,
-    ) -> Self {
+    pub fn new<P: AsRef<Path>>(db_path: P, confirmation_delay_slots: u64, ve_config: VeConfig) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
@@ -52,6 +48,21 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
     let mut readopts = ReadOptions::default();
     readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
     db.iterator_cf_opt(cf, readopts, IteratorMode::From(&prefix, Direction::Forward))
+}
+
+pub(crate) fn get_range_iterator_over_snapshot<'a: 'b, 'b>(
+    db: &'a SnapshotWithThreadMode<'a, TransactionDB>,
+    cf: &ColumnFamily,
+    prefix: Vec<u8>,
+    start_from_key: Vec<u8>,
+) -> DBIteratorWithThreadMode<'b, TransactionDB> {
+    let mut readopts = ReadOptions::default();
+    readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
+    db.iterator_cf_opt(
+        cf,
+        readopts,
+        IteratorMode::From(&start_from_key, Direction::Forward),
+    )
 }
 
 pub(crate) fn read_max_key(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -> u64 {
@@ -89,7 +100,13 @@ pub(crate) fn position_key(pool_id: PoolId, credential: &Credential, epoch: Epoc
     key
 }
 
-pub(crate) fn parse_position_key(mut key: Vec<u8>) -> Option<(PoolId, Credential, u64)> {
+pub(crate) fn account_positions_key(pool_id: PoolId, credential: &Credential) -> Vec<u8> {
+    let mut key: Vec<u8> = pool_id.into();
+    key.extend(credential.to_canonical_cbor_bytes());
+    key
+}
+
+pub(crate) fn parse_position_key(mut key: Vec<u8>) -> Option<(PoolId, Credential, Epoch)> {
     PoolId::try_from(&key[..PoolId::BYTE_COUNT])
         .ok()
         .and_then(|pool_id| {
@@ -98,7 +115,7 @@ pub(crate) fn parse_position_key(mut key: Vec<u8>) -> Option<(PoolId, Credential
                 .ok()
                 .and_then(|cred| {
                     let epoch = Slot::from_be_bytes(key[slot_position..].try_into().ok()?);
-                    Some((pool_id, cred, epoch))
+                    Some((pool_id, cred, epoch.into()))
                 })
         })
 }

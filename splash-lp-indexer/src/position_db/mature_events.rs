@@ -70,8 +70,12 @@ impl MatureEvents for PositionDB {
                         } in pool_events.gauge_events
                         {
                             assert_eq!(current_epoch, epoch);
-                            tx.put_cf(cfs.gauge_weights, gauge_key(pool_id, epoch), weight.to_be_bytes())
-                                .unwrap();
+                            tx.put_cf(
+                                cfs.gauge_weights,
+                                gauge_key(pool_id, epoch),
+                                rmp_serde::to_vec(&weight).unwrap(),
+                            )
+                            .unwrap();
                         }
                         let iter_positions = get_range_iterator(&db, cfs.account_positions, pool_key)
                             .filter_map(|e| match e {
@@ -311,6 +315,7 @@ impl EventsByPool {
 mod tests {
     use crate::account::AccountPosition;
     use crate::onchain::event::{Deposit, GaugeWeighted, OnChainEvent, PositionEvent};
+    use crate::onchain::GaugeWeight;
     use crate::position_db::event_log::EventLog;
     use crate::position_db::export_feed::ExportEventFeed;
     use crate::position_db::mature_events::{prepare_positions_for_update, EventsByAccount, MatureEvents};
@@ -345,7 +350,7 @@ mod tests {
         // Generate a few OnChainEvents
         let event1 = OnChainEvent::Gauge(GaugeWeighted {
             pool_id: pid,
-            weight: 1,
+            weight: GaugeWeight(1, 1),
             epoch: Epoch::from(0),
         });
         let event2 = OnChainEvent::Account(PositionEvent::Deposit(Deposit {

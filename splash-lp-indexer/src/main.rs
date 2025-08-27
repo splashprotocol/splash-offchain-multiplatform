@@ -90,7 +90,11 @@ async fn main() {
     );
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let position_db = PositionDB::new(config.accounts_db_path, config.confirmation_delay_slots, config.ve_config);
+    let position_db = PositionDB::new(
+        config.accounts_db_path,
+        config.confirmation_delay_slots,
+        config.ve_config,
+    );
     let filter = HashSet::from([
         dex_protocol_deployment.balance_fn_pool_v1.hash,
         dex_protocol_deployment.balance_fn_pool_v2.hash,
@@ -144,9 +148,7 @@ async fn main() {
     ));
     processes.push(log_events_handle);
 
-    let process_mature_events_handle = tokio::spawn(process_mature_events(
-        position_db,
-    ));
+    let process_mature_events_handle = tokio::spawn(process_mature_events(position_db));
     processes.push(process_mature_events_handle);
 
     let export_events_handle = tokio::spawn(publisher.run());

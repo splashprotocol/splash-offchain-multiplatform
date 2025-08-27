@@ -66,7 +66,7 @@ impl InflationBox {
     }
 }
 
-/// Calculate emission rate based on given epoch.
+/// Calculate emission rate based on the given epoch.
 pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
     let reduction_period = epoch / constants::EMISSION_REDUCTION_PERIOD_LEN;
     TaggedAmount::new(if reduction_period == 0 {
