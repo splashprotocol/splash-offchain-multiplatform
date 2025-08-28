@@ -296,7 +296,10 @@ where
             queue.batch_execute(commands.collect()).await;
         }
         Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {
-            let commands = failed_task_ids.into_iter().map(QueueCmd::Cancel).collect();
+            let commands = failed_task_ids
+                .into_iter()
+                .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60)))
+                .collect();
             queue.batch_execute(commands).await;
         }
         Err(_) => (),
