@@ -294,19 +294,7 @@ where
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
     if let Some(tx_hash) = dropped_tx_hash {
-        if let Some(tasks) = queue.clone().read_tasks(tx_hash).await {
-            let cmds = std::iter::once(QueueCmd::DropTx(tx_hash))
-                .chain(tasks.into_iter().map(|(task_id, task)| {
-                    // Reschedule tasks and prioritise gauge-buffering TXs
-                    let strike_time = match &task {
-                        Task::GaugeBuffering(_) => StrikeTime::Ready,
-                        Task::Harvesting(_) => StrikeTime::In(60),
-                    };
-                    QueueCmd::Reschedule(task_id, strike_time)
-                }))
-                .collect();
-            queue.clone().batch_execute(cmds).await;
-        }
+        reschedule_tasks_from_dropped_tx(tx_hash, queue.clone()).await;
     }
     loop {
         if let Some((task_id, task)) = stream.next().await {
@@ -342,6 +330,25 @@ where
         Err(_) => (),
     }
     ControlFlow::Continue(())
+}
+
+async fn reschedule_tasks_from_dropped_tx<GaugeId, StateId, Q>(tx_hash: TransactionHash, queue: Q)
+where
+    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
+{
+    if let Some(tasks) = queue.clone().read_tasks(tx_hash).await {
+        let cmds = std::iter::once(QueueCmd::DropTx(tx_hash))
+            .chain(tasks.into_iter().map(|(task_id, task)| {
+                // Reschedule tasks and prioritise gauge-buffering TXs
+                let strike_time = match &task {
+                    Task::GaugeBuffering(_) => StrikeTime::Ready,
+                    Task::Harvesting(_) => StrikeTime::In(60),
+                };
+                QueueCmd::Reschedule(task_id, strike_time)
+            }))
+            .collect();
+        queue.batch_execute(cmds).await;
+    }
 }
 
 pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
