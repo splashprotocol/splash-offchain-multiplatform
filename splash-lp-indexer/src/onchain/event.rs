@@ -472,9 +472,17 @@ where
                 network_id: ctx.select::<NetworkId>(),
             };
 
-            WeightingPollSnapshot::try_from_ledger(output, &ctx).map(|wp_snapshot| Self {
-                distribution: wp_snapshot.get().distribution.clone(),
-                epoch: Epoch::from(wp_snapshot.get().epoch as u64),
+            WeightingPollSnapshot::try_from_ledger(output, &ctx).and_then(|wp_snapshot| {
+                let wp = wp_snapshot.get();
+
+                // Note: if this field in `WeightingPoll` is None then it means voting hasn't
+                // occurred.
+                let total_poll_weight = wp.weighting_power?;
+                Some(Self {
+                    distribution: wp.distribution.clone(),
+                    epoch: Epoch::from(wp.epoch as u64),
+                    total_poll_weight,
+                })
             })
         })
     }
