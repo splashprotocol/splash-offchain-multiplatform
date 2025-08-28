@@ -5,12 +5,12 @@ use crate::position_db::{
     parse_account_to_pools_index, parse_position_key, position_key, ColumnFamilies, PositionDB,
 };
 use cml_chain::certs::Credential;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use splash_dao_offchain::entities::onchain::inflation_box::emission_rate;
 use splash_yf_offchain::Epoch;
 use tokio::task::spawn_blocking;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct AccountReward {
     pub amount: u64,
     pub latest_epoch_inclusive: Epoch,

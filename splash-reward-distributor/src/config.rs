@@ -1,7 +1,6 @@
 use cml_core::Slot;
 use std::time::Duration;
 
-use crate::emission::EmissionConfig;
 use crate::engine::EngineConfig;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
@@ -27,7 +26,6 @@ pub struct AppConfig {
     pub engine: EngineConfig,
     pub event_cache_ttl: Duration,
     pub tx_submission_buffer_size: usize,
-    pub emission: EmissionConfig,
     pub verifier_url: String,
 }
 

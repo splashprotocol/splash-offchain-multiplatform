@@ -1,8 +1,10 @@
-use crate::config::HarvestLimits;
+mod confirm_txs;
+
 use crate::entity_index::{index_events, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex};
+use crate::pipeline::confirm_txs::forward_confirmed_txs;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::Transaction;
-use cml_crypto::ScriptHash;
+use cml_crypto::{ScriptHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::stream::FusedStream;
@@ -23,10 +25,12 @@ use splash_dao_offchain::protocol_config::{
 use splash_yf_offchain::events::OnChainEvent;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::collections::HashSet;
+use std::fmt::Debug;
 
-pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
+pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
     mut upstream: U,
     mut sink: S,
+    confirmed_txs: Tx,
     context: Cx,
     indexer: I,
     funding: F,
@@ -45,6 +49,8 @@ pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
             TransactionHandle,
         )> + Unpin
         + Clone,
+    Tx: Sink<(TransactionHash, u64)> + Unpin + Clone,
+    Tx::Error: Debug,
     Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
@@ -64,6 +70,7 @@ pub async fn event_pipeline<U, S, Cx, Utxos, I, F>(
 {
     loop {
         let (block, tx_handle) = upstream.select_next_some().await;
+        forward_confirmed_txs(&block, confirmed_txs.clone()).await;
         let batch = read_events(block, &context, &utxos, &utxo_filter).await;
         let batch = index_events(batch, &indexer, &funding).await;
         let _ = sink.send((batch, tx_handle)).await;

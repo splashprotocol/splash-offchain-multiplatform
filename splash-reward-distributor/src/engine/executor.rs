@@ -1,9 +1,8 @@
-use crate::accounts::{AccountState, Accounts, LockedByAnotherReq};
+use crate::accounts::{AccountReward, Accounts, LockedByAnotherReq};
 use crate::constants::{
     GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
 };
-use crate::emission::{reward_amount, Emission};
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithPayout};
 use crate::engine::resolved_tx::{
     CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx,
@@ -58,6 +57,7 @@ use splash_yf_offchain::events::EntityUpdated;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use splash_yf_offchain::Epoch;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control<TaskId> {
@@ -101,27 +101,25 @@ pub enum Error {
 }
 
 #[derive(Clone)]
-pub struct HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emission> {
+pub struct HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex> {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
-    emission: Emission,
     batch: Option<HarvestBatch<StateId, Bearer>>,
     ctx: Ctx,
 }
 
 #[async_trait]
-impl<Ctx, PositionIndex, OnChainIndex, Emiss>
+impl<Ctx, PositionIndex, OnChainIndex>
     BatchExecutor<
         TaskId,
         Harvesting<OutputRef>,
         HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, Transaction, CardanoTxInputs>,
         Error,
-    > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
+    > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex>
 where
     PositionIndex: Accounts<OutputRef> + Send,
     OnChainIndex:
         BufferWalletIndex<OutputRef, FinalizedTxOut> + HarvestOrderIndex<OutputRef, FinalizedTxOut> + Send,
-    Emiss: Emission + Send,
     Ctx: Send
         + Has<BufferWalletScript>
         + Has<DeployedValidator<{ HarvestOrder as u8 }>>
@@ -150,18 +148,14 @@ where
         };
         match self
             .position_index
-            .query_account(&Credential::new_pub_key(req.account_key))
+            .query_account_reward(&Credential::new_pub_key(req.account_key), Epoch::from(0)) // todo: use correct epoch
             .await
         {
-            Ok(AccountState {
-                activated_at,
-                total_share_bps,
+            Some(AccountReward {
+                   accumulated_amount: amount,
+                latest_epoch_inclusive,
             }) => {
-                let emission = self
-                    .emission
-                    .total_emission_between(activated_at, req.issued_at.0);
-                let payout = reward_amount(total_share_bps, emission);
-                if batch.can_accept(payout) {
+                if batch.can_accept(amount) {
                     if let Err(LockedByAnotherReq(concurrent_req)) = self
                         .position_index
                         .lock_account(&req.id, &Credential::new_pub_key(req.account_key))
@@ -175,7 +169,7 @@ where
                         );
                         return Control::Drop(task_id);
                     }
-                    batch.add_order(Bundled(req, tx_out), payout);
+                    batch.add_order(Bundled(req, tx_out), amount);
                 } else {
                     warn!(
                         "Buffer wallet is running out of funds, cannot process request {}",
@@ -184,7 +178,7 @@ where
                     return Control::Stop;
                 }
             }
-            Err(_not_found) => {
+            None => {
                 warn!(
                     "Account {} not found, dropping request {}",
                     hex::encode(req.account_key.to_raw_bytes()),
@@ -786,8 +780,8 @@ fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {
 }
 
 #[derive(Clone)]
-pub enum Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission> {
-    Harvesting(HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emission>),
+pub enum Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex> {
+    Harvesting(HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex>),
     Buffering(BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>),
 }
 
@@ -804,18 +798,15 @@ pub struct Executor<
     OnChainIndex,
     FundingIndex,
     TxSubmit,
-    Emission,
     Verifier,
 > {
     position_index: PositionIndex,
     onchain_index: OnChainIndex,
     funding_index: FundingIndex,
     tx_submit: TxSubmit,
-    emission: Emission,
     verifier: Verifier,
     ctx: Ctx,
-    blocked_on:
-        Option<Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex, Emission>>,
+    blocked_on: Option<Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex>>,
     pd: PhantomData<(Tx, TxInputs, TxErr)>,
 }
 
@@ -831,7 +822,6 @@ impl<
         OnChainIndex,
         FundingIndex,
         TxSubmit,
-        Emission,
         Verifier,
     >
     Executor<
@@ -846,7 +836,6 @@ impl<
         OnChainIndex,
         FundingIndex,
         TxSubmit,
-        Emission,
         Verifier,
     >
 {
@@ -855,7 +844,6 @@ impl<
         onchain_index: OnChainIndex,
         funding_index: FundingIndex,
         tx_submit: TxSubmit,
-        emission: Emission,
         verifier: Verifier,
         ctx: Ctx,
     ) -> Self {
@@ -864,7 +852,6 @@ impl<
             onchain_index,
             funding_index,
             tx_submit,
-            emission,
             verifier,
             ctx,
             blocked_on: None,
@@ -885,7 +872,6 @@ impl<
         OnChainIndex,
         FundingIndex,
         TxSubmit,
-        Emiss,
         Verifier,
     > BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, Error>
     for Executor<
@@ -900,7 +886,6 @@ impl<
         OnChainIndex,
         FundingIndex,
         TxSubmit,
-        Emiss,
         Verifier,
     >
 where
@@ -919,9 +904,8 @@ where
         + Sync,
     FundingIndex: FundingRepo + Clone + Send + Sync,
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
-    Emiss: Emission + Clone + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
-    HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex, Emiss>: BatchExecutor<
+    HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex>: BatchExecutor<
         TaskId,
         Harvesting<StateId>,
         HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs>,
@@ -951,7 +935,6 @@ where
                 Task::Harvesting(_) => self.blocked_on.insert(Flow::Harvesting(HarvestingFlow {
                     position_index: self.position_index.clone(),
                     onchain_index: self.onchain_index.clone(),
-                    emission: self.emission.clone(),
                     batch: None,
                     ctx: self.ctx.clone(),
                 })),

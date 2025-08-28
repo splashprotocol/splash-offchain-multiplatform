@@ -2,7 +2,6 @@ mod accounts;
 mod config;
 mod constants;
 mod context;
-pub mod emission;
 pub mod engine;
 mod entity_index;
 mod pipeline;
@@ -111,7 +110,6 @@ async fn main() {
         onchain_index.clone(),
         funding_index.clone(),
         tx_submission_channel,
-        config.emission,
         verifier,
         ctx.clone(),
     );
@@ -153,6 +151,7 @@ async fn main() {
     let event_pipeline_handle = tokio::spawn(event_pipeline(
         block_events,
         engine_mailbox_snd,
+        confirmed_txs_snd,
         ctx,
         onchain_index,
         funding_index,

@@ -1,6 +1,5 @@
 use crate::position_db::accounts;
 use actix_web::dev::{AppService, HttpServiceFactory};
-use actix_web::http::header::{Header, TryIntoHeaderValue};
 use actix_web::{guard, web, HttpResponse, Responder};
 use cml_chain::certs::Credential;
 use serde::Deserialize;
