@@ -10,39 +10,19 @@ mod withdrawal;
 use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
-use crate::entity_index::{AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
-use cml_chain::transaction::Transaction;
 use cml_crypto::TransactionHash;
-use futures::channel::mpsc::{Receiver, Sender};
-use futures::{FutureExt, SinkExt, Stream, StreamExt};
+use futures::channel::mpsc::Receiver;
+use futures::{Stream, StreamExt};
 use serde::Deserialize;
-use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::tx_view::TimedOutput;
-use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::domain::Has;
-use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain::persistent_index::PersistentIndex;
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use splash_dao_offchain::deployment::ProtocolValidator;
-use splash_dao_offchain::entities::onchain::funding_box::FundingBoxSnapshot;
-use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
-use splash_dao_offchain::funding::FundingRepo;
-use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
-};
-use splash_dao_offchain::routines::{Slot, TimedOutputRef};
-use splash_yf_offchain::entities::buffer_wallet::try_extract_buffer_wallet;
-use splash_yf_offchain::entities::harvest_order::try_extract_harvest_order;
-use splash_yf_offchain::entities::smart_farm::{try_extract_gauge, UpdatedGauges};
+use splash_dao_offchain::routines::Slot;
+use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
 use splash_yf_offchain::events::OnChainEvent;
-use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use type_equalities::IsEqual;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {
@@ -120,15 +100,14 @@ where
                 continue;
             }
 
-            let dropped_tx_hash = if let Poll::Ready(tx_hash) =
+            if let Poll::Ready(Some(tx_hash)) =
                 Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
             {
-                tx_hash
-            } else {
-                None
-            };
+                self.block_on(reschedule_tasks_from_dropped_tx(tx_hash, queue));
+                continue;
+            }
             let executor = self.executor.clone();
-            self.block_on(process_tasks(queue, executor, dropped_tx_hash));
+            self.block_on(process_tasks(queue, executor));
         }
         Poll::Pending
     }
@@ -282,20 +261,13 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, StateId, Q, E>(
-    queue: Q,
-    mut executor: E,
-    dropped_tx_hash: Option<TransactionHash>,
-) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
 {
     let mut invalid_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
-    if let Some(tx_hash) = dropped_tx_hash {
-        reschedule_tasks_from_dropped_tx(tx_hash, queue.clone()).await;
-    }
     loop {
         if let Some((task_id, task)) = stream.next().await {
             match executor.feed(task_id, task).await {
@@ -332,7 +304,10 @@ where
     ControlFlow::Continue(())
 }
 
-async fn reschedule_tasks_from_dropped_tx<GaugeId, StateId, Q>(tx_hash: TransactionHash, queue: Q)
+async fn reschedule_tasks_from_dropped_tx<GaugeId, StateId, Q>(
+    tx_hash: TransactionHash,
+    queue: Q,
+) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
@@ -349,86 +324,5 @@ where
             .collect();
         queue.batch_execute(cmds).await;
     }
-}
-
-pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
-    recv: Receiver<Transaction>,
-    send: Sender<TransactionHash>,
-    index: OnChainIndex,
-    funding: FB,
-    utxos: Utxos,
-    ctx: Ctx,
-) where
-    OnChainIndex: HarvestOrderIndex<OutputRef, FinalizedTxOut>
-        + BufferWalletIndex<OutputRef, FinalizedTxOut>
-        + GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
-        + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
-        + Clone,
-    Utxos: PersistentIndex<OutputRef, TimedOutput> + Clone,
-    Ctx: Has<PermManagerAuthPolicy>
-        + Has<BufferWalletScript>
-        + Has<OperatorCreds>
-        + Has<SplashPolicy>
-        + Has<MinLovelacePerHarvest>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>,
-    FB: FundingRepo + Send + Sync,
-{
-    recv.for_each(|tx| async {
-        let tx_hash = tx.body.hash();
-
-        send.clone().send(tx_hash).await.ok();
-
-        for input in tx.body.inputs {
-            let output_ref = OutputRef::from(input);
-            let funding_ctx = FundingCtx {
-                creds: ctx.select::<OperatorCreds>(),
-                output_ref,
-            };
-            if let Some(TimedOutput { output, .. }) = utxos.get(output_ref).await {
-                // We don't need the actual slot value to parse the following entity; a dummy value suffices
-                if try_extract_harvest_order(&output, output_ref, Slot(100), &ctx).is_some() {
-                    index.unconsume_harvest_order(output_ref).await;
-                } else if FundingBoxSnapshot::try_from_ledger(&output, &funding_ctx).is_some() {
-                    funding.unspend_predicted(output_ref.into()).await;
-                }
-            }
-        }
-
-        for (ix, output) in tx.body.outputs.into_iter().enumerate() {
-            let output_ref = OutputRef::new(tx_hash, ix as u64);
-            // Again, it's fine to have a dummy slot value
-            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(100));
-
-            let funding_ctx = FundingCtx {
-                creds: ctx.select::<OperatorCreds>(),
-                output_ref,
-            };
-            if let Some(gauge) = try_extract_gauge(&output, timed_output_ref, &ctx) {
-                index.remove_gauge(gauge.id, output_ref).await;
-            } else if try_extract_buffer_wallet(&output, output_ref, &ctx).is_some() {
-                index.remove_buffer_wallet(output_ref).await;
-            } else if FundingBoxSnapshot::try_from_ledger(&output, &funding_ctx).is_some() {
-                funding.eliminate_predicted(output_ref.into()).await;
-            }
-        }
-    })
-    .await;
-}
-
-struct FundingCtx {
-    creds: OperatorCreds,
-    output_ref: OutputRef,
-}
-
-impl Has<OutputRef> for FundingCtx {
-    fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
-        self.output_ref
-    }
-}
-
-impl Has<OperatorCreds> for FundingCtx {
-    fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
-        self.creds.clone()
-    }
+    ControlFlow::Continue(())
 }
