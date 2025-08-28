@@ -9,6 +9,7 @@ use rocksdb::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use splash_dao_offchain::routines::Slot;
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
@@ -17,7 +18,10 @@ use tokio::task::spawn_blocking;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QueueCmd<TaskId, Task> {
     Schedule(TaskId, Task, StrikeTime),
+    Reschedule(TaskId, StrikeTime),
     Update(TaskId, Task),
+    ConfirmTx(TransactionHash, Slot),
+    DropTx(TransactionHash),
     Cancel(TaskId),
     Done(TaskId, TransactionHash),
     AdvanceClocks(u64),
@@ -28,7 +32,7 @@ pub enum QueueCmd<TaskId, Task> {
 pub trait TaskQueue<TaskId, Task> {
     async fn batch_execute(self, cmds: Vec<QueueCmd<TaskId, Task>>);
     /// Removes all Done task_ids associated with the given TX hash from the index and returns them.
-    async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>>;
+    async fn read_tasks(self, tx_hash: TransactionHash) -> Option<Vec<(TaskId, Task)>>;
     fn pending_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
     fn done_stream(self) -> impl Stream<Item = (TaskId, Task)> + Unpin + Send;
 }
@@ -45,9 +49,17 @@ const DONE: &str = "done";
 const DONE_WITH_TX_HASH: &str = "done_tx_hash";
 const INDEX: &str = "index";
 const CLOCKS: &str = "clocks";
+const TX_SETTLEMENT_SLOT: &str = "tx_settlement_slot";
 const DONE_TASK_ID_IX_START: usize = 32;
 
-const TABLES: [&str; 5] = [PENDING, DONE, DONE_WITH_TX_HASH, INDEX, CLOCKS];
+const TABLES: [&str; 6] = [
+    PENDING,
+    DONE,
+    DONE_WITH_TX_HASH,
+    INDEX,
+    CLOCKS,
+    TX_SETTLEMENT_SLOT,
+];
 
 struct PendingKey<TaskId>(u64, TaskId);
 impl<TaskId> PendingKey<TaskId> {
@@ -72,6 +84,7 @@ struct Tables<'a> {
     done: &'a ColumnFamily,
     index: &'a ColumnFamily,
     clocks: &'a ColumnFamily,
+    tx_settlement_slot: &'a ColumnFamily,
 }
 
 #[derive(Clone)]
@@ -97,6 +110,7 @@ impl RocksDB {
             done_with_tx_hash: self.db.cf_handle(DONE_WITH_TX_HASH).unwrap(),
             index: self.db.cf_handle(INDEX).unwrap(),
             clocks: self.db.cf_handle(CLOCKS).unwrap(),
+            tx_settlement_slot: self.db.cf_handle(TX_SETTLEMENT_SLOT).unwrap(),
         }
     }
 
@@ -127,7 +141,13 @@ where
                         let ct = self.read_current_time(&tx).unwrap();
                         schedule(&tx, &tables, id, task, time, ct)
                     }
+                    QueueCmd::Reschedule(id, time) => {
+                        let ct = self.read_current_time(&tx).unwrap();
+                        reschedule(&tx, &tables, id, time, ct);
+                    }
                     QueueCmd::Update(id, task) => update(&tx, &tables, id, task),
+                    QueueCmd::ConfirmTx(tx_hash, slot) => confirm(&tx, &tables, tx_hash, slot),
+                    QueueCmd::DropTx(tx_hash) => drop_unconfirmed_tx(&tx, &tables, tx_hash),
                     QueueCmd::Cancel(id) => cancel(&tx, &tables, id),
                     QueueCmd::Done(id, tx_hash) => {
                         done(&tx, &tables, tx_hash, id);
@@ -143,37 +163,30 @@ where
         .unwrap();
     }
 
-    async fn drop_tx(self, tx_hash: TransactionHash) -> Option<Vec<TaskId>> {
+    async fn read_tasks(self, tx_hash: TransactionHash) -> Option<Vec<(TaskId, Task)>> {
         spawn_blocking(move || {
-            let tx = self.db.transaction();
             let tables = self.tables();
             let mut readopts = ReadOptions::default();
             let prefix = tx_hash.to_raw_bytes();
             readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
-            let mut to_delete = vec![];
-            let mut task_ids = vec![];
+            let mut tasks = vec![];
             {
-                let mut done_tasks = tx.iterator_cf_opt(
+                let mut done_tasks = self.db.iterator_cf_opt(
                     &tables.done_with_tx_hash,
                     readopts,
                     IteratorMode::From(prefix, Direction::Forward),
                 );
                 while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
                     let task_id_bytes = key_with_tx_hash[DONE_TASK_ID_IX_START..].to_vec();
+                    let task_bytes = self.db.get_cf(tables.index, &task_id_bytes).unwrap().unwrap();
+                    let task = rmp_serde::from_slice(&task_bytes).unwrap();
                     let task_id = TaskId::try_from(task_id_bytes.clone()).unwrap();
-                    to_delete.push((task_id_bytes, key_with_tx_hash.to_vec()));
-                    task_ids.push(task_id);
-                }
-
-                for (task_id_key, key_with_tx_hash) in to_delete {
-                    tx.delete_cf(&tables.done, task_id_key).unwrap();
-                    tx.delete_cf(&tables.done_with_tx_hash, key_with_tx_hash).unwrap();
+                    tasks.push((task_id, task));
                 }
             }
 
-            tx.commit().unwrap();
-            if !task_ids.is_empty() {
-                Some(task_ids)
+            if !tasks.is_empty() {
+                Some(tasks)
             } else {
                 None
             }
@@ -268,6 +281,27 @@ fn schedule<TaskId: Copy + AsRef<[u8]>, Task: Serialize>(
     .unwrap();
 }
 
+fn reschedule<TaskId: Copy + AsRef<[u8]>>(
+    tx: &Transaction<TransactionDB>,
+    tables: &Tables,
+    id: TaskId,
+    time: StrikeTime,
+    current_time: u64,
+) {
+    let exact_strike_time = match time {
+        StrikeTime::Ready => current_time,
+        StrikeTime::At(t) => t,
+        StrikeTime::In(t) => current_time + t,
+    };
+    matches!(tx.get_cf(tables.index, id), Ok(Some(_)));
+    tx.put_cf(
+        tables.pending,
+        PendingKey::new(exact_strike_time, id).as_bytes(),
+        [],
+    )
+    .unwrap();
+}
+
 fn update<TaskId: Copy + AsRef<[u8]>, Task: Serialize>(
     tx: &Transaction<TransactionDB>,
     tables: &Tables,
@@ -276,6 +310,35 @@ fn update<TaskId: Copy + AsRef<[u8]>, Task: Serialize>(
 ) {
     let task_bytes = rmp_serde::to_vec(&task).unwrap();
     tx.put_cf(tables.index, id, task_bytes).unwrap();
+}
+
+fn confirm(tx: &Transaction<TransactionDB>, tables: &Tables, tx_hash: TransactionHash, Slot(slot): Slot) {
+    let key = tx_hash.to_raw_bytes().to_vec();
+    tx.put_cf(&tables.tx_settlement_slot, key, slot.to_be_bytes())
+        .unwrap();
+}
+
+fn drop_unconfirmed_tx(tx: &Transaction<TransactionDB>, tables: &Tables, tx_hash: TransactionHash) {
+    let mut readopts = ReadOptions::default();
+    let prefix = tx_hash.to_raw_bytes();
+    readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
+    let mut to_delete = vec![];
+    {
+        let mut done_tasks = tx.iterator_cf_opt(
+            &tables.done_with_tx_hash,
+            readopts,
+            IteratorMode::From(prefix, Direction::Forward),
+        );
+        while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+            let task_id_bytes = key_with_tx_hash[DONE_TASK_ID_IX_START..].to_vec();
+            to_delete.push((task_id_bytes, key_with_tx_hash.to_vec()));
+        }
+
+        for (task_id_key, key_with_tx_hash) in to_delete {
+            tx.delete_cf(&tables.done, task_id_key).unwrap();
+            tx.delete_cf(&tables.done_with_tx_hash, key_with_tx_hash).unwrap();
+        }
+    }
 }
 
 fn cancel<TaskId: AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables, id: TaskId) {
@@ -295,7 +358,45 @@ fn done<TaskId: Copy + AsRef<[u8]>>(
 }
 
 fn advance_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
-    tx.put_cf(tables.clocks, time.to_be_bytes(), []).unwrap()
+    tx.put_cf(tables.clocks, time.to_be_bytes(), []).unwrap();
+
+    let mut settled_txs = tx.iterator_cf_opt(
+        tables.tx_settlement_slot,
+        ReadOptions::default(),
+        IteratorMode::Start,
+    );
+    // Remove all task ids more than 6 slots older than present slot
+    let mut tx_hashes_to_remove = vec![];
+    while let Some(Ok((tx_hash_bytes, slot_bytes))) = settled_txs.next() {
+        let slot_arr: &[u8; 8] = slot_bytes.as_ref().try_into().unwrap();
+        let slot = u64::from_be_bytes(*slot_arr);
+
+        if slot < time && (time - slot) > 6 {
+            tx_hashes_to_remove.push(tx_hash_bytes.clone());
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(tx_hash_bytes.clone()));
+            let mut to_delete = vec![];
+            let mut done_tasks = tx.iterator_cf_opt(
+                &tables.done_with_tx_hash,
+                readopts,
+                IteratorMode::From(&tx_hash_bytes, Direction::Forward),
+            );
+            while let Some(Ok((key_with_tx_hash, _))) = done_tasks.next() {
+                let task_id_bytes = key_with_tx_hash[DONE_TASK_ID_IX_START..].to_vec();
+                to_delete.push((task_id_bytes, key_with_tx_hash.to_vec()));
+            }
+
+            for (task_id_key, key_with_tx_hash) in to_delete {
+                tx.delete_cf(&tables.index, &task_id_key).unwrap();
+                tx.delete_cf(&tables.done, &task_id_key).unwrap();
+                tx.delete_cf(&tables.done_with_tx_hash, key_with_tx_hash).unwrap();
+            }
+        }
+    }
+
+    for tx_hash_bytes in tx_hashes_to_remove {
+        tx.delete_cf(&tables.tx_settlement_slot, tx_hash_bytes).unwrap();
+    }
 }
 
 fn downgrade_clocks(tx: &Transaction<TransactionDB>, tables: &Tables, time: u64) {
@@ -308,6 +409,7 @@ mod tests {
     use cml_crypto::{RawBytesEncoding, TransactionHash};
     use futures::StreamExt;
     use serde::{Deserialize, Serialize};
+    use splash_dao_offchain::routines::Slot;
     use splash_testing::db_path::DBPath;
     use std::time::Duration;
     use tokio::time::timeout;
@@ -521,18 +623,54 @@ mod tests {
         let path = DBPath::new("_test_mark_task_done");
         let db = RocksDB::new(&path);
         let (tid0, tid1, tid2) = (TaskId([0u8; 32]), TaskId([1u8; 32]), TaskId([2u8; 32]));
-        let tx_hash = TransactionHash::from_raw_bytes(&[0; 32]).unwrap();
+        let tx_hash_0 = TransactionHash::from_raw_bytes(&[0; 32]).unwrap();
         let cmds = vec![
-            QueueCmd::<TaskId, Task>::Done(tid0, tx_hash),
-            QueueCmd::Done(tid1, tx_hash),
-            QueueCmd::Done(tid2, tx_hash),
+            QueueCmd::AdvanceClocks(1),
+            QueueCmd::Schedule(tid0, Task(tid0), StrikeTime::Ready),
+            QueueCmd::Schedule(tid1, Task(tid1), StrikeTime::Ready),
+            QueueCmd::Schedule(tid2, Task(tid2), StrikeTime::Ready),
+            QueueCmd::Done(tid0, tx_hash_0),
+            QueueCmd::Done(tid1, tx_hash_0),
+            QueueCmd::Done(tid2, tx_hash_0),
+            QueueCmd::ConfirmTx(tx_hash_0, Slot(2)),
         ];
 
         db.clone().batch_execute(cmds).await;
-        let result: Vec<TaskId> = <RocksDB as TaskQueue<TaskId, Task>>::drop_tx(db, tx_hash)
-            .await
-            .unwrap();
+        let result: Vec<(TaskId, Task)> =
+            <RocksDB as TaskQueue<TaskId, Task>>::read_tasks(db.clone(), tx_hash_0)
+                .await
+                .unwrap();
 
-        assert_eq!(result, vec![tid0, tid1, tid2]);
+        assert_eq!(
+            result,
+            vec![(tid0, Task(tid0)), (tid1, Task(tid1)), (tid2, Task(tid2))]
+        );
+
+        // Test removal of settled TX > 6 blocks ago
+        let cmds = vec![QueueCmd::<TaskId, Task>::AdvanceClocks(10)];
+        db.clone().batch_execute(cmds).await;
+        assert!(
+            <RocksDB as TaskQueue<TaskId, Task>>::read_tasks(db.clone(), tx_hash_0)
+                .await
+                .is_none()
+        );
+
+        // Test drop
+        let tx_hash_1 = TransactionHash::from_raw_bytes(&[1; 32]).unwrap();
+        let cmds = vec![
+            QueueCmd::Schedule(tid0, Task(tid0), StrikeTime::Ready),
+            QueueCmd::Schedule(tid1, Task(tid1), StrikeTime::Ready),
+            QueueCmd::Schedule(tid2, Task(tid2), StrikeTime::Ready),
+            QueueCmd::Done(tid0, tx_hash_1),
+            QueueCmd::Done(tid1, tx_hash_1),
+            QueueCmd::Done(tid2, tx_hash_1),
+            QueueCmd::DropTx(tx_hash_1),
+        ];
+        db.clone().batch_execute(cmds).await;
+        assert!(
+            <RocksDB as TaskQueue<TaskId, Task>>::read_tasks(db.clone(), tx_hash_1)
+                .await
+                .is_none()
+        );
     }
 }

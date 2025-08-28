@@ -12,8 +12,10 @@ use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
+use futures::channel::mpsc::Receiver;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
+use splash_dao_offchain::routines::Slot;
 use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
 use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
@@ -32,17 +34,25 @@ pub struct Engine<U, Q, E> {
     queue: Q,
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
+    dropped_unconfirmed_tx_hashes_recv: Receiver<TransactionHash>,
     conf: EngineConfig,
 }
 
 impl<U, Q, E> Engine<U, Q, E> {
-    pub fn new(event_stream: U, queue: Q, executor: E, conf: EngineConfig) -> Self {
+    pub fn new(
+        event_stream: U,
+        queue: Q,
+        executor: E,
+        conf: EngineConfig,
+        dropped_unconfirmed_tx_hashes_recv: Receiver<TransactionHash>,
+    ) -> Self {
         Self {
             event_stream,
             queue,
             executor,
             current_task: None,
             conf,
+            dropped_unconfirmed_tx_hashes_recv,
         }
     }
 
@@ -82,14 +92,22 @@ where
                     break;
                 }
             }
+
             let queue = self.queue.clone();
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
                 let conf = self.conf;
                 self.block_on(process_events(queue, events, tx, conf));
                 continue;
             }
+
+            if let Poll::Ready(Some(tx_hash)) =
+                Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
+            {
+                self.block_on(reschedule_tasks_from_dropped_tx(tx_hash, queue));
+                continue;
+            }
             let executor = self.executor.clone();
-            self.block_on(process_tasks::<_, Bearer, _, _, _>(queue, executor));
+            self.block_on(process_tasks(queue, executor));
         }
         Poll::Pending
     }
@@ -104,7 +122,7 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
 where
     GaugeId: Copy + Into<TaskId>,
     StateId: Copy + Into<TaskId>,
-    Q: TaskQueue<TaskId, Task<GaugeId, StateId>>,
+    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
     let commands = match events {
         BlockEvents::RollForward {
@@ -134,6 +152,7 @@ where
                     payouts
                         .into_iter()
                         .map(|(harvest_order, _)| QueueCmd::Done(harvest_order.id.into(), tx_hash))
+                        .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
                         .collect(),
                 ),
                 OnChainEvent::BotGaugeBufferingAction {
@@ -147,6 +166,7 @@ where
                             let task_id = gauge_update.created.0.id.into();
                             QueueCmd::Done(task_id, tx_hash)
                         })
+                        .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
                         .collect(),
                 ),
                 OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
@@ -236,12 +256,12 @@ where
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])
             .collect(),
     };
-    queue.batch_execute(commands).await;
+    queue.clone().batch_execute(commands).await;
     tx.commit();
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, Bearer, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
@@ -280,6 +300,29 @@ where
             queue.batch_execute(commands).await;
         }
         Err(_) => (),
+    }
+    ControlFlow::Continue(())
+}
+
+async fn reschedule_tasks_from_dropped_tx<GaugeId, StateId, Q>(
+    tx_hash: TransactionHash,
+    queue: Q,
+) -> ControlFlow<(), ()>
+where
+    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
+{
+    if let Some(tasks) = queue.clone().read_tasks(tx_hash).await {
+        let cmds = std::iter::once(QueueCmd::DropTx(tx_hash))
+            .chain(tasks.into_iter().map(|(task_id, task)| {
+                // Reschedule tasks and prioritise gauge-buffering TXs
+                let strike_time = match &task {
+                    Task::GaugeBuffering(_) => StrikeTime::Ready,
+                    Task::Harvesting(_) => StrikeTime::In(60),
+                };
+                QueueCmd::Reschedule(task_id, strike_time)
+            }))
+            .collect();
+        queue.batch_execute(cmds).await;
     }
     ControlFlow::Continue(())
 }

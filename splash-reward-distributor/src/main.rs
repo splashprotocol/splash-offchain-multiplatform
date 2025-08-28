@@ -13,6 +13,7 @@ use crate::engine::executor::Executor;
 use crate::engine::queue::RocksDB;
 use crate::engine::verifier::HttpVerifier;
 use crate::entity_index::rocksdb::IndexerDB;
+use crate::entity_index::update_index_from_mempool_dropped_tx;
 use crate::pipeline::event_pipeline;
 use crate::positions::PositionIndex;
 use async_primitives::beacon::Beacon;
@@ -115,9 +116,18 @@ async fn main() {
         ctx.clone(),
     );
 
+    let (failed_tx_hash_snd, failed_tx_hash_recv) =
+        mpsc::channel::<TransactionHash>(config.tx_submission_buffer_size);
+
     let queue = RocksDB::new(config.persistent_queue_db_path);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
-    let engine = engine::Engine::new(engine_mailbox, queue, executor, config.engine);
+    let engine = engine::Engine::new(
+        engine_mailbox,
+        queue,
+        executor,
+        config.engine,
+        failed_tx_hash_recv,
+    );
 
     let processes = FuturesUnordered::new();
 
@@ -129,6 +139,16 @@ async fn main() {
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
     let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash()]);
+
+    let mempool_index_handle = tokio::spawn(update_index_from_mempool_dropped_tx(
+        failed_txs_recv,
+        failed_tx_hash_snd,
+        onchain_index.clone(),
+        funding_index.clone(),
+        utxo_index.clone(),
+        ctx.clone(),
+    ));
+    processes.push(mempool_index_handle);
 
     let event_pipeline_handle = tokio::spawn(event_pipeline(
         block_events,
@@ -142,6 +162,8 @@ async fn main() {
     processes.push(event_pipeline_handle);
 
     let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+    let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
+    processes.push(tx_tracker_handle);
     processes.push(tx_submission_stream_handle);
 
     let default_panic = std::panic::take_hook();

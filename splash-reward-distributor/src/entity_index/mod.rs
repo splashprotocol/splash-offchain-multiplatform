@@ -7,15 +7,35 @@ use crate::entity_index::rocksdb::OnChainIndex;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
+use cml_chain::transaction::Transaction;
+use cml_crypto::TransactionHash;
+use futures::channel::mpsc::{Receiver, Sender};
+use futures::{SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::tx_view::TimedOutput;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
+use spectrum_offchain::domain::Has;
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain::persistent_index::PersistentIndex;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use splash_dao_offchain::deployment::ProtocolValidator;
+use splash_dao_offchain::entities::onchain::funding_box::FundingBoxSnapshot;
+use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepo;
+use splash_dao_offchain::protocol_config::{
+    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+};
+use splash_dao_offchain::routines::{Slot, TimedOutputRef};
 use splash_yf_offchain::entities::auth_manager::{AuthManager, AuthManagerId};
-use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletId};
+use splash_yf_offchain::entities::buffer_wallet::{try_extract_buffer_wallet, BufferWallet, BufferWalletId};
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
-use splash_yf_offchain::entities::harvest_order::HarvestOrder;
-use splash_yf_offchain::entities::smart_farm::{Gauge, UpdatedGauges};
+use splash_yf_offchain::entities::harvest_order::{try_extract_harvest_order, HarvestOrder};
+use splash_yf_offchain::entities::smart_farm::{try_extract_gauge, Gauge, UpdatedGauges};
 use splash_yf_offchain::events::OnChainEvent;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use type_equalities::IsEqual;
 
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {
@@ -245,7 +265,7 @@ where
                     OnChainEvent::Funding(funding_updates) => {
                         let ConfirmedFundingBoxChanges { consumed, created } = funding_updates;
                         for id in consumed {
-                            funding.unspend_confirmed(id.clone()).await;
+                            funding.unspend_confirmed(*id).await;
                         }
 
                         for f in created {
@@ -257,6 +277,88 @@ where
         }
     }
     events
+}
+
+pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
+    recv: Receiver<Transaction>,
+    send: Sender<TransactionHash>,
+    index: OnChainIndex,
+    funding: FB,
+    utxos: Utxos,
+    ctx: Ctx,
+) where
+    OnChainIndex: HarvestOrderIndex<OutputRef, FinalizedTxOut>
+        + BufferWalletIndex<OutputRef, FinalizedTxOut>
+        + GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
+        + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
+        + Clone,
+    Utxos: PersistentIndex<OutputRef, TimedOutput> + Clone,
+    Ctx: Has<PermManagerAuthPolicy>
+        + Has<BufferWalletScript>
+        + Has<OperatorCreds>
+        + Has<SplashPolicy>
+        + Has<MinLovelacePerHarvest>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>,
+    FB: FundingRepo + Send + Sync,
+{
+    recv.for_each(|tx| async {
+        let tx_hash = tx.body.hash();
+
+        send.clone().send(tx_hash).await.ok();
+
+        for input in tx.body.inputs {
+            let output_ref = OutputRef::from(input);
+            let funding_ctx = FundingCtx {
+                creds: ctx.select::<OperatorCreds>(),
+                output_ref,
+            };
+            if let Some(TimedOutput { output, .. }) = utxos.get(output_ref).await {
+                // We don't need the actual slot value to parse the following entity; a dummy value suffices
+                if try_extract_harvest_order(&output, output_ref, Slot(100), &ctx).is_some() {
+                    index.unconsume_harvest_order(output_ref).await;
+                } else if FundingBoxSnapshot::try_from_ledger(&output, &funding_ctx).is_some() {
+                    funding.unspend_predicted(output_ref.into()).await;
+                }
+            }
+        }
+
+        for (ix, output) in tx.body.outputs.into_iter().enumerate() {
+            let output_ref = OutputRef::new(tx_hash, ix as u64);
+            // Again, it's fine to have a dummy slot value
+            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(100));
+
+            let funding_ctx = FundingCtx {
+                creds: ctx.select::<OperatorCreds>(),
+                output_ref,
+            };
+            if let Some(gauge) = try_extract_gauge(&output, timed_output_ref, &ctx) {
+                index.remove_gauge(gauge.id, output_ref).await;
+            } else if try_extract_buffer_wallet(&output, output_ref, &ctx).is_some() {
+                index.remove_buffer_wallet(output_ref).await;
+            } else if FundingBoxSnapshot::try_from_ledger(&output, &funding_ctx).is_some() {
+                funding.eliminate_predicted(output_ref.into()).await;
+            }
+        }
+    })
+    .await;
+}
+
+struct FundingCtx {
+    creds: OperatorCreds,
+    output_ref: OutputRef,
+}
+
+impl Has<OutputRef> for FundingCtx {
+    fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
+        self.output_ref
+    }
+}
+
+impl Has<OperatorCreds> for FundingCtx {
+    fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
+        self.creds.clone()
+    }
 }
 
 #[async_trait]
