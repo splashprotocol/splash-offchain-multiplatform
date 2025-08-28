@@ -2,8 +2,8 @@ use cml_chain::certs::Credential;
 use cml_core::serialization::{Deserialize, Serialize};
 use cml_core::Slot;
 use rocksdb::{
-    ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
-    SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
+    ColumnFamily, DBCommon, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
+    SingleThreaded, SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
