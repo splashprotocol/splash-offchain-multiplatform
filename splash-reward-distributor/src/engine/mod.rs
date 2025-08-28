@@ -16,7 +16,7 @@ use futures::channel::mpsc::Receiver;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use splash_dao_offchain::routines::Slot;
-use splash_yf_offchain::entities::smart_farm::UpdatedGauges;
+use splash_yf_offchain::entities::gauge::UpdatedGauges;
 use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
