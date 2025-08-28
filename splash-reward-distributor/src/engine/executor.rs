@@ -1,3 +1,4 @@
+use crate::accounts::{AccountState, Accounts, LockedByAnotherReq};
 use crate::constants::{
     GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
@@ -11,7 +12,6 @@ use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex};
 use crate::entity_index::{BufferWalletIndex, GaugeIndex};
-use crate::positions::{AccountState, LockedByAnotherReq, Positions};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
@@ -52,8 +52,8 @@ use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, Sp
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::FundingBoxChanges;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
+use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
-use splash_yf_offchain::entities::smart_farm::Gauge;
 use splash_yf_offchain::events::EntityUpdated;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -118,7 +118,7 @@ impl<Ctx, PositionIndex, OnChainIndex, Emiss>
         Error,
     > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex, Emiss>
 where
-    PositionIndex: Positions<OutputRef> + Send,
+    PositionIndex: Accounts<OutputRef> + Send,
     OnChainIndex:
         BufferWalletIndex<OutputRef, FinalizedTxOut> + HarvestOrderIndex<OutputRef, FinalizedTxOut> + Send,
     Emiss: Emission + Send,
@@ -910,7 +910,7 @@ where
     Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     Tx: Send + Clone + CanonicalHash<Hash = TransactionHash>,
     TxInputs: Send + Clone,
-    PositionIndex: Positions<StateId> + Clone + Send,
+    PositionIndex: Accounts<StateId> + Clone + Send,
     OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
         + HarvestOrderIndex<StateId, Bearer>
         + BufferWalletIndex<StateId, Bearer>

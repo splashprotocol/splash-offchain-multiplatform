@@ -1,4 +1,5 @@
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
+use crate::onchain::GaugeWeight;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use derive_more::Display;
@@ -6,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
 use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, Token};
+use spectrum_offchain::display::display_tuple;
+use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
@@ -18,31 +21,34 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
+use splash_dao_offchain::entities::onchain::weighting_poll::WeightingPollSnapshot;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::events::OnChainEvent as RewardOnChainEvent;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use splash_yf_offchain::Epoch;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
+use type_equalities::IsEqual;
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
-    MultipleHarvest(MultiAccountHarvested),
-    FarmCreated(FarmCreated),
-    PollFactory(PollFactoryEvents),
-    PoolCreated(PoolCreated),
+    Gauge(GaugeCreated),
+    Pool(PoolCreated),
+    WeightingPoll(WeightingPollCompleted),
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum OnChainEvent {
-    Account(AccountEvent),
-    FarmEvent(FarmEvent),
-    PoolEvent(PoolEvent),
+    Account(PositionEvent),
+    Gauge(GaugeWeighted),
+    Pool(PoolCreated),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for StatelessOnChainEvent
@@ -60,6 +66,8 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<GenesisEpochStartTime>
         + Has<BufferWalletScript>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
@@ -72,49 +80,20 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         PositionEvent::try_from_ledger(repr, ctx)
             .map(StatelessOnChainEvent::Position)
-            .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
-            .or_else(|| PollFactoryEvents::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactory))
+            .or_else(|| GaugeCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Gauge))
+            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Pool))
             .or_else(|| {
-                MultiAccountHarvested::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::MultipleHarvest)
+                WeightingPollCompleted::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
             })
-            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated))
     }
 }
 
 impl OnChainEvent {
-    pub fn slot(&self) -> Option<Slot> {
-        match self {
-            OnChainEvent::FarmEvent(FarmEvent::FarmActivated(event)) => Some(event.slot),
-            _ => None,
-        }
-    }
-
     pub fn pool_id(&self) -> PoolId {
         match self {
             OnChainEvent::Account(dr) => dr.pool_id(),
-            OnChainEvent::FarmEvent(fe) => fe.pool_id(),
-            OnChainEvent::PoolEvent(fe) => fe.pool_id(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum AccountEvent {
-    Position(PositionEvent),
-    Harvest(AccountPoolHarvested),
-}
-
-impl AccountEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            AccountEvent::Position(d) => d.pool_id(),
-            AccountEvent::Harvest(h) => h.pool_id,
-        }
-    }
-    pub fn account(&self) -> Credential {
-        match self {
-            AccountEvent::Position(d) => d.account(),
-            AccountEvent::Harvest(h) => h.account.clone(),
+            OnChainEvent::Gauge(fe) => fe.pool_id,
+            OnChainEvent::Pool(fe) => fe.pool_id,
         }
     }
 }
@@ -320,14 +299,14 @@ impl Display for AccountPoolHarvested {
     }
 }
 
-/// Harvest has been executed on-chain.
+/// Batch of harvest orders have been executed on-chain.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct MultiAccountHarvested {
+pub struct BatchHarvestExecuted {
     pub accounts: Vec<Credential>,
     pub harvested_till: Slot,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultiAccountHarvested
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for BatchHarvestExecuted
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<SplashPolicy>
@@ -367,13 +346,14 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FarmCreated {
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[display("FarmCreated ( farm_id = {}, pool_id = {})", farm_id, pool_id)]
+pub struct GaugeCreated {
     pub farm_id: FarmId,
     pub pool_id: PoolId,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for GaugeCreated
 where
     Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
@@ -399,7 +379,7 @@ where
                 None
             }
         });
-        new_farms.next().map(|sm| FarmCreated {
+        new_farms.next().map(|sm| GaugeCreated {
             farm_id: sm.farm_id,
             pool_id: sm.pool_id,
         })
@@ -452,43 +432,59 @@ pub struct PollFactoryUpdated {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum FarmEvent {
-    FarmActivated(FarmActivated),
-    FarmDeactivated(FarmDeactivated),
-}
-
-impl FarmEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            FarmEvent::FarmActivated(a) => a.pool_id,
-            FarmEvent::FarmDeactivated(d) => d.pool_id,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("FarmActivated ( pool_id = {}, slot = {})", pool_id, slot)]
-pub struct FarmActivated {
+#[display(
+    "GaugeWeighted ( pool_id = {}, weight = {}, epoch = {})",
+    pool_id,
+    weight,
+    epoch
+)]
+pub struct GaugeWeighted {
     pub pool_id: PoolId,
-    pub slot: Slot,
+    pub weight: GaugeWeight,
+    pub epoch: Epoch,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("FarmDeactivated ( pool_id = {})", pool_id)]
-pub struct FarmDeactivated {
-    pub pool_id: PoolId,
+#[display("WeightingPollCompleted (distribution = {}, total_poll_weight = {}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
+pub struct WeightingPollCompleted {
+    pub distribution: Vec<(FarmId, u64)>,
+    /// Total number of voting tokens used in the poll.
+    pub total_poll_weight: u64,
+    pub epoch: Epoch,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum PoolEvent {
-    PoolCreated(PoolCreated),
-}
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollCompleted
+where
+    Cx: Has<GenesisEpochStartTime>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<NetworkId>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+            let output_ref = OutputRef::new(repr.hash, ix as u64);
+            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
 
-impl PoolEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            PoolEvent::PoolCreated(d) => d.pool_id,
-        }
+            let ctx = WPollCtx {
+                timed_output_ref,
+                epoch_start_time: ctx.select::<GenesisEpochStartTime>(),
+                script_info: ctx
+                    .select::<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>(),
+                network_id: ctx.select::<NetworkId>(),
+            };
+
+            WeightingPollSnapshot::try_from_ledger(output, &ctx).and_then(|wp_snapshot| {
+                let wp = wp_snapshot.get();
+
+                // Note: if this field in `WeightingPoll` is None then it means voting hasn't
+                // occurred.
+                let total_poll_weight = wp.weighting_power?;
+                Some(Self {
+                    distribution: wp.distribution.clone(),
+                    epoch: Epoch::from(wp.epoch as u64),
+                    total_poll_weight,
+                })
+            })
+        })
     }
 }
 
@@ -531,5 +527,38 @@ where
             });
         }
         None
+    }
+}
+
+struct WPollCtx {
+    epoch_start_time: GenesisEpochStartTime,
+    timed_output_ref: TimedOutputRef,
+    script_info: DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>,
+    network_id: NetworkId,
+}
+
+impl Has<TimedOutputRef> for WPollCtx {
+    fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
+        self.timed_output_ref
+    }
+}
+
+impl Has<GenesisEpochStartTime> for WPollCtx {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+        self.epoch_start_time
+    }
+}
+
+impl Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>> for WPollCtx {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }> {
+        self.script_info
+    }
+}
+
+impl Has<NetworkId> for WPollCtx {
+    fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+        self.network_id
     }
 }

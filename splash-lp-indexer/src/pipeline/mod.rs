@@ -1,14 +1,11 @@
-use crate::config::HarvestLimits;
 use crate::pipeline::log_events::log_onchain_events;
-use crate::pipeline::resolve_gauges::resolve_gauges;
+use crate::pipeline::resolve_gauges::translate_events;
 use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
 use crate::position_db::mature_events::MatureEvents;
-use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
-use cml_chain::transaction::{Transaction, TransactionOutput};
-use cml_core::Slot;
+use cml_chain::transaction::Transaction;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
@@ -26,6 +23,7 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::collections::HashSet;
 
@@ -46,7 +44,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
             TransactionHandle,
         ),
     >,
-    Log: EventLog + Accounts + PoolFrames,
+    Log: EventLog + Accounts,
     Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Gauges: VoteEscrowIndex,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
@@ -63,6 +61,8 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<GenesisEpochStartTime>
         + Has<PoolValidation>
         + Has<BufferWalletScript>
         + Has<PermManagerAuthPolicy>
@@ -76,7 +76,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     log_onchain_events(
         upstream.then(|(block, tx_handle)| {
             read_events(block, &context, &utxos, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges, &log))
+                .then(|batch| translate_events(batch, &gauges))
                 .map(|events| (events, tx_handle))
         }),
         &log,
@@ -84,9 +84,9 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     .await
 }
 
-pub async fn process_mature_events<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
+pub async fn process_mature_events<DB: MatureEvents>(db: DB) {
     loop {
-        if !db.try_process_mature_events(confirmation_delay_blocks).await {
+        if !db.try_process_mature_events().await {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }

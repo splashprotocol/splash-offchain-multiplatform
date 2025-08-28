@@ -1,3 +1,4 @@
+mod accounts;
 mod config;
 mod constants;
 mod context;
@@ -5,8 +6,8 @@ pub mod emission;
 pub mod engine;
 mod entity_index;
 mod pipeline;
-mod positions;
 
+use crate::accounts::PositionIndex;
 use crate::config::AppConfig;
 use crate::context::RuntimeContext;
 use crate::engine::executor::Executor;
@@ -15,7 +16,6 @@ use crate::engine::verifier::HttpVerifier;
 use crate::entity_index::rocksdb::IndexerDB;
 use crate::entity_index::update_index_from_mempool_dropped_tx;
 use crate::pipeline::event_pipeline;
-use crate::positions::PositionIndex;
 use async_primitives::beacon::Beacon;
 use cardano_chain_sync::atomic_flow::atomic_block_flow;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;

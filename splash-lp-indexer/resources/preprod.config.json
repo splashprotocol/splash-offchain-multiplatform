@@ -20,6 +20,7 @@
     "magic": 1
   },
   "networkId": 0,
+  "genesisEpochStartTime": 1723349688000,
   "explorer": {
     "maestroKeyPath": ""
   },

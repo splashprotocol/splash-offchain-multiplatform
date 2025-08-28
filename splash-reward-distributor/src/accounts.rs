@@ -16,7 +16,7 @@ pub struct NotFound;
 pub struct LockedByAnotherReq<RequestId>(pub RequestId);
 
 #[async_trait]
-pub trait Positions<RequestId> {
+pub trait Accounts<RequestId> {
     async fn query_account(&self, account: &Credential) -> Result<AccountState, NotFound>;
     async fn lock_account(
         &self,
@@ -35,7 +35,7 @@ impl PositionIndex {
 }
 
 #[async_trait]
-impl<RequestId> Positions<RequestId> for PositionIndex {
+impl<RequestId> Accounts<RequestId> for PositionIndex {
     async fn query_account(&self, account: &Credential) -> Result<AccountState, NotFound> {
         todo!("DEX-914")
     }

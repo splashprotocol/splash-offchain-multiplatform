@@ -22,7 +22,7 @@ use splash_dao_offchain::deployment::{
 };
 use splash_lp_index::config::AppConfig;
 use splash_lp_index::context::RuntimeContext;
-use splash_lp_index::feed::event::ExportAccountEvent;
+use splash_lp_index::feed::event::ExportAccountPositionEvent;
 use splash_lp_index::feed::event_publisher::EventPublisher;
 use splash_lp_index::http_api::build_api_server;
 use splash_lp_index::pipeline::{event_pipeline, process_mature_events};
@@ -90,7 +90,11 @@ async fn main() {
     );
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let position_db = PositionDB::new(config.accounts_db_path);
+    let position_db = PositionDB::new(
+        config.accounts_db_path,
+        config.confirmation_delay_slots,
+        config.ve_config,
+    );
     let filter = HashSet::from([
         dex_protocol_deployment.balance_fn_pool_v1.hash,
         dex_protocol_deployment.balance_fn_pool_v2.hash,
@@ -108,6 +112,7 @@ async fn main() {
         harvest_limits: config.harvest_limits,
         splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
         network_id: config.network_id,
+        genesis_epoch_start_time: config.ve_config.epoch_start.into(),
     };
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
@@ -121,8 +126,11 @@ async fn main() {
         .set("bootstrap.servers", &config.bootstrap_servers)
         .create::<FutureProducer>()
         .expect("Failed to create kafka producer");
-    let publisher =
-        EventPublisher::<ExportAccountEvent, _>::new(position_db.clone(), kafka, config.events_export_topic);
+    let publisher = EventPublisher::<ExportAccountPositionEvent, _>::new(
+        position_db.clone(),
+        kafka,
+        config.events_export_topic,
+    );
 
     let gauges_db = VoteEscrowDB::new(config.gauges_db_path);
 
@@ -141,10 +149,7 @@ async fn main() {
     ));
     processes.push(log_events_handle);
 
-    let process_mature_events_handle = tokio::spawn(process_mature_events(
-        position_db,
-        config.confirmation_delay_blocks,
-    ));
+    let process_mature_events_handle = tokio::spawn(process_mature_events(position_db));
     processes.push(process_mature_events_handle);
 
     let export_events_handle = tokio::spawn(publisher.run());

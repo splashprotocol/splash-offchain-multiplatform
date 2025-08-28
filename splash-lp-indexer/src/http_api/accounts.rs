@@ -1,44 +1,46 @@
 use crate::position_db::accounts;
 use actix_web::dev::{AppService, HttpServiceFactory};
+use actix_web::http::header::{Header, TryIntoHeaderValue};
 use actix_web::{guard, web, HttpResponse, Responder};
 use cml_chain::certs::Credential;
-use cml_core::serialization::FromBytes;
-use cml_core::Slot;
-use serde::Serialize;
+use serde::Deserialize;
+use splash_yf_offchain::Epoch;
 use std::marker::PhantomData;
-
-#[derive(Clone, Serialize)]
-pub struct LockAccountResponse {
-    pub locked_at: Slot,
-    pub total_share: u64,
-}
 
 pub struct AccountsApi<Accounts>(pub PhantomData<Accounts>);
 
 impl<Accounts: accounts::Accounts + 'static> HttpServiceFactory for AccountsApi<Accounts> {
     fn register(self, config: &mut AppService) {
-        async fn lock_account<Accounts: accounts::Accounts>(
-            account: web::Path<String>,
+        async fn query_account<Accounts: accounts::Accounts>(
+            req: web::Json<QueryAccountRequest>,
             accounts: web::Data<Accounts>,
         ) -> impl Responder {
-            match hex::decode(account.as_bytes())
-                .ok()
-                .and_then(|xs| Credential::from_bytes(xs).ok())
+            let QueryAccountRequest {
+                account,
+                from_epoch_inclusive,
+            } = req.into_inner();
+            match accounts
+                .get_ref()
+                .query_account(account, from_epoch_inclusive)
+                .await
             {
-                None => HttpResponse::BadRequest().finish(),
-                Some(cred) => {
-                    if let Some(slot) = accounts.get_ref().lock(cred).await {
-                        HttpResponse::Ok().json(slot)
-                    } else {
-                        HttpResponse::Ok().finish()
-                    }
-                }
+                None => HttpResponse::NotFound().finish(),
+                Some(state) => HttpResponse::Ok().json(state),
             }
         }
-        let resource = actix_web::Resource::new("/accounts/{account}/lock")
-            .name("account-lock")
+
+        let query_resource = actix_web::Resource::new("/accounts/query-reward")
+            .name("accounts-query-reward")
             .guard(guard::Post())
-            .to(lock_account::<Accounts>);
-        HttpServiceFactory::register(resource, config);
+            .guard(guard::Header("content-type", "application/json"))
+            .to(query_account::<Accounts>);
+
+        HttpServiceFactory::register(query_resource, config);
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct QueryAccountRequest {
+    account: Credential,
+    from_epoch_inclusive: Epoch,
 }

@@ -13,6 +13,7 @@ use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, Proto
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use type_equalities::IsEqual;
 
@@ -24,6 +25,7 @@ pub struct RuntimeContext {
     pub harvest_limits: HarvestLimits,
     pub splash_policy_id: ScriptHash,
     pub network_id: NetworkId,
+    pub genesis_epoch_start_time: GenesisEpochStartTime,
 }
 
 impl Has<SplashPolicy> for RuntimeContext {
@@ -140,6 +142,12 @@ impl Has<NetworkId> for RuntimeContext {
     }
 }
 
+impl Has<GenesisEpochStartTime> for RuntimeContext {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+        self.genesis_epoch_start_time
+    }
+}
+
 impl Has<OperatorCreds> for RuntimeContext {
     fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
         // Need this since we use existing code in `splash-reward-distributor` to parse
@@ -172,6 +180,10 @@ has_deployed_validator!(PermManager, RuntimeContext, |ctx: &RuntimeContext| ctx
 has_deployed_script_info!(WpFactory, RuntimeContext, |ctx: &RuntimeContext| (&ctx
     .dao_deployment
     .wp_factory)
+    .into());
+has_deployed_script_info!(MintWpAuthPolicy, RuntimeContext, |ctx: &RuntimeContext| (&ctx
+    .dao_deployment
+    .mint_wpauth_token)
     .into());
 
 impl Has<Collateral> for RuntimeContext {
