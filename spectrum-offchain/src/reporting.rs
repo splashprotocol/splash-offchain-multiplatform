@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 
 #[async_trait::async_trait]
 pub trait Reporting<Rep> {
-    async fn send_report(&mut self, report: Rep);
+    async fn process_report(&mut self, report: Rep);
 }
 
 #[derive(Clone)]
@@ -17,7 +17,7 @@ pub struct ReportingChannel<Rep>(mpsc::Sender<Rep>);
 
 #[async_trait::async_trait]
 impl<Rep: Send> Reporting<Rep> for ReportingChannel<Rep> {
-    async fn send_report(&mut self, report: Rep) {
+    async fn process_report(&mut self, report: Rep) {
         self.0.send(report).await.unwrap();
     }
 }

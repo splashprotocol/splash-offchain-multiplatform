@@ -25,7 +25,7 @@ pub fn degen_quadratic_output_amount<X, Y>(
     base_amount: TaggedAmount<Base>,
     a_num: u64,
     b_num: u64,
-    accumulated_x_fee: TaggedAmount<X>
+    accumulated_x_fee: TaggedAmount<X>,
 ) -> TaggedAmount<Quote> {
     let token_supply0 = BigDecimal::from(TOKEN_EMISSION - reserves_y.untag());
     let available_base_amount = BigDecimal::from(base_amount.untag());
