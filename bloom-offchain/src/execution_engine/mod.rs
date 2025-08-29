@@ -8,13 +8,13 @@ use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
-use crate::execution_engine::report::{ExecutionReport, ExecutionReportPartial};
+use crate::execution_engine::report::ExecutionReport;
 use crate::execution_engine::resolver::resolve_state;
 use crate::execution_engine::storage::StateIndex;
 use async_primitives::beacon::{Beacon, Once};
 use either::Either;
 use futures::channel::mpsc;
-use futures::stream::{FusedStream, FuturesUnordered};
+use futures::stream::FusedStream;
 use futures::Stream;
 use futures::{SinkExt, StreamExt};
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -40,7 +40,6 @@ use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 
 pub mod backlog;
@@ -192,7 +191,7 @@ where
             let result = network.submit_tx(tx).await;
             if result.is_ok() {
                 if let Some(report) = maybe_report {
-                    reporting.send_report(report).await;
+                    reporting.process_report(report).await;
                 }
             }
             feedback.send(result).await.expect("Filed to propagate feedback.");
@@ -842,16 +841,17 @@ where
                 self.blocker = Some(self.rollback_in_progress.once(false));
                 continue;
             }
-            // Finally attempt to matchmake.
+            // Finally, attempt to matchmake.
             while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
-                if let Some((recipe, meta)) = self.multi_book.get_mut(&focus_pair).attempt() {
+                if let (Some(recipe), events) = self.multi_book.get_mut(&focus_pair).attempt() {
+                    let mut report = ExecutionReport::new(focus_pair, events);
                     match ExecutionRecipe::link(recipe, |id| {
                         resolve_state(id, &self.index)
                             .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
                     }) {
                         Ok((linked_recipe, consumed_versions)) => {
-                            let report = ExecutionReportPartial::new(&linked_recipe, focus_pair, meta);
+                            report.with_executions(&linked_recipe);
                             let ctx = self.context.clone();
                             if let Some(funding) = self.funding_pool.pop_first() {
                                 trace!("Consumed bearers: {}", display_set(&consumed_versions));
@@ -862,6 +862,7 @@ where
                                 } = self.trade_interpreter.run(linked_recipe, funding, ctx);
                                 let tx = self.prover.prove(txc);
                                 let tx_hash = tx.canonical_hash();
+                                report.finalized(tx_hash);
                                 let execution_effects = ExecutionEffectsByPair {
                                     pair: focus_pair,
                                     consumed_versions,
@@ -887,9 +888,9 @@ where
                                     "Consumed funding bearers: {}",
                                     display_vec(&consumed_funding_bearers)
                                 );
-                                // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                                // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                                 self.focus_set.push_back(focus_pair);
-                                return Poll::Ready(Some((tx, Some(report.finalize(tx_hash)))));
+                                return Poll::Ready(Some((tx, Some(report))));
                             } else {
                                 warn!("Cannot matchmake without funding box");
                                 self.multi_book.get_mut(&focus_pair).on_recipe_failed();
@@ -926,7 +927,7 @@ where
                                 },
                                 funding: vec![],
                             });
-                            // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                            // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
                             return Poll::Ready(Some((tx, None)));
                         }

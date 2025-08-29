@@ -1,8 +1,3 @@
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
-use std::fmt::{Debug, Display, Formatter};
-use std::mem;
-use std::ops::Add;
-
 use crate::execution_engine::liquidity_book::core::Next;
 use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MarketMaker, PoolQuality};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -13,8 +8,13 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use either::{Either, Left, Right};
 use log::trace;
+use serde::{Deserialize, Serialize};
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::Stable;
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::fmt::{Debug, Display, Formatter};
+use std::mem;
+use std::ops::Add;
 
 mod price_range;
 pub mod queries;
@@ -337,6 +337,28 @@ impl<T: Stable, M: Stable> Display for TLBState<T, M> {
 impl<T, M: Stable> TLBState<T, M> {
     pub fn new(time: u64) -> Self {
         Self::Idle(IdleState::new(time))
+    }
+    pub fn size(&self) -> LiquidityBookSize {
+        match self {
+            TLBState::Idle(idle) => LiquidityBookSize {
+                num_active_takers: idle.takers.active.asks.len() + idle.takers.active.bids.len(),
+                num_active_makers: idle.makers.values.len(),
+                num_idle_takers: idle.takers.inactive.len(),
+                num_idle_makers: 0,
+            },
+            TLBState::PartialPreview(pp) => LiquidityBookSize {
+                num_active_takers: pp.takers_preview.active.asks.len() + pp.takers_preview.active.bids.len(),
+                num_active_makers: pp.makers_preview.values.len(),
+                num_idle_takers: pp.takers_preview.inactive.len(),
+                num_idle_makers: 0,
+            },
+            TLBState::Preview(p) => LiquidityBookSize {
+                num_active_takers: p.active_takers_preview.asks.len() + p.active_takers_preview.bids.len(),
+                num_active_makers: p.makers_preview.values.len(),
+                num_idle_takers: p.takers_intact.inactive.len() + p.inactive_takers_changeset.len(),
+                num_idle_makers: 0,
+            },
+        }
     }
 }
 
@@ -967,6 +989,15 @@ where
         self.values.remove(&pool.stable_id());
         self.quality_index.remove(&pool.quality());
     }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, derive_more::Display, Serialize, Deserialize)]
+#[display("LiquidityBookSize(num_active_takers= {}, num_active_makers= {}, num_idle_takers= {}, num_idle_makers= {})", num_active_takers, num_active_makers, num_idle_takers, num_idle_makers)]
+pub struct LiquidityBookSize {
+    pub num_active_takers: usize,
+    pub num_active_makers: usize,
+    pub num_idle_takers: usize,
+    pub num_idle_makers: usize,
 }
 
 #[cfg(test)]

@@ -1,13 +1,15 @@
 use algebra_core::monoid::Monoid;
 use bloom_offchain::execution_engine::liquidity_book::config::ExecutionConfig;
 use bloom_offchain::execution_engine::liquidity_book::core::{
-    ExecutionMeta, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
+    ExecutionEvent, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::stashing_option::StashingOption;
-use bloom_offchain::execution_engine::liquidity_book::state::{dummy_swap, try_optimized_swap, FillPreview};
+use bloom_offchain::execution_engine::liquidity_book::state::{
+    dummy_swap, try_optimized_swap, FillPreview, LiquidityBookSize,
+};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook, TLB};
 use either::Either;
@@ -37,6 +39,15 @@ impl<Taker: Stable, Maker: Stable> FifoState<Taker, Maker> {
 
     pub fn queue_size(&self) -> usize {
         self.queue.len()
+    }
+
+    pub fn size(&self) -> LiquidityBookSize {
+        LiquidityBookSize {
+            num_active_takers: self.takers.len(),
+            num_active_makers: self.makers.len(),
+            num_idle_takers: 0,
+            num_idle_makers: 0,
+        }
     }
 
     pub fn append_taker(&mut self, taker: Taker) {
@@ -212,14 +223,14 @@ where
     }
 }
 
-impl<Taker, Maker, P, U> LiquidityBook<Taker, Maker, ExecutionMeta> for Fifo<Taker, Maker, P, U>
+impl<Taker, Maker, P, U> LiquidityBook<Taker, Maker, Vec<ExecutionEvent>> for Fifo<Taker, Maker, P, U>
 where
     Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
     P: Display,
 {
-    fn attempt(&mut self) -> Option<(MatchmakingRecipe<Taker, Maker>, ExecutionMeta)> {
+    fn attempt(&mut self) -> (Option<MatchmakingRecipe<Taker, Maker>>, Vec<ExecutionEvent>) {
         let mut optimized_matchmaking = true;
         loop {
             trace!(
@@ -228,12 +239,14 @@ where
                 optimized_matchmaking
             );
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
-            let mut meta = ExecutionMeta::empty();
+            let mut events = vec![];
+            let pre_attempt_size = self.state.size();
+            events.push(ExecutionEvent::LiquidityBookSizePreAttempt(pre_attempt_size));
             let mut max_attempts = self.state.queue_size();
             self.backup();
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 17 {
                 if let Some(spot_price) = self.spot_price() {
-                    meta.add_price_point(spot_price);
+                    events.push(ExecutionEvent::SpotPrice(spot_price));
                     trace!("{} spot_price: {}", self.pair, spot_price,);
                     if let Some(target_taker) = self.state.pop_taker() {
                         trace!("Selected taker: {}", target_taker);
@@ -275,6 +288,7 @@ where
                         break;
                     }
                 } else {
+                    events.push(ExecutionEvent::SpotPriceNotAvailable);
                     trace!("{} No liquidity source is available", self.pair);
                 }
                 if max_attempts > 0 {
@@ -284,10 +298,12 @@ where
                 break;
             }
             trace!("{} Raw batch: {}", self.pair, batch);
+            let post_attempt_size = self.state.size();
+            events.push(ExecutionEvent::LiquidityBookSizePostAttempt(post_attempt_size));
             match MatchmakingRecipe::try_from(batch, self.conf) {
                 Ok(ex_recipe) => {
                     trace!("{} Successfully formed a batch {}", self.pair, ex_recipe);
-                    return Some((ex_recipe, meta));
+                    return (Some(ex_recipe), events);
                 }
                 Err(None) => {
                     trace!("{} Matchmaking attempt failed in fifo", self.pair);
@@ -311,7 +327,7 @@ where
                     continue;
                 }
             }
-            return None;
+            return (None, events);
         }
     }
 }
@@ -363,6 +379,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LiquidityBook};
     use bloom_offchain_cardano::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
+    use bloom_offchain_cardano::orders::instant::InstantOrderValidation;
     use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
     use bounded_integer::BoundedU64;
     use cml_chain::auxdata::Metadata;
@@ -420,11 +437,12 @@ mod tests {
         }
     }
 
-    impl Has<LimitOrderValidation> for Context {
-        fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
-            LimitOrderValidation {
+    impl Has<InstantOrderValidation> for Context {
+        fn select<U: IsEqual<InstantOrderValidation>>(&self) -> InstantOrderValidation {
+            InstantOrderValidation {
                 min_lovelace: 0,
                 min_fee_lovelace: 0,
+                min_execution_budget_lovelace: 0,
             }
         }
     }

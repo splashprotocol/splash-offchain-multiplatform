@@ -30,7 +30,8 @@ impl SnekProtocolDeployment {
                 .await,
             instant_order: DeployedValidator::unsafe_pull(validators.instant_order, explorer).await,
             quadratic_pool_v1: DeployedValidator::unsafe_pull(validators.degen_fn_pool_v1, explorer).await,
-            quadratic_pool_v1_t2t: DeployedValidator::unsafe_pull(validators.degen_fn_pool_v1_t2t, explorer).await,
+            quadratic_pool_v1_t2t: DeployedValidator::unsafe_pull(validators.degen_fn_pool_v1_t2t, explorer)
+                .await,
         }
     }
 }

@@ -1,4 +1,4 @@
-use bloom_offchain::execution_engine::liquidity_book::core::ExecutionMeta;
+use bloom_offchain::execution_engine::liquidity_book::core::ExecutionEvent;
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use cml_crypto::TransactionHash;
@@ -10,25 +10,25 @@ use spectrum_offchain_cardano::data::pair::PairId;
 pub struct OrderExecution {
     pub id: Token,
     pub version: OutputRef,
-    pub mean_price: AbsolutePrice,
+    pub avg_price: AbsolutePrice,
     pub removed_input: u64,
     pub added_output: u64,
+    pub fee: u64,
     pub side: Side,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionReport {
     pub pair: PairId,
     pub executions: Vec<OrderExecution>,
-    pub meta: ExecutionMeta,
-    pub tx_hash: TransactionHash,
+    pub events: Vec<ExecutionEvent>,
+    pub tx_hash: Option<TransactionHash>,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::message::{ExecutionReport, OrderExecution};
     use bigdecimal::{BigDecimal, One};
-    use bloom_offchain::execution_engine::liquidity_book::core::ExecutionMeta;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use cml_crypto::TransactionHash;
@@ -48,21 +48,20 @@ mod tests {
             version: OutputRef::from_string_unsafe(
                 "59811364865a45bc001dd81f8c7bf21bf74749f84d7a8a061505a38c14fec544#0",
             ),
-            mean_price: AbsolutePrice::new_unsafe(1, 2),
+            avg_price: AbsolutePrice::new_unsafe(1, 2),
             removed_input: 1,
             added_output: 2,
+            fee: 3,
             side: Side::Bid,
         };
         let report = ExecutionReport {
             pair,
             executions: vec![order_execution],
-            meta: ExecutionMeta {
-                mean_spot_price: Some(BigDecimal::one() / BigDecimal::from(2)),
-            },
-            tx_hash: TransactionHash::from_hex(
-                "8064bf12c840f8c5abd319359a31d181c5bec3237b903fa8577a081669638a08",
-            )
-            .unwrap(),
+            events: vec![],
+            tx_hash: Some(
+                TransactionHash::from_hex("8064bf12c840f8c5abd319359a31d181c5bec3237b903fa8577a081669638a08")
+                    .unwrap(),
+            ),
         };
         let report_json = serde_json::to_string(&report).unwrap();
         println!("{}", report_json);
