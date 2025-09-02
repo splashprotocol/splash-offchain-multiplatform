@@ -1,3 +1,4 @@
+mod config;
 mod db;
 mod message;
 
@@ -6,6 +7,7 @@ use std::sync::Arc;
 
 use futures::{channel::mpsc, SinkExt, StreamExt};
 
+use crate::config::{Config, Pg};
 use crate::db::write_report;
 use crate::message::ExecutionReport;
 use async_std::{
@@ -30,8 +32,10 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let args = AppArgs::parse();
     log4rs::init_file(args.clone().log4rs_path, Default::default()).unwrap();
+    let raw_config = std::fs::File::open(args.config_path).expect("Cannot load configuration file");
+    let config: Config = serde_json::from_reader(raw_config).expect("Invalid configuration file");
     let (archiver_sender, archiver_receiver) = mpsc::unbounded();
-    let archiver = spawn_and_log_error(archiver_loop(args.clone().into(), archiver_receiver));
+    let archiver = spawn_and_log_error(archiver_loop(config.pg, archiver_receiver));
     let _ = accept_loop(archiver_sender.clone(), args.bind_addr).await;
     drop(archiver_sender);
     let _ = archiver.await;
@@ -95,41 +99,13 @@ where
     })
 }
 
-struct Pg {
-    host: String,
-    port: u16,
-    user: String,
-    pass: String,
-    db_name: String,
-}
-
-impl From<AppArgs> for Pg {
-    fn from(args: AppArgs) -> Self {
-        Self {
-            host: args.host,
-            port: args.port,
-            user: args.user,
-            pass: args.pass,
-            db_name: args.db_name,
-        }
-    }
-}
-
 #[derive(Parser, Clone)]
 #[command(name = "splash-engine-telemetry")]
 #[command(author = "Spectrum Labs")]
 #[command(version = "1.0.0")]
 struct AppArgs {
     #[arg(long)]
-    host: String,
-    #[arg(long)]
-    port: u16,
-    #[arg(long)]
-    user: String,
-    #[arg(long)]
-    pass: String,
-    #[arg(long)]
-    db_name: String,
+    config_path: String,
     #[arg(long)]
     bind_addr: String,
     #[arg(long, short)]

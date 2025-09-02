@@ -1,8 +1,8 @@
 use crate::message::ExecutionReport;
+use bloom_offchain::execution_engine::liquidity_book::core::ExecutionEvent;
 use log::info;
 use std::net::SocketAddr;
 use tokio_postgres::Client;
-use bloom_offchain::execution_engine::liquidity_book::core::ExecutionEvent;
 
 pub(crate) async fn write_report(
     client: &Client,
