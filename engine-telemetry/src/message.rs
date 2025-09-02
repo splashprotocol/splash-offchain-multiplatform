@@ -21,14 +21,15 @@ pub struct OrderExecution {
 pub struct ExecutionReport {
     pub pair: PairId,
     pub executions: Vec<OrderExecution>,
+    /// Engine's internal events.
     pub events: Vec<ExecutionEvent>,
+    /// Execution did not succeed if tx_hash is None.
     pub tx_hash: Option<TransactionHash>,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::message::{ExecutionReport, OrderExecution};
-    use bigdecimal::{BigDecimal, One};
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use cml_crypto::TransactionHash;
