@@ -5,16 +5,18 @@ use std::fmt::{Display, Formatter, Write};
 
 use bloom_offchain::execution_engine::funding_effect::FundingIO;
 use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
+use cml_chain::builders::certificate_builder::{CertificateBuilderResult, SingleCertificateBuilder};
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{TransactionBuilder, TransactionUnspentOutput};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::certs::Credential;
+use cml_chain::certs::{Certificate, Credential, StakeCredential, StakeDelegation};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::{RequiredSigners, Value};
+use cml_crypto::Ed25519KeyHash;
 use either::Either;
 use log::trace;
 use spectrum_cardano_lib::funding::OperatorFunding;
@@ -228,7 +230,7 @@ impl TxBlueprint {
             let reward_address =
                 cml_chain::address::RewardAddress::new(network_id.into(), Credential::new_script(wit.hash));
             let partial_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(wit.hash), rdmr);
-            let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
+            let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 100)
                 .plutus_script(partial_witness, vec![].into())
                 .unwrap();
             txb.add_reference_input(wit.reference_utxo);

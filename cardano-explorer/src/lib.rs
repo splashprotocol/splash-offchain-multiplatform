@@ -75,6 +75,8 @@ pub trait CardanoNetwork: Sized {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+
+    async fn rewards_by_account(&self, address: Address, offset: u32, limit: u16) -> u64;
 }
 
 #[async_trait]
@@ -101,6 +103,10 @@ impl<T: CardanoNetwork + Sync> CardanoNetwork for Box<T> {
         limit: u16,
     ) -> Vec<TransactionUnspentOutput> {
         self.as_ref().utxos_by_address(address, offset, limit).await
+    }
+
+    async fn rewards_by_account(&self, address: Address, offset: u32, limit: u16) -> u64 {
+        self.as_ref().rewards_by_account(address, offset, limit).await
     }
 }
 
@@ -308,6 +314,54 @@ impl CardanoNetwork for Blockfrost {
 
         vec![]
     }
+
+    async fn rewards_by_account(&self, address: Address, offset: u32, limit: u16) -> u64 {
+        let reward_address = match cml_chain::address::RewardAddress::from_address(&address) {
+            Some(reward_addr) => reward_addr,
+            None => {
+                if let Some(stake_cred) = address.staking_cred() {
+                    cml_chain::address::RewardAddress::new(
+                        address.network_id().unwrap_or(0),
+                        stake_cred.clone(),
+                    )
+                } else {
+                    return 0;
+                }
+            }
+        };
+
+        let stake_address = match reward_address.to_address().to_bech32(None) {
+            Ok(addr) => addr,
+            Err(_) => return 0,
+        };
+
+        if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
+            let rewards = self
+                .0
+                .accounts_rewards(
+                    stake_address.as_str(),
+                    Pagination {
+                        fetch_all: false,
+                        count: limit as usize,
+                        page: page_size as usize,
+                        order: Order::Asc,
+                    },
+                )
+                .await
+                .unwrap_or(vec![]);
+
+            let mut total_rewards = 0u64;
+            for reward in rewards {
+                if let Ok(amount) = reward.amount.parse::<u64>() {
+                    total_rewards = total_rewards.saturating_add(amount);
+                }
+            }
+
+            return total_rewards;
+        }
+
+        0
+    }
 }
 
 pub struct Maestro(maestro::Maestro);
@@ -381,6 +435,42 @@ impl CardanoNetwork for Maestro {
             .ok())
         .and_then(|utxos| read_maestro_utxos(utxos).ok())
         .unwrap_or(vec![])
+    }
+
+    async fn rewards_by_account(&self, address: Address, offset: u32, limit: u16) -> u64 {
+        let reward_address = match cml_chain::address::RewardAddress::from_address(&address) {
+            Some(reward_addr) => reward_addr,
+            None => {
+                // If the address is not a reward address, try to get the staking credential
+                if let Some(stake_cred) = address.staking_cred() {
+                    cml_chain::address::RewardAddress::new(
+                        address.network_id().unwrap_or(0),
+                        stake_cred.clone(),
+                    )
+                } else {
+                    return 0;
+                }
+            }
+        };
+
+        let stake_address = match reward_address.to_address().to_bech32(None) {
+            Ok(addr) => addr,
+            Err(_) => return 0, // Return 0 if conversion fails
+        };
+
+        let stake_info = retry!(self
+            .0
+            .stake_account_information(stake_address.as_str())
+            .await
+            .ok());
+
+        if let Some(info) = stake_info {
+            let rewards = info.data.rewards_available;
+            if rewards > 0 {
+                return rewards as u64;
+            }
+        }
+        0
     }
 }
 
@@ -467,6 +557,16 @@ impl AnyExplorer {
                 .map(AnyExplorer::Blockfrost),
         }
     }
+
+    pub async fn wait_for_transaction_confirmation(
+        &self,
+        tx_id: TransactionHash,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            AnyExplorer::Blockfrost(_) => Err("Not implemented for Blockfrost".into()),
+            AnyExplorer::Maestro(maestro) => maestro.wait_for_transaction_confirmation(tx_id).await,
+        }
+    }
 }
 
 #[async_trait]
@@ -505,6 +605,15 @@ impl CardanoNetwork for AnyExplorer {
         match self {
             AnyExplorer::Blockfrost(blockfrost) => blockfrost.utxos_by_address(address, offset, limit).await,
             AnyExplorer::Maestro(maestro) => maestro.utxos_by_address(address, offset, limit).await,
+        }
+    }
+
+    async fn rewards_by_account(&self, address: Address, offset: u32, limit: u16) -> u64 {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => {
+                blockfrost.rewards_by_account(address, offset, limit).await
+            }
+            AnyExplorer::Maestro(maestro) => maestro.rewards_by_account(address, offset, limit).await,
         }
     }
 }

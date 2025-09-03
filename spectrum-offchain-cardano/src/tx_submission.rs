@@ -2,13 +2,15 @@ use crate::node::NodeConfig;
 use crate::tx_tracker::TxTracker;
 use async_stream::stream;
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
-use cml_core::serialization::Serialize;
+use cml_chain::address::RewardAccount;
+use cml_core::serialization::{FromBytes, Serialize};
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
 use log::{info, trace, warn};
 use pallas_network::miniprotocols::localtxsubmission;
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
-    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
+    ApplyTxError, ConwayCertsPredFailure, ConwayLedgerPredFailure, ConwayUtxoPredFailure,
+    ConwayUtxowPredFailure, TxInput,
 };
 use pallas_network::miniprotocols::localtxsubmission::Response;
 use pallas_network::multiplexer;
@@ -167,6 +169,35 @@ impl TryFrom<RejectReasons> for HashSet<OutputRef> {
 
         if !missing_utxos.is_empty() {
             Ok(missing_utxos)
+        } else {
+            Err("No missing inputs")
+        }
+    }
+}
+
+impl TryFrom<RejectReasons> for HashSet<RewardAccount> {
+    type Error = &'static str;
+    fn try_from(value: RejectReasons) -> Result<Self, Self::Error> {
+        let mut failed_withdrawals = HashSet::new();
+
+        if let Some(ApplyTxError { node_errors }) = value.0 {
+            for error in node_errors {
+                if let ConwayLedgerPredFailure::CertsFailure(
+                    ConwayCertsPredFailure::WithdrawalsNotInRewardsCERTS(failed_wdrwls),
+                ) = error
+                {
+                    failed_withdrawals.extend(
+                        failed_wdrwls
+                            .0
+                            .into_iter()
+                            .filter_map(|acc_info| RewardAccount::from_bytes(acc_info.0 .0.to_vec()).ok()),
+                    );
+                }
+            }
+        }
+
+        if !failed_withdrawals.is_empty() {
+            Ok(failed_withdrawals)
         } else {
             Err("No missing inputs")
         }

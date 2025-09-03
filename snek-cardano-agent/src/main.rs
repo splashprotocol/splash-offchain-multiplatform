@@ -29,7 +29,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::{AnyExplorer, Network};
+use cardano_explorer::{AnyExplorer, CardanoNetwork, ExtendedCardanoNetwork, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -41,9 +41,10 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
-use log::info;
+use log::{error, info, warn};
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
@@ -53,8 +54,10 @@ use spectrum_offchain::domain::order::OrderUpdate;
 use spectrum_offchain::domain::Baked;
 use spectrum_offchain::event_sink::event_handler::{forward_with, try_forward_with, EventHandler};
 use spectrum_offchain::event_sink::process_events;
+use spectrum_offchain::network::Network as OffchainNetwork;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
+use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::Order;
@@ -63,6 +66,7 @@ use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
+use spectrum_offchain_cardano::withdraw_guard::{build_withdrawal_transaction, withdraw_script_guard};
 use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
 use std::future;
 use std::sync::Arc;
@@ -163,7 +167,8 @@ async fn main() {
         )
         .await
         .expect("LocalTxSubmission initialization failed");
-    let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
+    // Run tx_submission_stream immediately after creation
+    tokio::spawn(run_stream(tx_submission_agent_stream(tx_submission_agent)));
 
     let (reporting_agent, reporting_channel) =
         ReportingAgent::new(config.reporting_endpoint, config.tx_submission_buffer_size).await;
@@ -173,13 +178,35 @@ async fn main() {
         operator_creds(config.operator_key.as_str(), config.network_id);
 
     info!(
+        "Checking for stake rewards on limit_order_witness script hash: {}",
+        protocol_deployment.instant_order_witness.hash
+    );
+
+    let script_validator_erased = protocol_deployment.instant_order_witness.clone().erased();
+
+    let prover = OperatorProver::new(config.operator_key.clone());
+
+    info!(
         "Expecting collateral at {}",
         collateral_address.clone().address().to_bech32(None).unwrap()
     );
 
-    let collateral = pull_collateral(collateral_address, &explorer)
+    let collateral = pull_collateral(collateral_address.clone(), &explorer)
         .await
         .expect("Couldn't retrieve collateral");
+
+    withdraw_script_guard(
+        config.withdraw_guard_config,
+        &explorer,
+        tx_submission_channel.clone(),
+        &prover,
+        collateral_address.clone().address(),
+        &script_validator_erased,
+        config.network_id.into(),
+        collateral.clone(),
+    )
+    .await
+    .expect("Failed to withdraw rewards from instant order witness script");
 
     let (pair_upd_snd_p1, pair_upd_recv_p1) = mpsc::channel::<(
         PairId,
@@ -266,7 +293,6 @@ async fn main() {
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewMut>> + Send>> =
         vec![Box::new(general_upd_handler), Box::new(funding_event_handler)];
 
-    let prover = OperatorProver::new(config.operator_key);
     let recipe_interpreter = CardanoRecipeInterpreter::new(true);
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
@@ -426,9 +452,6 @@ async fn main() {
 
     let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
     processes.push(execution_stream_p4_handle);
-
-    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
-    processes.push(tx_submission_stream_handle);
 
     let reporting_stream_handle = tokio::spawn(run_stream(reporting_stream));
     processes.push(reporting_stream_handle);

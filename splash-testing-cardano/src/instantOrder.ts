@@ -80,7 +80,7 @@ async function createInstantOrder(lucid: LucidEvolution, validator: BuiltValidat
     const input = await getUtxoWithToken(utxos, tokenABase16)
     const beacon = await beaconFromInput(lucid, input, conf);
     console.log("Beacon: " + beacon);
-    const lovelaceTotal = conf.fee + 1_500_000n;
+    const lovelaceTotal = conf.fee + 3_500_000n;
     const depositedValue = conf.input.policy == "" ? { lovelace: lovelaceTotal + conf.tradableInput } : { lovelace: lovelaceTotal, [asUnit(conf.input)]: conf.tradableInput};
     const tx = lucid.newTx().collectFrom([input]).pay.ToAddressWithData(orderAddress, { kind: "inline", value: buildInstantOrderDatum(lucid, conf, beacon) }, depositedValue);
     return tx.complete();
@@ -130,16 +130,16 @@ async function main() {
             name: tokenABase16,
         },
         output: {
-            policy: "52d9152be374affb87589ac68ca48965e521bf55d2bc015ca6f2ad0d",
+            policy: "25ea30ea8f9ae9ea2c69a13facb9019c0c9b5c414dc87c1fc23567d1",
             name: "746f6b656e",
         },
-        tradableInput: 18041743908n,
-        costPerExStep: 600_000n,
+        tradableInput: 100_000n,
+        costPerExStep: 1_500_000n,
         basePrice: {
             num: 0n,
             denom: 1n,
         },
-        fee: 500000n,
+        fee: 1_500_000n,
         redeemerAddr: myAddr,
         cancellationPkh: getAddressDetails(myAddr).paymentCredential!.hash,
         permittedExecutors: "15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d509",
