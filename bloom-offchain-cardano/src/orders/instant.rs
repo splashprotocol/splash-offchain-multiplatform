@@ -2,7 +2,7 @@ use crate::orders::harden_price;
 use crate::orders::limit::{order_state, LimitOrderValidation, OrderState, MIN_LOVELACE};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
-use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, OneShot, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -51,6 +51,8 @@ pub struct InstantOrder {
     pub input_asset: AssetClass,
     /// Remaining tradable input.
     pub input_amount: InputAsset<u64>,
+    /// Initial tradable input
+    pub initial_input_amount: InputAsset<u64>,
     /// What a user receives.
     pub output_asset: AssetClass,
     /// Accumulated output.
@@ -129,6 +131,8 @@ impl Ord for InstantOrder {
 }
 
 impl TakerBehaviour for InstantOrder {
+    type Mode = OneShot;
+
     fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
     }
@@ -217,10 +221,6 @@ impl MarketTaker for InstantOrder {
 
     fn marginal_cost_hint(&self) -> ExUnits {
         self.marginal_cost
-    }
-
-    fn min_marginal_output(&self) -> OutputAsset<u64> {
-        self.base_price.to_integer() as u64
     }
 
     fn time_bounds(&self) -> TimeBounds<u64> {
@@ -365,6 +365,7 @@ where
                         beacon: InstantOrder::beacon_from_oref(output_ref),
                         input_asset: conf.input,
                         input_amount: tradable_input,
+                        initial_input_amount: tradable_input,
                         output_asset: conf.output,
                         output_amount: value.amount_of(conf.output).unwrap_or(0),
                         base_price: harden_price(conf.base_price, tradable_input),

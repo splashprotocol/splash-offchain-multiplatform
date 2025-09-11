@@ -4,7 +4,9 @@ use std::fmt::{Display, Formatter};
 use crate::orders::harden_price;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
-use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{
+    MarketTaker, MultiStep, TakerBehaviour,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -122,6 +124,8 @@ impl Ord for LimitOrder {
 }
 
 impl TakerBehaviour for LimitOrder {
+    type Mode = MultiStep;
+
     fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
     }
@@ -218,10 +222,6 @@ impl MarketTaker for LimitOrder {
 
     fn marginal_cost_hint(&self) -> ExUnits {
         self.marginal_cost
-    }
-
-    fn min_marginal_output(&self) -> OutputAsset<u64> {
-        self.min_marginal_output
     }
 
     fn time_bounds(&self) -> TimeBounds<u64> {

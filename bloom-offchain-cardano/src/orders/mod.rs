@@ -5,7 +5,9 @@ use crate::orders::grid::GridOrder;
 use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{
+    MultiStep, MultiStepMarketTaker, TakerBehaviour,
+};
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset, RelativePrice};
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::domain::Has;
@@ -36,6 +38,8 @@ impl Display for AnyOrder {
 }
 
 impl TakerBehaviour for AnyOrder {
+    type Mode = MultiStep;
+
     fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
         match self {
             AnyOrder::Limit(o) => o.with_updated_time(time).map_succ(AnyOrder::Limit),
@@ -89,6 +93,15 @@ impl TakerBehaviour for AnyOrder {
         match self {
             AnyOrder::Limit(o) => o.try_terminate().map_succ(AnyOrder::Limit),
             AnyOrder::Grid(o) => o.try_terminate().map_succ(AnyOrder::Grid),
+        }
+    }
+}
+
+impl MultiStepMarketTaker for AnyOrder {
+    fn min_marginal_output(&self) -> OutputAsset<u64> {
+        match self {
+            AnyOrder::Limit(limit) => limit.min_marginal_output,
+            AnyOrder::Grid(grid) => grid.min_marginal_output_base,
         }
     }
 }

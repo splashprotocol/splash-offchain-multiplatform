@@ -22,7 +22,6 @@ pub fn derive_market_taker(input: TokenStream) -> TokenStream {
             fn consumable_budget(&self) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
             fn marginal_cost_hint(&self) -> Self::U;
             fn time_bounds(&self) -> bloom_offchain::execution_engine::liquidity_book::time::TimeBounds<u64>;
-            fn min_marginal_output(&self) -> bloom_offchain::execution_engine::liquidity_book::types::OutputAsset<u64>;
         }
     }
 }

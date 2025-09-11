@@ -1,7 +1,9 @@
 use crate::orders::instant::{InstantOrder, InstantOrderValidation};
 use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{
+    MarketTaker, OneShot, OneShotMarketTaker, TakerBehaviour,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -46,6 +48,12 @@ impl AdhocFeeStructure {
 #[derive(Debug, Copy, Clone)]
 pub struct AdhocOrder(pub InstantOrder, /*adhoc_fee_input*/ pub(crate) u64);
 
+impl AdhocOrder {
+    pub fn new(order: InstantOrder, adhoc_fee_input: u64) -> Self {
+        Self(order, adhoc_fee_input)
+    }
+}
+
 impl Display for AdhocOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("AdhocOrder({})", self.0).as_str())
@@ -73,6 +81,8 @@ impl Ord for AdhocOrder {
 }
 
 impl TakerBehaviour for AdhocOrder {
+    type Mode = OneShot;
+
     fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
     }
@@ -144,12 +154,14 @@ impl MarketTaker for AdhocOrder {
         self.0.marginal_cost_hint()
     }
 
-    fn min_marginal_output(&self) -> OutputAsset<u64> {
-        self.0.min_marginal_output()
-    }
-
     fn time_bounds(&self) -> TimeBounds<u64> {
         self.0.time_bounds()
+    }
+}
+
+impl OneShotMarketTaker for AdhocOrder {
+    fn min_marginal_output(&self, removed_input: InputAsset<u64>) -> OutputAsset<u64> {
+        (((removed_input + self.1) as u128 * self.0.base_price.numer()) / self.0.base_price.denom()) as u64
     }
 }
 
@@ -214,6 +226,7 @@ where
                 Some(Self(
                     InstantOrder {
                         input_amount: virtual_input_amount,
+                        initial_input_amount: virtual_input_amount,
                         ..io
                     },
                     adhoc_fee_input,

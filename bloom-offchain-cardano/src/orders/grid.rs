@@ -9,7 +9,9 @@ use derive_more::{From, Into};
 use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{
+    MarketTaker, MultiStep, TakerBehaviour,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -149,6 +151,8 @@ impl Ord for GridOrder {
 }
 
 impl TakerBehaviour for GridOrder {
+    type Mode = MultiStep;
+
     fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
     }
@@ -309,10 +313,6 @@ impl MarketTaker for GridOrder {
 
     fn marginal_cost_hint(&self) -> ExUnits {
         self.marginal_cost
-    }
-
-    fn min_marginal_output(&self) -> OutputAsset<u64> {
-        self.min_marginal_output_base
     }
 
     fn time_bounds(&self) -> TimeBounds<u64> {
@@ -505,7 +505,6 @@ mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
-    use cml_multi_era::babbage::BabbageTransactionOutput;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::linear_output_unsafe;

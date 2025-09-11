@@ -292,7 +292,9 @@ mod tests {
 
     use bloom_offchain::execution_engine::bundled::Bundled;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
-    use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+    use bloom_offchain::execution_engine::liquidity_book::market_taker::{
+        MarketTaker, MultiStep, TakerBehaviour,
+    };
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
     use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -455,10 +457,6 @@ mod tests {
             0
         }
 
-        fn min_marginal_output(&self) -> OutputAsset<u64> {
-            0
-        }
-
         fn fee(&self) -> FeeAsset<u64> {
             self.fee
         }
@@ -473,6 +471,8 @@ mod tests {
     }
 
     impl TakerBehaviour for SimpleOrderPF {
+        type Mode = MultiStep;
+
         fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
             Next::Succ(self)
         }

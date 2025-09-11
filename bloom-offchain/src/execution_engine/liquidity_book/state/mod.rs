@@ -1013,7 +1013,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::market_maker::{
         AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, SpotPrice,
     };
-    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, MultiStep, TakerBehaviour};
     use crate::execution_engine::liquidity_book::ok;
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to_spot, max_by_volume};
@@ -1570,6 +1570,8 @@ pub mod tests {
     }
 
     impl TakerBehaviour for SimpleOrderPF {
+        type Mode = MultiStep;
+
         fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
             if self.bounds.contain(&time) {
                 Next::Succ(self)

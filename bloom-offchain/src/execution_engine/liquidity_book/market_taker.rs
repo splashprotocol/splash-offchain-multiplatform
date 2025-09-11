@@ -3,8 +3,12 @@ use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 
+pub enum MultiStep {}
+pub enum OneShot {}
+
 /// Order as a state machine.
 pub trait TakerBehaviour: Sized {
+    type Mode;
     fn with_updated_time(self, time: u64) -> Next<Self, Unit>;
     fn with_applied_trade(
         self,
@@ -39,8 +43,18 @@ pub trait MarketTaker {
     fn consumable_budget(&self) -> FeeAsset<u64>;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
-    /// Minimal amount of output per execution step.
-    fn min_marginal_output(&self) -> OutputAsset<u64>;
     /// Time bounds of the fragment.
     fn time_bounds(&self) -> TimeBounds<u64>;
+}
+
+/// Market taker for multi-step orders
+pub trait MultiStepMarketTaker: MarketTaker {
+    /// Minimal amount of output per execution step.
+    fn min_marginal_output(&self) -> OutputAsset<u64>;
+}
+
+/// Market taker for one-shot orders
+pub trait OneShotMarketTaker: MarketTaker {
+    /// Minimal amount of output based on the removed input.
+    fn min_marginal_output(&self, removed_input: InputAsset<u64>) -> OutputAsset<u64>;
 }

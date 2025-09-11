@@ -2,10 +2,15 @@ use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
 };
-use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+use crate::execution_engine::liquidity_book::market_taker::{
+    MarketTaker, MultiStep, MultiStepMarketTaker, OneShot, OneShotMarketTaker, TakerBehaviour,
+};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::state::LiquidityBookSize;
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
+use crate::execution_engine::liquidity_book::time::TimeBounds;
+use crate::execution_engine::liquidity_book::types::{
+    AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
+};
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
 use bigdecimal::BigDecimal;
@@ -21,7 +26,7 @@ use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
@@ -554,19 +559,18 @@ impl<T> TakeInProgress<T> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FinalRecipe<Taker: Stable, Maker: Stable> {
-    pub(crate) takes: HashMap<Taker::StableId, FinalTake<Taker>>,
-    pub(crate) makes: HashMap<Maker::StableId, FinalMake<Maker>>,
-    pub(crate) ordering: Vec<Taker::StableId>,
+// Strategy: given a taker & result, decide the min required output (or None = skip)
+pub trait UnsatisfiedFragment<Taker: Stable> {
+    fn unsatisfied_fragment_check<M: Stable>(recipe: &FinalRecipe<Taker, M>) -> Vec<Taker>;
 }
 
-impl<T: Stable, M: Stable> FinalRecipe<T, M> {
-    pub fn unsatisfied_fragments(&self) -> Vec<T>
-    where
-        T: MarketTaker + Copy,
-    {
-        self.takes
+impl<Taker> UnsatisfiedFragment<Taker> for MultiStep
+where
+    Taker: MultiStepMarketTaker + Copy + Stable,
+{
+    fn unsatisfied_fragment_check<M: Stable>(recipe: &FinalRecipe<Taker, M>) -> Vec<Taker> {
+        recipe
+            .takes
             .iter()
             .filter_map(|(_, Final(apply))| {
                 let target = apply.target;
@@ -577,6 +581,45 @@ impl<T: Stable, M: Stable> FinalRecipe<T, M> {
                 }
             })
             .collect()
+    }
+}
+
+impl<Taker> UnsatisfiedFragment<Taker> for OneShot
+where
+    Taker: OneShotMarketTaker + Copy + Stable,
+{
+    fn unsatisfied_fragment_check<M: Stable>(recipe: &FinalRecipe<Taker, M>) -> Vec<Taker> {
+        recipe
+            .takes
+            .iter()
+            .filter_map(|(_, Final(apply))| {
+                let target = apply.target;
+                if apply.added_output()
+                    < OneShotMarketTaker::min_marginal_output(&target, apply.removed_input())
+                {
+                    Some(target)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalRecipe<Taker: Stable, Maker: Stable> {
+    pub(crate) takes: HashMap<Taker::StableId, FinalTake<Taker>>,
+    pub(crate) makes: HashMap<Maker::StableId, FinalMake<Maker>>,
+    pub(crate) ordering: Vec<Taker::StableId>,
+}
+
+impl<T: Stable, M: Stable> FinalRecipe<T, M> {
+    pub fn unsatisfied_fragments(&self) -> Vec<T>
+    where
+        T: MarketTaker + TakerBehaviour + Copy,
+        <T as TakerBehaviour>::Mode: UnsatisfiedFragment<T>,
+    {
+        <<T as TakerBehaviour>::Mode as UnsatisfiedFragment<T>>::unsatisfied_fragment_check(self)
     }
 }
 
@@ -784,6 +827,7 @@ where
     where
         Maker: MarketMaker + MakerBehavior + Copy,
         Taker: MarketTaker + TakerBehaviour + Copy,
+        <Taker as TakerBehaviour>::Mode: UnsatisfiedFragment<Taker>,
         C: Has<BaseStepBudget>,
     {
         if attempt.is_complete() {
@@ -931,7 +975,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::core::{
         BaseStepBudget, Final, FinalRecipe, MatchmakingRecipe, Next, TerminalTake, Trans,
     };
-    use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
+    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, MultiStepMarketTaker};
     use crate::execution_engine::liquidity_book::side::Side;
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
@@ -1108,6 +1152,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct Taker {
         id: usize,
         budget: u64,
@@ -1162,11 +1207,13 @@ mod tests {
             todo!()
         }
 
-        fn min_marginal_output(&self) -> OutputAsset<u64> {
+        fn time_bounds(&self) -> TimeBounds<u64> {
             todo!()
         }
+    }
 
-        fn time_bounds(&self) -> TimeBounds<u64> {
+    impl MultiStepMarketTaker for Taker {
+        fn min_marginal_output(&self) -> OutputAsset<u64> {
             todo!()
         }
     }

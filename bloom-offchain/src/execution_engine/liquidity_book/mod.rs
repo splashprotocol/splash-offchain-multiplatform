@@ -1,6 +1,7 @@
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
     ExecutionEvent, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
+    UnsatisfiedFragment,
 };
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -126,7 +127,8 @@ where
 
 impl<Taker, Maker, P, U> LiquidityBook<Taker, Maker, Vec<ExecutionEvent>> for TLB<Taker, Maker, P, U>
 where
-    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
+    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display + Debug,
+    <Taker as TakerBehaviour>::Mode: UnsatisfiedFragment<Taker>,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
     P: Display,
