@@ -1,3 +1,4 @@
+pub(crate) mod chained_tx_graph;
 pub(crate) mod rocksdb;
 
 use std::fmt::{Debug, Display};
@@ -8,7 +9,7 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use cml_chain::transaction::Transaction;
-use cml_crypto::TransactionHash;
+use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -78,6 +79,22 @@ pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
         prev_state_id: Option<StateId>,
     );
     async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId>;
+}
+
+pub trait UnconfirmedHarvestTxIndex<Tx> {
+    fn notify_end_of_epoch(&mut self);
+    fn try_add_tx(
+        &mut self,
+        buffer_wallet_input_tx_hash: TransactionHash,
+        tx: Tx,
+        user_creds: Vec<Ed25519KeyHash>,
+    );
+    fn rollback(
+        &mut self,
+        user_creds_harvested_epoch: Vec<Ed25519KeyHash>,
+        confirmed_buffer_wallet_tx_hash: TransactionHash,
+    );
+    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]);
 }
 
 #[derive(Debug, PartialEq, Eq)]
