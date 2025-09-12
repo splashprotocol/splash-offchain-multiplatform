@@ -82,19 +82,41 @@ pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
 }
 
 pub trait UnconfirmedHarvestTxIndex<Tx> {
-    fn notify_end_of_epoch(&mut self);
+    /// Try adding a harvest TX to the index, returning true if successful.
+    ///
+    /// `buffer_wallet_input_tx_hash` must refer to a TX hash of a confirmed buffering/harvest
+    /// action or an unconfirmed harvest operation that has **already been** cosigned by this
+    /// verifier and belongs to the index.
+    ///
+    /// **IMPORTANT NODE:** A TX that has been cosigned by another verifier will not be accepted
+    /// into this index.
+    ///
+    /// `tx_user_creds` is a Vec of credentials of users who are harvesting their rewards in this
+    /// TX. It will be checked against existing TXs to ensure that double-harvesting does not occur.
     fn try_add_tx(
         &mut self,
         buffer_wallet_input_tx_hash: TransactionHash,
         tx: Tx,
-        user_creds: Vec<Ed25519KeyHash>,
-    );
+        tx_user_creds: Vec<Ed25519KeyHash>,
+    ) -> bool;
+
+    /// If the chain experiences a rollback which leads to a change in the last-confirmed
+    /// `buffer_wallet` UTxO, this method is called to sync the index accordingly.
     fn rollback(
         &mut self,
         user_creds_harvested_epoch: Vec<Ed25519KeyHash>,
         confirmed_buffer_wallet_tx_hash: TransactionHash,
     );
-    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]);
+
+    /// Confirms the TX with the given TX-hash. There are 2 possibilities:
+    /// 1. The TX is already in the index i.e. with unconfirmed state. Return true.
+    /// 2. The TX is either a gauge-buffering action, or it was signed by another verifier. For the
+    ///    latter case it is essential to be given a Vec of `confirmed_user_harvests` for this
+    ///    epoch. Return false.
+    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) -> bool;
+
+    /// Upon the end of an epoch, the index will delete all its unconfirmed TXs.
+    fn notify_end_of_epoch(&mut self);
 }
 
 #[derive(Debug, PartialEq, Eq)]

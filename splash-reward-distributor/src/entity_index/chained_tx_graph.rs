@@ -9,6 +9,8 @@ use petgraph::{
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::tx_hash::CanonicalHash;
 
+use crate::entity_index::UnconfirmedHarvestTxIndex;
+
 /// This store mantains a directed graph where nodes represent validated harvest TXs that can be
 /// cosigned by the verifier. An edge from a node M to N indicates that the TX N has spent the
 /// `buffer_wallet` output of M. None of these TXs have been confirmed on-chain, and so a
@@ -30,42 +32,24 @@ pub struct ChainedHarvestTxGraph<Tx> {
     last_confirmed_buffer_wallet_tx_hash: TransactionHash,
 }
 
-impl<'de, Tx> ChainedHarvestTxGraph<Tx>
+impl<'de, Tx> UnconfirmedHarvestTxIndex<Tx> for ChainedHarvestTxGraph<Tx>
 where
     Tx: CanonicalHash<Hash = TransactionHash> + Serialize + Deserialize<'de>,
 {
-    pub fn new(
-        last_confirmed_user_harvests: Vec<Ed25519KeyHash>,
-        last_confirmed_buffer_wallet_tx_hash: TransactionHash,
-    ) -> Self {
-        Self {
-            gr: StableDiGraph::new(),
-            last_confirmed_user_harvests,
-            last_confirmed_buffer_wallet_tx_hash,
-        }
-    }
-
-    /// Once an epoch ends, all users are able to claim rewards for this epoch. Also, all
-    /// unconfirmed TXs are no longer valid due to expiring TTL, so they can all be removed.
-    pub fn notify_end_of_epoch(&mut self) {
-        self.last_confirmed_user_harvests.clear();
-        self.gr.clear();
-    }
-
     /// Attempt to add a new TX to the store. If the TX spends a valid `buffer_wallet` input and
     /// does not perform double-harvesting, it will be added and `true` is returned.
     ///
     /// IMPORTANT: this TX must have already been validated for proper `buffer_wallet` and
     /// `harvest_order` inputs, reward-bot signature and proper withdrawal amounts as dictated by
     /// the `lp_indexer`.
-    pub fn try_add_tx(
+    fn try_add_tx(
         &mut self,
         buffer_wallet_input_tx_hash: TransactionHash,
         tx: Tx,
-        user_creds: Vec<Ed25519KeyHash>,
+        tx_user_creds: Vec<Ed25519KeyHash>,
     ) -> bool {
         for cred in &self.last_confirmed_user_harvests {
-            if user_creds.contains(cred) {
+            if tx_user_creds.contains(cred) {
                 return false;
             }
         }
@@ -74,11 +58,19 @@ where
             buffer_wallet_input_tx_hash == self.last_confirmed_buffer_wallet_tx_hash;
 
         if is_tx_spending_confirmed {
-            let data = NodeData { tx, user_creds };
+            let data = NodeData {
+                tx,
+                user_creds: tx_user_creds,
+            };
             self.gr.add_node(data);
             true
-        } else if let Some(parent_ix) = self.find_parent_chain_tx(&buffer_wallet_input_tx_hash, &user_creds) {
-            let data = NodeData { tx, user_creds };
+        } else if let Some(parent_ix) =
+            self.find_parent_chain_tx(&buffer_wallet_input_tx_hash, &tx_user_creds)
+        {
+            let data = NodeData {
+                tx,
+                user_creds: tx_user_creds,
+            };
             let child_ix = self.gr.add_node(data);
             self.gr.add_edge(parent_ix, child_ix, ());
             true
@@ -87,7 +79,7 @@ where
         }
     }
 
-    pub fn rollback(
+    fn rollback(
         &mut self,
         user_creds_harvested_epoch: Vec<Ed25519KeyHash>,
         confirmed_buffer_wallet_tx_hash: TransactionHash,
@@ -125,11 +117,7 @@ where
     ///
     /// Otherwise the confirmed TX was either a gauge-buffer action, or it was cosigned by another
     /// verifier. For the latter case, we will need the current confirmed user harvests.
-    pub fn confirm_tx(
-        &mut self,
-        tx_hash: TransactionHash,
-        confirmed_user_harvests: &[Ed25519KeyHash],
-    ) -> bool {
+    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) -> bool {
         if let Some(ix) = self.gr.node_indices().find(|ix| {
             let node_data = self.gr.node_weight(*ix).unwrap();
             node_data.tx.canonical_hash() == tx_hash
@@ -190,6 +178,29 @@ where
         }
     }
 
+    /// Once an epoch ends, all users are able to claim rewards for this epoch. Also, all
+    /// unconfirmed TXs are no longer valid due to expiring TTL, so they can all be removed.
+    fn notify_end_of_epoch(&mut self) {
+        self.last_confirmed_user_harvests.clear();
+        self.gr.clear();
+    }
+}
+
+impl<'de, Tx> ChainedHarvestTxGraph<Tx>
+where
+    Tx: CanonicalHash<Hash = TransactionHash> + Serialize + Deserialize<'de>,
+{
+    pub fn new(
+        last_confirmed_user_harvests: Vec<Ed25519KeyHash>,
+        last_confirmed_buffer_wallet_tx_hash: TransactionHash,
+    ) -> Self {
+        Self {
+            gr: StableDiGraph::new(),
+            last_confirmed_user_harvests,
+            last_confirmed_buffer_wallet_tx_hash,
+        }
+    }
+
     pub fn is_unconfirmed_and_tracked(&self, tx_hash: TransactionHash) -> bool {
         self.gr
             .node_weights()
@@ -245,7 +256,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use spectrum_offchain::tx_hash::CanonicalHash;
 
-    use crate::entity_index::chained_tx_graph::ChainedHarvestTxGraph;
+    use crate::entity_index::{chained_tx_graph::ChainedHarvestTxGraph, UnconfirmedHarvestTxIndex};
 
     #[test]
     fn test_full_tx_chain_confirmation() {
