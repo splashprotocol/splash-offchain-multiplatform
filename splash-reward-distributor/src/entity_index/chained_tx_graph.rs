@@ -17,6 +17,9 @@ use crate::entity_index::UnconfirmedHarvestTxIndex;
 /// path of nodes from a source (no incoming edges) to a sink (no outgoing edges) represents a
 /// single TX-chain.
 ///
+/// This store is not persisted to disk due to the ephemeral nature of unconfirmed TXs under the
+/// presence of dropped TXs, chain rollback and TX racing between separate bots.
+///
 /// This store prevents double-harvesting of rewards for any given user. Before adding a TX to the
 /// graph, we will walk up the chain to ensure that a user is never referenced more than once.
 ///
