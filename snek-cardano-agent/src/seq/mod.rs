@@ -184,12 +184,13 @@ where
             if let Poll::Ready(Some((pair, event))) = Stream::poll_next(Pin::new(&mut self.events), cx) {
                 if let Channel::Ledger(_, lcx) = &event {
                     if self.update_clocks(lcx.slot) {
-                        // Events were released in result of update, stash current event and yield them first.
+                        // Events were released in result of an update, stash current event and yield them first.
                         self.stashed_event.replace((pair, event));
                         continue;
                     }
                 }
                 if self.completed_sessions.contains(&pair) || self.disable {
+                    trace!("Passing event {}", event.stable_id());
                     return Poll::Ready(Some((pair, event)));
                 }
                 self.update_session(pair, event);
