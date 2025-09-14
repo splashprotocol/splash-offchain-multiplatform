@@ -3,7 +3,7 @@ use crate::seq::cond::{ConditionalValidation, Id};
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
-use log::{trace, warn};
+use log::{info, trace, warn};
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
@@ -14,6 +14,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+#[derive(Debug)]
 pub(crate) struct SessionInProgress<K, T> {
     opening_event: K,
     opening_event_followups: VecDeque<Channel<Transition<T>, LedgerCx>>,
@@ -52,7 +53,10 @@ impl<K, T> SessionInProgress<K, T> {
         }
     }
 
-    pub(crate) fn register_event(&mut self, event: Channel<Transition<T>, LedgerCx>) -> Result<(), ()>
+    pub(crate) fn register_event(
+        &mut self,
+        event: Channel<Transition<T>, LedgerCx>,
+    ) -> Result<(), SessionRejection<Channel<Transition<T>, LedgerCx>>>
     where
         K: Copy + Eq + Hash + Display,
         T: Stable<StableId = K>
@@ -75,7 +79,8 @@ impl<K, T> SessionInProgress<K, T> {
                     self.original_ordering.retain(|k| *k != event_key);
                     entry.remove();
                     if event_key == self.opening_event {
-                        return Err(());
+                        info!("Session for opening event {} is cancelled", event_key,);
+                        return Err(SessionRejection::SessionCancelled);
                     }
                 } else {
                     if let Some(confirmed_at) = is_confirmation(current, &event) {
@@ -100,6 +105,7 @@ impl<K, T> SessionInProgress<K, T> {
                     entry.insert(event);
                 } else {
                     warn!("Event {} is not registered", event_key,);
+                    return Err(SessionRejection::EventRejected(event));
                 }
             }
         }
@@ -165,6 +171,12 @@ impl<K, T> SessionInProgress<K, T> {
         }
         None
     }
+}
+
+#[derive(Debug)]
+pub enum SessionRejection<E> {
+    SessionCancelled,
+    EventRejected(E),
 }
 
 fn do_sequencing<T, K>(
