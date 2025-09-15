@@ -46,6 +46,12 @@ impl AdhocFeeStructure {
 #[derive(Debug, Copy, Clone)]
 pub struct AdhocOrder(pub InstantOrder, /*adhoc_fee_input*/ pub(crate) u64);
 
+impl AdhocOrder {
+    pub fn new(io: InstantOrder, adhoc_fee_input: u64) -> Self {
+        Self(io, adhoc_fee_input)
+    }
+}
+
 impl Display for AdhocOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("AdhocOrder({})", self.0).as_str())
@@ -206,6 +212,10 @@ where
             } else {
                 0
             };
+            let updated_price = RelativePrice::new(
+                io.input_amount as u128 * io.base_price.numer(),
+                (io.input_amount - adhoc_fee_input) as u128 * io.base_price.denom(),
+            );
             let has_stake_part = io.redeemer_address.stake_cred.is_some();
             let is_compliant = ctx
                 .select::<AddedPaymentDestinations>()
@@ -214,6 +224,7 @@ where
                 Some(Self(
                     InstantOrder {
                         input_amount: virtual_input_amount,
+                        base_price: updated_price,
                         ..io
                     },
                     adhoc_fee_input,
