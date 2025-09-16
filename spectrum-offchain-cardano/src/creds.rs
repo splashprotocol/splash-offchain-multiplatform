@@ -143,9 +143,9 @@ mod tests {
 
     #[test]
     fn gen_operator_creds() {
-        let network = NetworkInfo::mainnet().network_id();
+        let network = NetworkInfo::testnet().network_id();
 
-        let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
+        let operator_prv_bip32 = Bip32PrivateKey::from_bech32("xprv1hq2u64lfz6j2e9hj8rd7xzu4hk6hsz249jhhuyncaf3dz36y79dkkft4x4jsusx5qusah7yhyvmq80j9t9xwcnj3ydhjx9msrduzvgz0zqjsvyd7qv6uxjjh8t2cwg0ee4r0rgs54szrxsvnnhnr0nakrqhwneky").unwrap();
         let operator_pk_main = operator_prv_bip32.to_public();
 
         let child_pkh_1 = operator_pk_main.derive(1).unwrap().to_raw_key().hash();
@@ -203,6 +203,6 @@ mod tests {
             funding_address_4.to_bech32(None).unwrap()
         );
 
-        assert_eq!(1, 1);
+        assert_eq!(1, 2);
     }
 }

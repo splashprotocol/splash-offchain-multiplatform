@@ -18,6 +18,7 @@ use cardano_explorer::config::ExplorerConfig;
 use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
+use spectrum_offchain_cardano::withdraw_guard::WithdrawGuardConfig;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +42,7 @@ pub struct AppConfig {
     pub royalty_withdraw: RoyaltyWithdrawContext,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
+    pub withdraw_guard_config: WithdrawGuardConfig,
 }
 
 fn default_disable_mempool() -> bool {

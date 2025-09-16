@@ -15,6 +15,7 @@ use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::handler_context::{AllowedAdditionalPaymentDestinations, AuthVerificationKey};
 use spectrum_offchain_cardano::node::NodeConfig;
+use spectrum_offchain_cardano::withdraw_guard::WithdrawGuardConfig;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -41,6 +42,7 @@ pub struct AppConfig {
     pub sequencing: SequencingConfig,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
+    pub withdraw_guard_config: WithdrawGuardConfig,
 }
 
 pub fn allowed_payment_destinations(whitelist: Vec<Address>) -> AllowedAdditionalPaymentDestinations {

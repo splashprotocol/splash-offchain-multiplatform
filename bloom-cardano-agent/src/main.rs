@@ -1,14 +1,23 @@
 use clap::Parser;
+use cml_chain::builders::input_builder::SingleInputBuilder;
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
+use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
+use cml_chain::certs::StakeCredential;
 use cml_chain::transaction::Transaction;
 use cml_crypto::TransactionHash;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use futures::{stream_select, Stream, StreamExt};
-use log::info;
+use log::{error, info, warn};
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
+use spectrum_offchain_cardano::withdraw_guard::{build_withdrawal_transaction, withdraw_script_guard};
 use std::future;
+use std::path::Path;
 use std::sync::Arc;
+use tokio::fs;
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 use tracing_subscriber::fmt::Subscriber;
 
 use crate::config::AppConfig;
@@ -40,7 +49,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::{AnyExplorer, Maestro, Network};
+use cardano_explorer::{AnyExplorer, CardanoNetwork, ExtendedCardanoNetwork, Maestro, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -55,9 +64,11 @@ use spectrum_offchain::domain::order::OrderUpdate;
 use spectrum_offchain::domain::Baked;
 use spectrum_offchain::event_sink::event_handler::{forward_with, EventHandler};
 use spectrum_offchain::event_sink::process_events;
+use spectrum_offchain::network::Network as OffchainNetwork;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
 use spectrum_offchain::tracing::Tracing;
+use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
@@ -156,9 +167,36 @@ async fn main() {
         collateral_address.clone().address().to_bech32(None).unwrap()
     );
 
-    let collateral = pull_collateral(collateral_address, &explorer)
+    info!(
+        "Checking for stake rewards on limit_order_witness script hash: {}",
+        protocol_deployment.limit_order_witness.hash
+    );
+
+    let script_validator_erased = protocol_deployment.limit_order_witness.clone().erased();
+
+    let prover = OperatorProver::new(config.operator_key.clone());
+
+    info!(
+        "Expecting collateral at {}",
+        collateral_address.clone().address().to_bech32(None).unwrap()
+    );
+
+    let collateral = pull_collateral(collateral_address.clone(), &explorer)
         .await
         .expect("Couldn't retrieve collateral");
+
+    withdraw_script_guard(
+        config.withdraw_guard_config,
+        &explorer,
+        tx_submission_channel.clone(),
+        &prover,
+        collateral_address.clone().address(),
+        &script_validator_erased,
+        config.network_id.into(),
+        collateral.clone(),
+    )
+    .await
+    .expect("Failed to withdraw rewards from limit order witness script");
 
     let (pair_upd_snd_p1, pair_upd_recv_p1) = mpsc::channel::<(
         PairId,
@@ -263,7 +301,6 @@ async fn main() {
         Box::new(funding_event_handler),
     ];
 
-    let prover = OperatorProver::new(config.operator_key);
     let recipe_interpreter = CardanoRecipeInterpreter::new(config.take_residual_fee);
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {

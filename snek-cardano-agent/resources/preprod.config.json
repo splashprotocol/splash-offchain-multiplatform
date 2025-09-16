@@ -75,5 +75,12 @@
   },
   "adhocFee": {
     "relativeFeePercent": 1
+  },
+  "withdrawGuardConfig": {
+    "maxAttempts": 5,
+    "submissionDelay": {
+      "secs": 10,
+      "nanos": 0
+    }
   }
 }

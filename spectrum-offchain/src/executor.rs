@@ -109,6 +109,7 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
 pub enum TxSubmissionError {
     PoolUtxoIsSpent,
     OrderUtxoIsSpent,
+    FailedWithdrawals { info: String },
     UnknownError { info: String },
 }
 

@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use cml_chain::address::Address;
+use cml_chain::builders::certificate_builder::CertificateBuilderResult;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
@@ -9,11 +10,12 @@ use cml_chain::builders::tx_builder::{
 };
 use cml_chain::builders::withdrawal_builder::{SingleWithdrawalBuilder, WithdrawalBuilderError};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::certs::Credential;
+use cml_chain::certs::{Certificate, Credential, StakeCredential, StakeDelegation};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, Value};
+use cml_crypto::Ed25519KeyHash;
 use log::info;
 use void::Void;
 
@@ -602,7 +604,7 @@ where
         let partial_witness =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(witness_validator.hash), real_redeemer);
 
-        let withdrawal_result = SingleWithdrawalBuilder::new(reward_address.clone(), 0)
+        let withdrawal_result = SingleWithdrawalBuilder::new(reward_address.clone(), 100)
             .plutus_script(partial_witness, vec![].into())
             .map_err(|err| from_withdrawal_builder_error(err, order_bundle.clone()))?;
 

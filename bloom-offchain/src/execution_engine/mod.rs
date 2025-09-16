@@ -12,6 +12,7 @@ use crate::execution_engine::report::ExecutionReport;
 use crate::execution_engine::resolver::resolve_state;
 use crate::execution_engine::storage::StateIndex;
 use async_primitives::beacon::{Beacon, Once};
+use cml_chain::address::RewardAccount;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FusedStream;
@@ -165,7 +166,7 @@ where
     Net: Network<Tx, Err> + Clone + 'a,
     Meta: Clone + Unpin + 'a,
     Rep: Reporting<ExecutionReport<StableId, Ver, TxHash, Pair, Meta>> + Clone + 'a,
-    Err: TryInto<HashSet<Ver>> + Clone + Unpin + Debug + Display + 'a,
+    Err: TryInto<HashSet<Ver>> + TryInto<HashSet<RewardAccount>> + Clone + Unpin + Debug + Display + 'a,
     LedgerCx: Unpin + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
@@ -699,6 +700,18 @@ where
         }
     }
 
+    fn on_withdrawal_error(&mut self, err: E)
+    where
+        B: Has<V> + Eq + Ord + Clone,
+        V: Eq + Hash,
+        E: TryInto<HashSet<RewardAccount>> + Unpin + Debug + Display,
+    {
+        let failed_reward_accounts = err.try_into().unwrap_or(HashSet::new());
+        if !failed_reward_accounts.is_empty() {
+            panic!("Withdrawal failed. Stop EE");
+        }
+    }
+
     fn on_entity_processed(&mut self, ver: V)
     where
         V: Copy + Eq + Hash + Display,
@@ -785,7 +798,7 @@ where
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
     PRV: TxProver<TC, TX> + Unpin,
     M: Unpin,
-    E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
+    E: TryInto<HashSet<V>> + TryInto<HashSet<RewardAccount>> + Clone + Unpin + Debug + Display,
     LCX: Unpin,
 {
     type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
@@ -805,7 +818,8 @@ where
                             Err(err) => {
                                 warn!("Tx {} was rejected", effects.tx_hash);
                                 self.on_execution_effects_failure(err.clone(), effects.execution);
-                                self.on_funding_effects_failure(err, effects.funding);
+                                self.on_funding_effects_failure(err.clone(), effects.funding);
+                                self.on_withdrawal_error(err);
                             }
                         }
                     }
@@ -964,7 +978,7 @@ where
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
     PRV: TxProver<TC, TX> + Unpin,
     M: Unpin,
-    E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
+    E: TryInto<HashSet<V>> + TryInto<HashSet<RewardAccount>> + Clone + Unpin + Debug + Display,
     LCX: Unpin,
 {
     fn is_terminated(&self) -> bool {
