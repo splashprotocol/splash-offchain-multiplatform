@@ -22,6 +22,8 @@ pub(crate) struct SessionInProgress<K, T> {
     original_ordering: VecDeque<K>,
     confirmation_ordering: VecDeque<(K, Slot)>,
     event_registry: HashMap<K, Channel<Transition<T>, LedgerCx>>,
+    /// Events that were collected before the session was triggered. Not being sequenced.
+    premature_events: Vec<Channel<Transition<T>, LedgerCx>>,
     sealed_at: Slot,
     settlement_delay: Slot,
     capped: bool,
@@ -30,6 +32,7 @@ pub(crate) struct SessionInProgress<K, T> {
 impl<K, T> SessionInProgress<K, T> {
     pub(crate) fn new(
         event: Transition<T>,
+        premature_events: Vec<Channel<Transition<T>, LedgerCx>>,
         cx: LedgerCx,
         sealed_at: Slot,
         settlement_delay: Slot,
@@ -47,6 +50,7 @@ impl<K, T> SessionInProgress<K, T> {
             original_ordering: VecDeque::new(),
             confirmation_ordering: VecDeque::new(),
             event_registry: HashMap::from([(key, Channel::ledger(event, cx))]),
+            premature_events,
             sealed_at,
             settlement_delay,
             capped,
@@ -56,7 +60,7 @@ impl<K, T> SessionInProgress<K, T> {
     pub(crate) fn register_event(
         &mut self,
         event: Channel<Transition<T>, LedgerCx>,
-    ) -> Result<(), SessionRejection<Channel<Transition<T>, LedgerCx>>>
+    ) -> Result<(), SessionRejection>
     where
         K: Copy + Eq + Hash + Display,
         T: Stable<StableId = K>
@@ -104,8 +108,8 @@ impl<K, T> SessionInProgress<K, T> {
                     trace!("Registering subsequent event for entity: {}", event.stable_id());
                     entry.insert(event);
                 } else {
-                    warn!("Event {} is not registered", event_key,);
-                    return Err(SessionRejection::EventRejected(event));
+                    warn!("Unknown cancellation event {}", event_key,);
+                    self.premature_events.push(event);
                 }
             }
         }
@@ -121,7 +125,9 @@ impl<K, T> SessionInProgress<K, T> {
     {
         if slot >= self.sealed_at + self.settlement_delay {
             let mut settled_events = vec![];
-            let mut remaining_events = vec![];
+            let mut remaining_events = self.premature_events.drain(..).collect::<Vec<_>>();
+            // Remove events that have been confirmed
+            remaining_events.retain(|k| self.event_registry.get(&k.stable_id()).is_none());
             if let Some(event) = self.event_registry.remove(&self.opening_event) {
                 settled_events.push(event);
             }
@@ -161,6 +167,10 @@ impl<K, T> SessionInProgress<K, T> {
                 "Updated ordering: {}",
                 display_vec(&reordered_events.iter().map(|x| x.stable_id()).collect())
             );
+            trace!(
+                "Remaining events: {}",
+                display_vec(&remaining_events.iter().map(|x| x.stable_id()).collect())
+            );
 
             return Some(
                 reordered_events
@@ -174,9 +184,8 @@ impl<K, T> SessionInProgress<K, T> {
 }
 
 #[derive(Debug)]
-pub enum SessionRejection<E> {
+pub enum SessionRejection {
     SessionCancelled,
-    EventRejected(E),
 }
 
 fn do_sequencing<T, K>(
@@ -246,7 +255,7 @@ fn is_cancellation<T, C>(new: &Channel<Transition<T>, C>) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::seq::cond::{ConditionalValidation, Id, Validations};
-    use crate::seq::session::{do_sequencing, key_to_int, seq_key};
+    use crate::seq::session::{do_sequencing, seq_key};
     use bloom_offchain_cardano::event_sink::handler::LedgerCx;
     use cml_crypto::BlockHeaderHash;
     use rand::RngCore;
@@ -545,8 +554,10 @@ mod tests {
             ledger_context,
         );
 
+        let premature_events = Vec::new();
+
         // Initialize the SessionInProgress
-        let mut session = SessionInProgress::new(pool_init, ledger_context, 130, 20, false);
+        let mut session = SessionInProgress::new(pool_init, premature_events, ledger_context, 130, 20, false);
 
         // Register event2
         assert!(session.register_event(event2.clone()).is_ok());
@@ -597,8 +608,9 @@ mod tests {
         let pool_init = Transition::Forward(Ior::Right(TestEvent::Pool { id: 1, init: true }));
         let event1 = Channel::Ledger(Confirmed(pool_init.clone()), ledger_context_1);
 
+        let premature_events = Vec::new();
         // Initialize the SessionInProgress
-        let mut session = SessionInProgress::new(pool_init, ledger_context_1, 140, 20, false);
+        let mut session = SessionInProgress::new(pool_init, premature_events, ledger_context_1, 140, 20, false);
 
         let mut rng = rand::thread_rng();
 
@@ -699,8 +711,9 @@ mod tests {
             ledger_context_3.clone(),
         );
 
+        let premature_events = Vec::new();
         // Initialize the SessionInProgress with the opening event (first event is a pool).
-        let mut session = SessionInProgress::new(pool_init, ledger_context_1, 110, 20, false);
+        let mut session = SessionInProgress::new(pool_init, premature_events, ledger_context_1, 110, 20, false);
 
         // Register events
         assert!(
