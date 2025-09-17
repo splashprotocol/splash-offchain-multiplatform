@@ -117,7 +117,12 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
 
                 for pair in to_release {
                     if let Some(ps) = self.pre_sessions.remove(&pair) {
-                        trace!("Releasing {} delayed events for pair {} at slot {}", ps.events.len(), pair, upgraded_to);
+                        trace!(
+                            "Releasing {} delayed events for pair {} at slot {}",
+                            ps.events.len(),
+                            pair,
+                            upgraded_to
+                        );
                         for event in ps.events {
                             self.pending_events.push_back((pair, event));
                         }
@@ -817,9 +822,11 @@ mod tests {
         // Before the session starts, send a few mempool events that will be delayed
         let delayed_ids = [101u64, 102u64];
         for id in delayed_ids {
-            let cancel_event = Channel::Mempool(Unconfirmed(Transition::Forward(Ior::Right(
-                TestEvent::Order { id, init: true },
-            ))));
+            let cancel_event =
+                Channel::Mempool(Unconfirmed(Transition::Forward(Ior::Right(TestEvent::Order {
+                    id,
+                    init: true,
+                }))));
             event_tx.send((pair_id, cancel_event)).await.unwrap();
         }
 

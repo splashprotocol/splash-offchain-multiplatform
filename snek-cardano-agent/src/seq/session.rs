@@ -610,7 +610,8 @@ mod tests {
 
         let premature_events = Vec::new();
         // Initialize the SessionInProgress
-        let mut session = SessionInProgress::new(pool_init, premature_events, ledger_context_1, 140, 20, false);
+        let mut session =
+            SessionInProgress::new(pool_init, premature_events, ledger_context_1, 140, 20, false);
 
         let mut rng = rand::thread_rng();
 
@@ -713,7 +714,8 @@ mod tests {
 
         let premature_events = Vec::new();
         // Initialize the SessionInProgress with the opening event (first event is a pool).
-        let mut session = SessionInProgress::new(pool_init, premature_events, ledger_context_1, 110, 20, false);
+        let mut session =
+            SessionInProgress::new(pool_init, premature_events, ledger_context_1, 110, 20, false);
 
         // Register events
         assert!(
