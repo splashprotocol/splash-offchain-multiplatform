@@ -670,11 +670,23 @@ pub fn try_optimized_swap<M: MarketMaker + Stable>(
     maker: &M,
 ) -> Option<(M::StableId, FillPreview)> {
     let AvailableLiquidity { input, output } = maker.available_liquidity_on_side(side.wrap(price))?;
+    println!("AvailableLiquidity -> input: {}, output: {}", input, output);
+
     let absolute_price = match side {
-        Side::Bid => AbsolutePrice::new(input, output)?,
-        Side::Ask => AbsolutePrice::new(output, input)?,
+        Side::Bid => {
+            let price = AbsolutePrice::new(input, output)?;
+            println!("AbsolutePrice for Bid -> {}", price);
+            price
+        }
+        Side::Ask => {
+            let price = AbsolutePrice::new(output, input)?;
+            println!("AbsolutePrice for Ask -> {}", price);
+            price
+        }
     };
+
     if input > 0 && demand >= input {
+        println!("Conditions met -> input: {}, demand: {}", input, demand);
         return Some((
             maker.stable_id(),
             FillPreview {
@@ -682,7 +694,10 @@ pub fn try_optimized_swap<M: MarketMaker + Stable>(
                 input,
             },
         ));
+    } else {
+        println!("Conditions not met -> input: {}, demand: {}", input, demand);
     }
+
     None
 }
 
@@ -704,17 +719,34 @@ where
             .pools()
             .values
             .values()
-            .filter(|pool| pool.is_active())
+            .filter(|pool| {
+                let active = pool.is_active();
+                println!("Checking if pool is active: {} -> {}", pool.stable_id(), active);
+                active
+            })
             .filter_map(|p| {
                 if optimized {
-                    try_optimized_swap(price, demand, side, p).or_else(|| dummy_swap(demand, side, p))
+                    println!("Attempting try_optimized_swap for pool: {}", p.stable_id());
+                    try_optimized_swap(price, demand, side, p).or_else(|| {
+                        println!("Fallback to dummy_swap for pool: {}", p.stable_id());
+                        dummy_swap(demand, side, p)
+                    })
                 } else {
+                    println!("Using dummy_swap for pool: {}", p.stable_id());
                     dummy_swap(demand, side, p)
                 }
             });
         match side {
-            Side::Bid => pools.min_by_key(|(_, rp)| rp.price),
-            Side::Ask => pools.max_by_key(|(_, rp)| rp.price),
+            Side::Bid => {
+                let result = pools.min_by_key(|(_, rp)| rp.price);
+                println!("Selected best pool for Bid side");
+                result
+            }
+            Side::Ask => {
+                let result = pools.max_by_key(|(_, rp)| rp.price);
+                println!("Selected best pool for Ask side");
+                result
+            }
         }
     }
 

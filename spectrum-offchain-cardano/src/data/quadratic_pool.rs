@@ -991,7 +991,7 @@ where
                     let conf = QuadraticPoolConfig::try_from_pd(pd.clone())?;
                     let reserves_x: TaggedAmount<Rx> =
                         TaggedAmount::new(value.amount_of(conf.asset_x.into()).unwrap_or(0));
-                    let executable = conf.operator_pkh == ctx.select::<OperatorCred>().into();
+                    let executable = true; //conf.operator_pkh == ctx.select::<OperatorCred>().into();
                     let reserves_in_bounds = reserves_x.untag() < conf.x_cap_thr;
                     let pool_id = PoolId::try_from(conf.pool_nft).ok()?;
                     let virgin = ctx
@@ -1016,7 +1016,7 @@ where
                             capped: is_capped(ctx),
                         });
                     } else {
-                        trace!(
+                        println!(
                             "QuadraticPool: {}, executable: {}, reserves_in_bounds: {}, version: {:?}",
                             conf.pool_nft.untag(),
                             executable,

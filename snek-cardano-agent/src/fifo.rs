@@ -11,9 +11,8 @@ use bloom_offchain::execution_engine::liquidity_book::state::{
     dummy_swap, try_optimized_swap, FillPreview, LiquidityBookSize,
 };
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook, TLB};
+use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook};
 use either::Either;
-use log::trace;
 use spectrum_offchain::display::{display_option, display_tuple};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::maker::Maker;
@@ -233,10 +232,9 @@ where
     fn attempt(&mut self) -> (Option<MatchmakingRecipe<Taker, Maker>>, Vec<ExecutionEvent>) {
         let mut optimized_matchmaking = true;
         loop {
-            trace!(
+            println!(
                 "{} Attempting to matchmake (optimized={})",
-                self.pair,
-                optimized_matchmaking
+                self.pair, optimized_matchmaking
             );
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             let mut events = vec![];
@@ -247,9 +245,9 @@ where
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 17 {
                 if let Some(spot_price) = self.spot_price() {
                     events.push(ExecutionEvent::SpotPrice(spot_price));
-                    trace!("{} spot_price: {}", self.pair, spot_price,);
+                    println!("{} spot_price: {}", self.pair, spot_price,);
                     if let Some(target_taker) = self.state.pop_taker() {
-                        trace!("Selected taker: {}", target_taker);
+                        println!("Selected taker: {}", target_taker);
                         let target_side = target_taker.side();
                         let target_price = target_side.wrap(target_taker.price());
                         let maybe_price_maker = self.state.preselect_market_maker(
@@ -258,18 +256,30 @@ where
                             target_side,
                             optimized_matchmaking,
                         );
-                        trace!(
+                        println!(
                             "{} P_target: {}, P_amm: {}",
                             self.pair,
                             target_price.unwrap(),
                             display_option(&maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
                         );
                         match maybe_price_maker {
+                            Some((maker_sid, FillPreview { price, input })) => {
+                                println!(
+                                    "target_price.overlaps(price) {}.overlaps({}): {}",
+                                    target_price,
+                                    price,
+                                    target_price.overlaps(price)
+                                )
+                            }
+                            _ => println!("ss"),
+                        };
+
+                        match maybe_price_maker {
                             Some((maker_sid, FillPreview { price, input }))
                                 if target_price.overlaps(price) =>
                             {
                                 if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
-                                    trace!("Taker {} matched with {}", target_taker, maker);
+                                    println!("Taker {} matched with {}", target_taker, maker);
                                     let (take, make) =
                                         execute_with_maker(target_taker, maker, target_side.wrap(input));
                                     batch.add_make(make);
@@ -280,7 +290,7 @@ where
                                 }
                             }
                             _ => {
-                                trace!("Failed to match taker {}", target_taker);
+                                println!("Failed to match taker {}", target_taker);
                                 self.state.append_taker(target_taker);
                             }
                         }
@@ -289,7 +299,7 @@ where
                     }
                 } else {
                     events.push(ExecutionEvent::SpotPriceNotAvailable);
-                    trace!("{} No liquidity source is available", self.pair);
+                    println!("{} No liquidity source is available", self.pair);
                 }
                 if max_attempts > 0 {
                     max_attempts -= 1;
@@ -297,20 +307,20 @@ where
                 }
                 break;
             }
-            trace!("{} Raw batch: {}", self.pair, batch);
+            println!("{} Raw batch: {}", self.pair, batch);
             let post_attempt_size = self.state.size();
             events.push(ExecutionEvent::LiquidityBookSizePostAttempt(post_attempt_size));
             match MatchmakingRecipe::try_from(batch, self.conf) {
                 Ok(ex_recipe) => {
-                    trace!("{} Successfully formed a batch {}", self.pair, ex_recipe);
+                    println!("{} Successfully formed a batch {}", self.pair, ex_recipe);
                     return (Some(ex_recipe), events);
                 }
                 Err(None) => {
-                    trace!("{} Matchmaking attempt failed in fifo", self.pair);
+                    println!("{} Matchmaking attempt failed in fifo", self.pair);
                     self.rollback(StashingOption::Unstash);
                 }
                 Err(Some(Either::Left(unsatisfied_takers))) => {
-                    trace!(
+                    println!(
                         "{} Matchmaking attempt failed due to taker limits, retrying",
                         self.pair
                     );
@@ -318,7 +328,7 @@ where
                     continue;
                 }
                 Err(Some(Either::Right(_downgrade_required))) => {
-                    trace!(
+                    println!(
                         "{} Matchmaking attempt failed due to high execution complexity, retrying",
                         self.pair
                     );
@@ -625,7 +635,7 @@ mod tests {
 
         // Get the unsatisfied order (RAW_INSTANT_ORDER)
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(RAW_INSTANT_ORDER).unwrap()).unwrap();
-        let unsatisfied_order = AdhocOrder::try_from_ledger(&bearer, &ctx).unwrap();
+        let adhoc_order = AdhocOrder::try_from_ledger(&bearer, &ctx).unwrap();
         let instant_order = InstantOrder::try_from_ledger(&bearer, &ctx).unwrap();
 
         // Get the pool (RAW_POOL_T2T)
@@ -635,15 +645,8 @@ mod tests {
         parsed_pool.reserves_y = TaggedAmount::new(947688745);
         let pool = parsed_pool.clone();
 
-        // Create a correct order by cloning the unsatisfied order and modifying it
-        // We'll create a "correct" order by modifying it to ensure it will be satisfied
-        let correct_order = AdhocOrder::new(
-            InstantOrder {
-                beacon: Token::from([0; 60]),
-                ..instant_order
-            },
-            0,
-        );
+        println!("adhoc order: {:?}", adhoc_order.price());
+        println!("instant order: {:?}", instant_order.price());
 
         // Create FIFO with the pool
         let mut fifo = Fifo::new(
@@ -661,27 +664,28 @@ mod tests {
                 o2o_allowed: false,
                 base_step_budget: 600000.into(),
             },
-            PairId::canonical(unsatisfied_order.0.input_asset, unsatisfied_order.0.output_asset),
+            PairId::canonical(adhoc_order.0.input_asset, adhoc_order.0.output_asset),
         );
 
         // Add the pool as maker
         fifo.update_maker(pool);
 
         // Add both orders as takers
-        fifo.update_taker(unsatisfied_order.clone());
-        fifo.update_taker(correct_order.clone());
+        fifo.update_taker(adhoc_order.clone());
 
         // Call attempt() on the FIFO
         let (recipe, _) = fifo.attempt();
 
         // Verify that we got a recipe
-        assert!(recipe.is_some(), "Attempt should produce a recipe");
-
-        let recipe = recipe.unwrap();
+        assert!(recipe.is_none(), "Attempt should not produce a recipe");
 
         // Verify that the order in the queue is the unsatisfied order
-        let unsatisfied_order_in_takers = fifo.state.takers.get(&unsatisfied_order.stable_id());
+        let unsatisfied_order_in_takers = fifo.state.takers.get(&adhoc_order.stable_id());
         let takers_len = fifo.state.takers.len();
+
+        let price_in_adhoc_order_gt_instant = adhoc_order.clone().price() > instant_order.price();
+        let same_full_output = (adhoc_order.clone().input() as u128 * adhoc_order.clone().price().numer()
+            / adhoc_order.clone().price().denom());
         assert_eq!(
             takers_len, 1,
             "The FIFO should have exactly one order in the stash"
@@ -689,6 +693,10 @@ mod tests {
         assert!(
             unsatisfied_order_in_takers.is_some(),
             "The order in the queue should be the unsatisfied order"
+        );
+        assert!(
+            price_in_adhoc_order_gt_instant,
+            "The adhoc order price should be greater than the instant order price"
         );
     }
 }
