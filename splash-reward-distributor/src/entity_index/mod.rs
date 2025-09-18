@@ -4,10 +4,13 @@ pub(crate) mod rocksdb;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
+use crate::accounts::{Accounts, PositionIndex};
 use crate::entity_index::rocksdb::OnChainIndex;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
+use cml_chain::address::Address;
+use cml_chain::certs::Credential;
 use cml_chain::transaction::Transaction;
 use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use futures::channel::mpsc::{Receiver, Sender};
@@ -15,7 +18,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::tx_view::TimedOutput;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -28,14 +31,16 @@ use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
-use splash_dao_offchain::routines::{Slot, TimedOutputRef};
+use splash_dao_offchain::routines::{slot_to_epoch, Slot, TimedOutputRef};
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::auth_manager::{AuthManager, AuthManagerId};
 use splash_yf_offchain::entities::buffer_wallet::{try_extract_buffer_wallet, BufferWallet, BufferWalletId};
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
 use splash_yf_offchain::entities::gauge::{try_extract_gauge, Gauge, UpdatedGauges};
 use splash_yf_offchain::entities::harvest_order::{try_extract_harvest_order, HarvestOrder};
-use splash_yf_offchain::events::OnChainEvent;
+use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use splash_yf_offchain::Epoch;
 use type_equalities::IsEqual;
 
 #[async_trait]
@@ -127,7 +132,7 @@ pub enum Mod<T> {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum HarvestOrderStatus {
-    Spent,
+    Spent(Epoch),
     Unspent,
     Refunded,
 }
@@ -143,19 +148,41 @@ where
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn write_predicted_spend_harvest_order(&self, id: StateId);
-    async fn write_confirmed_spend_harvest_order(&self, id: StateId);
+    async fn write_predicted_spend_harvest_order(
+        &self,
+        id: StateId,
+        predicted_spend: &HarvestOrderSpend,
+        time_millis: u64,
+    );
+    async fn write_confirmed_spend_harvest_order(
+        &self,
+        id: StateId,
+        confirmed_spend: &HarvestOrderSpend,
+        confirmed_slot: u64,
+    );
     async fn write_confirmed_refund_harvest_order(&self, id: StateId);
     /// Used on rollback of a spent or refunded order
     async fn unconsume_harvest_order(&self, id: StateId);
     /// Used on rollback of an unspent order
     async fn remove_created_harvest_order(&self, id: StateId);
+    async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct HarvestOrderSpend {
+    pub amount: u64,
+    pub epoch_start: Epoch,
+    pub epoch_end: Epoch,
+    pub user: Ed25519KeyHash,
+    pub reward_address: Address,
 }
 
 pub async fn index_events<GaugeId, StateId, Bearer, I, F>(
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
     indexer: &I,
     funding: &F,
+    genesis_start_time: GenesisEpochStartTime,
+    network_id: NetworkId,
 ) -> BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>
 where
     GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
@@ -168,7 +195,9 @@ where
     F: FundingRepo + Clone,
 {
     match &events {
-        BlockEvents::RollForward { events, .. } => {
+        BlockEvents::RollForward {
+            events, block_slot, ..
+        } => {
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction {
@@ -184,9 +213,32 @@ where
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
                             .await;
 
-                        for (harvest_order, _) in payouts {
+                        let epoch_end_inner =
+                            slot_to_epoch(*block_slot, genesis_start_time, network_id).0 as u64;
+                        assert!(epoch_end_inner > 0);
+                        let epoch_end = Epoch::from(epoch_end_inner - 1);
+
+                        for (harvest_order, SplashPayout(amount)) in payouts {
+                            let epoch_start = indexer
+                                .last_epoch_harvested(harvest_order.account_key)
+                                .await
+                                .map(|e| e.next())
+                                .unwrap_or(Epoch::from(0));
+                            assert!(epoch_start <= epoch_end);
+
+                            let confirmed_spend = HarvestOrderSpend {
+                                amount: *amount,
+                                epoch_start,
+                                epoch_end,
+                                user: harvest_order.account_key,
+                                reward_address: harvest_order.reward_receiver.to_address(network_id),
+                            };
                             indexer
-                                .write_confirmed_spend_harvest_order(harvest_order.id)
+                                .write_confirmed_spend_harvest_order(
+                                    harvest_order.id,
+                                    &confirmed_spend,
+                                    *block_slot,
+                                )
                                 .await;
                         }
                     }

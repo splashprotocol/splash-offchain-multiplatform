@@ -15,13 +15,11 @@ pub struct LockedByAnotherReq<RequestId>(pub RequestId);
 #[async_trait]
 pub trait Accounts<RequestId> {
     /// Query available `account` reward starting from the given epoch `from_epoch_inclusive`.
-    async fn query_account_reward(&self, account: &Credential, from_epoch_inclusive: Epoch) -> Option<AccountReward>;
-    /// Attempt to lock the given `account`. Idempotent for requests with the same `request_id`.
-    async fn lock_account(
+    async fn query_account_reward(
         &self,
-        request_id: &RequestId,
         account: &Credential,
-    ) -> Result<(), LockedByAnotherReq<RequestId>>;
+        from_epoch_inclusive: Epoch,
+    ) -> Option<AccountReward>;
 }
 
 #[derive(Clone)]
@@ -35,15 +33,11 @@ impl PositionIndex {
 
 #[async_trait]
 impl<RequestId> Accounts<RequestId> for PositionIndex {
-    async fn query_account_reward(&self, account: &Credential, from_epoch_inclusive: Epoch) -> Option<AccountReward> {
-        todo!("DEX-914")
-    }
-
-    async fn lock_account(
+    async fn query_account_reward(
         &self,
-        request_id: &RequestId,
         account: &Credential,
-    ) -> Result<(), LockedByAnotherReq<RequestId>> {
-        todo!("should no longer be here")
+        from_epoch_inclusive: Epoch,
+    ) -> Option<AccountReward> {
+        todo!("DEX-914")
     }
 }

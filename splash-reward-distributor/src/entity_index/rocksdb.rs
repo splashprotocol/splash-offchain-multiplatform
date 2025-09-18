@@ -6,6 +6,7 @@ use std::{
 };
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use cml_crypto::Ed25519KeyHash;
 use const_format::formatcp;
 use log::trace;
 use rocksdb::{Options, TransactionDB, TransactionDBOptions};
@@ -16,9 +17,10 @@ use spectrum_offchain::domain::{
     event::{AnyMod, Confirmed, Predicted, Traced},
     EntitySnapshot,
 };
+use splash_yf_offchain::Epoch;
 use tokio::task::spawn_blocking;
 
-use crate::entity_index::{HarvestOrderIndex, HarvestOrderStatus, Mod};
+use crate::entity_index::{HarvestOrderIndex, HarvestOrderSpend, HarvestOrderStatus, Mod};
 use splash_yf_offchain::entities::{
     auth_manager::AuthManager, buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder,
 };
@@ -281,14 +283,21 @@ where
         })
     }
 
-    async fn write_predicted_spend_harvest_order(&self, id: StateId) {
+    async fn write_predicted_spend_harvest_order(
+        &self,
+        id: StateId,
+        predicted_spend: &HarvestOrderSpend,
+        time_millis: u64,
+    ) {
         if let Some(AnyMod::Confirmed(Traced {
             prev_state_id,
             state: Confirmed(Bundled(mut harvest_order, bearer)),
         })) = self.read::<HarvestOrderWrap<StateId>>(id).await
         {
             assert!(matches!(harvest_order.status, HarvestOrderStatus::Unspent));
-            harvest_order.status = HarvestOrderStatus::Spent;
+
+            let current_epoch = predicted_spend.epoch_end.next();
+            harvest_order.status = HarvestOrderStatus::Spent(current_epoch);
 
             let state: Predicted<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                 Predicted(Bundled(harvest_order, bearer));
@@ -296,7 +305,14 @@ where
         }
     }
 
-    async fn write_confirmed_spend_harvest_order(&self, id: StateId) {
+    async fn write_confirmed_spend_harvest_order(
+        &self,
+        id: StateId,
+        confirmed_spend: &HarvestOrderSpend,
+        confirmed_slot: u64,
+    ) {
+        let current_epoch = confirmed_spend.epoch_end.next();
+        // TODO: merkle
         if let Some(any_mod) = self.read::<HarvestOrderWrap<StateId>>(id).await {
             match any_mod {
                 AnyMod::Confirmed(Traced {
@@ -304,7 +320,7 @@ where
                     state: Confirmed(Bundled(mut harvest_order, bearer)),
                 }) => {
                     assert!(matches!(harvest_order.status, HarvestOrderStatus::Unspent));
-                    harvest_order.status = HarvestOrderStatus::Spent;
+                    harvest_order.status = HarvestOrderStatus::Spent(current_epoch);
 
                     let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                         Confirmed(Bundled(harvest_order, bearer));
@@ -314,8 +330,8 @@ where
                     prev_state_id,
                     state: Predicted(Bundled(mut harvest_order, bearer)),
                 }) => {
-                    assert!(matches!(harvest_order.status, HarvestOrderStatus::Spent));
-                    harvest_order.status = HarvestOrderStatus::Spent;
+                    assert_eq!(harvest_order.status, HarvestOrderStatus::Spent(current_epoch));
+                    harvest_order.status = HarvestOrderStatus::Spent(current_epoch);
 
                     let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                         Confirmed(Bundled(harvest_order, bearer));
@@ -383,7 +399,7 @@ where
                 }) => {
                     assert!(matches!(
                         harvest_order.status,
-                        HarvestOrderStatus::Spent | HarvestOrderStatus::Refunded
+                        HarvestOrderStatus::Spent(_) | HarvestOrderStatus::Refunded
                     ));
                     harvest_order.status = HarvestOrderStatus::Unspent;
                     assert!(prev_state_id.is_none());
@@ -396,7 +412,7 @@ where
                     prev_state_id,
                     state: Predicted(Bundled(mut harvest_order, bearer)),
                 }) => {
-                    assert!(matches!(harvest_order.status, HarvestOrderStatus::Spent));
+                    assert!(matches!(harvest_order.status, HarvestOrderStatus::Spent(_)));
                     harvest_order.status = HarvestOrderStatus::Unspent;
                     assert!(prev_state_id.is_none());
 
@@ -428,6 +444,10 @@ where
                 .await
                 .is_none()
         );
+    }
+
+    async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch> {
+        todo!()
     }
 }
 
@@ -532,7 +552,12 @@ fn prev_version_key<Id: Serialize, Ver: Serialize>(id: &Id, ver: &Ver) -> Vec<u8
 mod tests {
 
     use bloom_offchain::execution_engine::bundled::Bundled;
-    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+    use cml_chain::{
+        address::{Address, RewardAddress},
+        certs::StakeCredential,
+        NetworkId,
+    };
+    use cml_crypto::{Ed25519KeyHash, PublicKey, RawBytesEncoding};
     use rand::{Rng, RngCore};
     use spectrum_cardano_lib::address::{PlutusAddress, PlutusCredential};
     use spectrum_offchain::domain::{
@@ -541,9 +566,13 @@ mod tests {
     };
     use splash_dao_offchain::routines::Slot;
 
-    use crate::entity_index::rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex};
-    use splash_yf_offchain::entities::{
-        buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder,
+    use crate::entity_index::{
+        rocksdb::{HarvestOrderIndex, HarvestOrderStatus, IndexerDB, Mod, OnChainIndex},
+        HarvestOrderSpend,
+    };
+    use splash_yf_offchain::{
+        entities::{buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder},
+        Epoch,
     };
 
     #[tokio::test]
@@ -565,16 +594,33 @@ mod tests {
             assert_eq!(expected, p);
         }
 
+        let epoch = Epoch::from(0);
+
         // Spend
         for h in &orders {
             let id = h.1;
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_predicted_spend_harvest_order(&db, id).await;
+            let key_hash = Ed25519KeyHash::from([0; 28]);
+            let reward_address = RewardAddress::new(0, StakeCredential::new_pub_key(key_hash)).to_address();
+            let spend = HarvestOrderSpend {
+                amount: 1000,
+                epoch_start: Epoch::from(0),
+                epoch_end: Epoch::from(1),
+                user: key_hash,
+                reward_address,
+            };
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_predicted_spend_harvest_order(
+                &db, id, &spend, 1000,
+            )
+            .await;
             let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>> =
                 db.read_harvest_order(id).await.unwrap();
             let Mod::Predicted(Bundled((order, status), bearer)) = p else {
                 panic!()
             };
-            assert_eq!((order, status), (h.0.clone(), HarvestOrderStatus::Spent));
+            assert_eq!(
+                (order, status),
+                (h.0.clone(), HarvestOrderStatus::Spent(Epoch::from(2)))
+            );
             assert_eq!(h.1, bearer);
         }
 
