@@ -5,13 +5,11 @@ use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
-use log::{info, trace, warn};
-use pallas_network::miniprotocols::localtxsubmission;
-use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
-    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
+use log::trace;
+use pallas_network::miniprotocols::localstate::queries_v16::TransactionInput;
+use pallas_network::miniprotocols::localtxsubmission::{
+    ApplyTxError, ConwayLedgerFailure, ConwayUtxoWPredFailure, Response, TxValidationError, UtxoFailure,
 };
-use pallas_network::miniprotocols::localtxsubmission::Response;
-use pallas_network::multiplexer;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
@@ -20,14 +18,14 @@ use std::fmt::{Display, Formatter};
 use std::time::Duration;
 use tokio::time::timeout;
 
-pub struct TxSubmissionAgent<'a, const ERA: u16, Tx, Tracker> {
-    client: LocalTxSubmissionClient<'a, ERA, Tx>,
+pub struct TxSubmissionAgent<const ERA: u16, Tx, Tracker> {
+    client: LocalTxSubmissionClient<ERA, Tx>,
     mailbox: mpsc::Receiver<SubmitTx<Tx>>,
     tracker: Tracker,
     node_config: NodeConfig,
 }
 
-impl<'a, const ERA: u16, Tx, Tracker> TxSubmissionAgent<'a, ERA, Tx, Tracker> {
+impl<const ERA: u16, Tx, Tracker> TxSubmissionAgent<ERA, Tx, Tracker> {
     pub async fn new(
         tracker: Tracker,
         node_config: NodeConfig,
@@ -43,10 +41,6 @@ impl<'a, const ERA: u16, Tx, Tracker> TxSubmissionAgent<'a, ERA, Tx, Tracker> {
             node_config,
         };
         Ok((agent, TxSubmissionChannel(snd)))
-    }
-
-    pub fn recover(&mut self) {
-        self.client.unsafe_reset();
     }
 
     pub async fn restarted(self) -> Result<Self, Error> {
@@ -82,10 +76,10 @@ pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 #[derive(Debug, Clone)]
 pub enum SubmissionResult {
     Ok,
-    TxRejected { errors: RejectReasons },
+    TxRejected { errors: TxRejection },
 }
 
-impl From<SubmissionResult> for Result<(), RejectReasons> {
+impl From<SubmissionResult> for Result<(), TxRejection> {
     fn from(value: SubmissionResult) -> Self {
         match value {
             SubmissionResult::Ok => Ok(()),
@@ -97,7 +91,7 @@ impl From<SubmissionResult> for Result<(), RejectReasons> {
 const SUBMIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn tx_submission_agent_stream<'a, const ERA: u16, Tx, Tracker>(
-    mut agent: TxSubmissionAgent<'a, ERA, Tx, Tracker>,
+    mut agent: TxSubmissionAgent<ERA, Tx, Tracker>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Tx: CanonicalHash + Serialize + Clone + 'a,
@@ -111,11 +105,7 @@ where
             let tx: Tx = tx.into();
             let submit_result = match timeout(SUBMIT_TIMEOUT, agent.client.submit_tx(tx.clone())).await {
                 Ok(result) => result,
-                Err(_) => {
-                    trace!("Failed to submit TX {}: timeout", tx_hash);
-                    agent.recover();
-                    continue;
-                }
+                Err(_) => panic!("Failed to submit TX {}: timeout", tx_hash),
             };
             match submit_result {
                 Ok(Response::Accepted) => {
@@ -124,21 +114,10 @@ where
                 },
                 Ok(Response::Rejected(errors)) => {
                     trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
-                    on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(Some(errors))}).expect("Responder was dropped");
+                    on_resp.send(SubmissionResult::TxRejected{errors: TxRejection(errors)}).expect("Responder was dropped");
                 },
                 Err(Error::TxSubmissionProtocol(err)) => {
-                    match err {
-                        localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
-                            warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
-                            agent.recover();
-                            on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
-                        }
-                        retryable_err => {
-                            trace!("Failed to submit TX {}: protocol returned error: {}", tx_hash, retryable_err);
-                            agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
-                            on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
-                        },
-                    };
+                    panic!("Failed to submit TX {}: protocol returned error: {}", tx_hash, err);
                 },
                 Err(err) => panic!("Cannot submit TX {} due to {}", tx_hash, err),
             }
@@ -146,21 +125,30 @@ where
     }
 }
 
-impl TryFrom<RejectReasons> for HashSet<OutputRef> {
+impl TryFrom<TxRejection> for HashSet<OutputRef> {
     type Error = &'static str;
-    fn try_from(value: RejectReasons) -> Result<Self, Self::Error> {
+    fn try_from(value: TxRejection) -> Result<Self, Self::Error> {
         let mut missing_utxos = HashSet::new();
 
-        if let Some(ApplyTxError { node_errors }) = value.0 {
+        if let TxRejection(TxValidationError::ShelleyTxValidationError {
+            error: ApplyTxError(node_errors),
+            ..
+        }) = value
+        {
             for error in node_errors {
-                if let ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                    ConwayUtxoPredFailure::BadInputsUtxo(inputs),
+                if let ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                    UtxoFailure::BadInputsUTxO(inputs),
                 )) = error
                 {
-                    missing_utxos.extend(inputs.into_iter().map(|TxInput { tx_hash, index }| {
-                        let tx_hash = *tx_hash;
-                        OutputRef::new(tx_hash.into(), index)
-                    }));
+                    missing_utxos.extend(inputs.into_iter().map(
+                        |TransactionInput {
+                             transaction_id,
+                             index,
+                         }| {
+                            let tx_hash = *transaction_id;
+                            OutputRef::new((*tx_hash).into(), *index)
+                        },
+                    ));
                 }
             }
         }
@@ -174,11 +162,11 @@ impl TryFrom<RejectReasons> for HashSet<OutputRef> {
 }
 
 #[async_trait::async_trait]
-impl<const ERA: u16, Tx> Network<Tx, RejectReasons> for TxSubmissionChannel<ERA, Tx>
+impl<const ERA: u16, Tx> Network<Tx, TxRejection> for TxSubmissionChannel<ERA, Tx>
 where
     Tx: Send,
 {
-    async fn submit_tx(&mut self, tx: Tx) -> Result<(), RejectReasons> {
+    async fn submit_tx(&mut self, tx: Tx) -> Result<(), TxRejection> {
         let (snd, recv) = oneshot::channel();
         self.0.send(SubmitTx(tx, snd)).await.unwrap();
         recv.await.expect("Channel closed").into()
@@ -186,9 +174,9 @@ where
 }
 
 #[derive(Debug, Clone, derive_more::From)]
-pub struct RejectReasons(pub Option<ApplyTxError>);
+pub struct TxRejection(pub TxValidationError);
 
-impl Display for RejectReasons {
+impl Display for TxRejection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("{:?}", self).as_str())
     }
