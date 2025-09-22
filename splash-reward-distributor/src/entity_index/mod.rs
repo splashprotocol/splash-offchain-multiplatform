@@ -1,4 +1,5 @@
 pub(crate) mod chained_tx_graph;
+pub(crate) mod circular_buffer_rocksdb;
 pub(crate) mod rocksdb;
 
 use std::fmt::{Debug, Display};
@@ -15,6 +16,8 @@ use cml_chain::transaction::Transaction;
 use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, StreamExt};
+use rs_merkle::algorithms::Keccak256;
+use rs_merkle::{Hasher, MerkleTree};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::tx_view::TimedOutput;
@@ -134,7 +137,7 @@ pub enum Mod<T> {
 pub enum HarvestOrderStatus {
     Spent(Epoch),
     Unspent,
-    Refunded,
+    Refunded(Slot),
 }
 
 #[async_trait::async_trait]
@@ -154,27 +157,53 @@ where
         predicted_spend: &HarvestOrderSpend,
         time_millis: u64,
     );
-    async fn write_confirmed_spend_harvest_order(
+    async fn write_confirmed_spend_harvest_orders(
         &self,
-        id: StateId,
-        confirmed_spend: &HarvestOrderSpend,
+        orders: Vec<(StateId, HarvestOrderSpend)>,
         confirmed_slot: u64,
     );
-    async fn write_confirmed_refund_harvest_order(&self, id: StateId);
-    /// Used on rollback of a spent or refunded order
+    async fn write_confirmed_refund_harvest_order(&self, id: StateId, slot: Slot);
+    /// Used on rollback of a harvest-order TX.
+    async fn unconsume_confirmed_spent_harvest_orders(
+        &self,
+        spent_orders: Vec<(Ed25519KeyHash, StateId)>,
+        confirmed_slot: u64,
+    );
+    /// Used on rollback of a user-refunded order or a harvest-order TX that was dropped from
+    /// mempool.
     async fn unconsume_harvest_order(&self, id: StateId);
     /// Used on rollback of an unspent order
     async fn remove_created_harvest_order(&self, id: StateId);
     async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch>;
+    async fn last_confirmed_merkle_tree(&self) -> Option<IndexedMerkleTree>;
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IndexedMerkleTree {
+    pub tree: MerkleTree<Keccak256>,
+    pub slot: Slot,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HarvestOrderSpend {
     pub amount: u64,
     pub epoch_start: Epoch,
     pub epoch_end: Epoch,
     pub user: Ed25519KeyHash,
     pub reward_address: Address,
+}
+
+impl HarvestOrderSpend {
+    pub fn hash(&self) -> [u8; 32] {
+        use cml_crypto::RawBytesEncoding;
+        let mut data = self.amount.to_be_bytes().to_vec();
+        data.extend_from_slice(u64::from(self.epoch_start).to_be_bytes().as_ref());
+        data.extend_from_slice(u64::from(self.epoch_end).to_be_bytes().as_ref());
+        data.extend_from_slice(self.user.to_raw_bytes());
+        data.extend_from_slice(self.reward_address.to_raw_bytes().as_ref());
+
+        Keccak256::hash(&data)
+    }
 }
 
 pub async fn index_events<GaugeId, StateId, Bearer, I, F>(
@@ -218,6 +247,7 @@ where
                         assert!(epoch_end_inner > 0);
                         let epoch_end = Epoch::from(epoch_end_inner - 1);
 
+                        let mut orders = vec![];
                         for (harvest_order, SplashPayout(amount)) in payouts {
                             let epoch_start = indexer
                                 .last_epoch_harvested(harvest_order.account_key)
@@ -233,14 +263,11 @@ where
                                 user: harvest_order.account_key,
                                 reward_address: harvest_order.reward_receiver.to_address(network_id),
                             };
-                            indexer
-                                .write_confirmed_spend_harvest_order(
-                                    harvest_order.id,
-                                    &confirmed_spend,
-                                    *block_slot,
-                                )
-                                .await;
+                            orders.push((harvest_order.id, confirmed_spend));
                         }
+                        indexer
+                            .write_confirmed_spend_harvest_orders(orders, *block_slot)
+                            .await;
                     }
                     OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
@@ -283,7 +310,9 @@ where
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for id in harvest_ids {
-                            indexer.write_confirmed_refund_harvest_order(*id).await;
+                            indexer
+                                .write_confirmed_refund_harvest_order(*id, Slot(*block_slot))
+                                .await;
                         }
                     }
                     OnChainEvent::Funding(funding_updates) => {
@@ -313,6 +342,7 @@ where
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
                         for (harvest_order, _) in payouts {
                             indexer.unconsume_harvest_order(harvest_order.id).await;
+                            // TODO: bundle harvest orders together, form new method: unconsume_spent_harvest_orders()
                         }
                     }
                     OnChainEvent::BotGaugeBufferingAction {
