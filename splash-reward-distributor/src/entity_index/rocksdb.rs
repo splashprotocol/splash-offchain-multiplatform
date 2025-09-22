@@ -274,12 +274,7 @@ where
         })
     }
 
-    async fn write_predicted_spend_harvest_order(
-        &self,
-        id: StateId,
-        predicted_spend: &HarvestOrderSpend,
-        time_millis: u64,
-    ) {
+    async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend) {
         if let Some(AnyMod::Confirmed(Traced {
             prev_state_id,
             state: Confirmed(Bundled(mut harvest_order, bearer)),
@@ -825,10 +820,8 @@ mod tests {
                 user: key_hash,
                 reward_address,
             };
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_predicted_spend_harvest_order(
-                &db, id, &spend, 1000,
-            )
-            .await;
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_predicted_spend_harvest_order(&db, id, &spend)
+                .await;
             let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>> =
                 db.read_harvest_order(id).await.unwrap();
             let Mod::Predicted(Bundled((order, status), bearer)) = p else {

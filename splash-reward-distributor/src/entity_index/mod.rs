@@ -153,12 +153,7 @@ where
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn write_predicted_spend_harvest_order(
-        &self,
-        id: StateId,
-        predicted_spend: &HarvestOrderSpend,
-        time_millis: u64,
-    );
+    async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend);
     async fn write_confirmed_spend_harvest_orders(
         &self,
         orders: Vec<(StateId, HarvestOrderSpend)>,

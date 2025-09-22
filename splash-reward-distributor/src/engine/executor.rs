@@ -84,7 +84,6 @@ pub struct HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs> {
     pub predicted_harvest_order_spends: Vec<(StateId, HarvestOrderSpend)>,
     pub predicted_merkle_tree: MerkleTree<Keccak256>,
     pub resolved_tx: PartiallySignedTx<Tx, TxInputs>,
-    pub time_millis: u64,
 }
 
 pub struct BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs> {
@@ -429,16 +428,11 @@ where
                 .map(|(id, _)| (*id).into())
                 .collect();
 
-            let time_millis = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
             let output = HarvestFlowEntityUpdates {
                 predicted_buffer_wallet_update,
                 predicted_harvest_order_spends,
                 predicted_merkle_tree: batch.input_merkle_tree, // TODO: DEX-935
                 resolved_tx,
-                time_millis,
             };
 
             Ok(ExecutionResult {
@@ -1068,12 +1062,11 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
             predicted_buffer_wallet_update,
             predicted_harvest_order_spends,
             predicted_merkle_tree,
-            time_millis,
             ..
         }) => {
             for (output_ref, spend) in &predicted_harvest_order_spends {
                 onchain_index
-                    .write_predicted_spend_harvest_order(*output_ref, spend, time_millis)
+                    .write_predicted_spend_harvest_order(*output_ref, spend)
                     .await;
             }
 
