@@ -22,6 +22,7 @@ use spectrum_offchain::domain::{
     EntitySnapshot,
 };
 use splash_dao_offchain::routines::Slot;
+use splash_yf_offchain::entities::buffer_wallet::BufferWalletWrap;
 use splash_yf_offchain::Epoch;
 use tokio::task::spawn_blocking;
 
@@ -600,7 +601,7 @@ impl<StateId> unique_ids::UniqueId for HarvestOrderWrap<StateId> {
     const ID: &str = formatcp!("CF_{}", EntityId::HarvestOrder as u8);
 }
 
-impl<StateId> unique_ids::UniqueId for BufferWallet<StateId> {
+impl<StateId> unique_ids::UniqueId for BufferWalletWrap<StateId> {
     const ID: &str = formatcp!("CF_{}", EntityId::BufferWallet as u8);
 }
 
@@ -624,7 +625,7 @@ const CF_MERKLE_TREE_SNAPSHOTS: &str = "CF_5";
 
 pub(crate) const COLUMN_FAMILIES: [&str; 6] = [
     <HarvestOrderWrap<u8> as unique_ids::UniqueId>::ID,
-    <BufferWallet<u8> as unique_ids::UniqueId>::ID,
+    <BufferWalletWrap<u8> as unique_ids::UniqueId>::ID,
     <Gauge<u8, u8> as unique_ids::UniqueId>::ID,
     <AuthManager<u8, u8> as unique_ids::UniqueId>::ID,
     CF_HARVEST_ORDERS_EXTRA,
@@ -988,7 +989,11 @@ mod tests {
         HarvestOrderSpend,
     };
     use splash_yf_offchain::{
-        entities::{buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder},
+        entities::{
+            buffer_wallet::{BufferWallet, BufferWalletWrap},
+            gauge::Gauge,
+            harvest_order::HarvestOrder,
+        },
         Epoch,
     };
 
@@ -1232,22 +1237,24 @@ mod tests {
         let traced_wallet = mk_traced_predicted(buffer_wallet, 0, None);
         let mut wallet = traced_wallet.state.0.clone();
         db.write_predicted(traced_wallet.clone()).await;
-        let e: AnyMod<Bundled<BufferWallet<u32>, u32>> = db.read(id).await.unwrap();
+        let e: AnyMod<Bundled<BufferWalletWrap<u32>, u32>> = db.read(id).await.unwrap();
         assert!(matches!(e, AnyMod::Predicted(_)));
-        assert_eq!(e.erased(), traced_wallet.state.0);
+        let erased = e.erased();
+        assert_eq!(erased.1, traced_wallet.state.0 .1);
+        assert_eq!(erased.0.wallet, traced_wallet.state.0 .0.wallet);
 
         let mut expected_entities = vec![];
         for _ in 0..10 {
-            let prev_version = wallet.0.state_id;
-            wallet.0.state_id += 1;
+            let prev_version = wallet.0.wallet.state_id;
+            wallet.0.wallet.state_id += 1;
             let confirmed = mk_traced_confirmed(wallet.0.clone(), wallet.version(), Some(prev_version));
             expected_entities.push(confirmed.clone());
             db.write_confirmed(confirmed.clone()).await;
-            let e: AnyMod<Bundled<BufferWallet<u32>, u32>> = db.read(id).await.unwrap();
+            let e: AnyMod<Bundled<BufferWalletWrap<u32>, u32>> = db.read(id).await.unwrap();
             if let AnyMod::Confirmed(Traced { state, prev_state_id }) = e {
                 // This confirmed entity has same version as the previous predicted.
                 assert_eq!(prev_state_id, Some(prev_version));
-                assert_eq!(confirmed.state.0, state.0);
+                assert_eq!(confirmed.state.0 .0.wallet, state.0 .0.wallet);
             } else {
                 panic!("");
             }
@@ -1259,7 +1266,7 @@ mod tests {
         for expected_entity in expected_entities.into_iter().rev().skip(1) {
             assert_eq!(Some(expected_entity.state.0 .0.stable_id()), Some(id));
             dbg!(expected_entity.state.version());
-            let prev_ver = <IndexerDB as OnChainIndex<u32>>::remove::<BufferWallet<u32>>(
+            let prev_ver = <IndexerDB as OnChainIndex<u32>>::remove::<BufferWalletWrap<u32>>(
                 &db,
                 id,
                 expected_entity.state.version() + 1,
@@ -1267,10 +1274,10 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(prev_ver, expected_prev_version);
-            let e: AnyMod<Bundled<BufferWallet<u32>, u32>> = db.read(id).await.unwrap();
+            let e: AnyMod<Bundled<BufferWalletWrap<u32>, u32>> = db.read(id).await.unwrap();
             if let AnyMod::Confirmed(Traced { state, prev_state_id }) = e {
                 assert_eq!(prev_state_id, Some(expected_prev_version - 1));
-                assert_eq!(expected_entity.state.0, state.0);
+                assert_eq!(expected_entity.state.0 .0.wallet, state.0 .0.wallet);
             } else {
                 panic!("");
             }
@@ -1360,11 +1367,15 @@ mod tests {
         }
     }
 
-    fn mk_buffer_wallet() -> BufferWallet<u32> {
+    fn mk_buffer_wallet() -> BufferWalletWrap<u32> {
         let mut rng = rand::thread_rng();
-        BufferWallet {
+        let wallet = BufferWallet {
             state_id: rng.next_u32(),
             balance: 1_000_000,
+        };
+        BufferWalletWrap {
+            wallet,
+            predicted_merkle_tree: None,
         }
     }
 

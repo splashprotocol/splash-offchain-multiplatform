@@ -27,6 +27,8 @@ use log::{error, warn};
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
 };
+use rs_merkle::algorithms::Keccak256;
+use rs_merkle::MerkleTree;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -51,7 +53,7 @@ use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, Sp
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges};
 use splash_dao_offchain::GenesisEpochStartTime;
-use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
+use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletWrap};
 use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
 use splash_yf_offchain::events::EntityUpdated;
@@ -80,6 +82,7 @@ pub struct ExecutionResult<TaskId, Out> {
 pub struct HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs> {
     pub predicted_buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
     pub predicted_harvest_order_spends: Vec<(StateId, HarvestOrderSpend)>,
+    pub predicted_merkle_tree: MerkleTree<Keccak256>,
     pub resolved_tx: PartiallySignedTx<Tx, TxInputs>,
     pub time_millis: u64,
 }
@@ -140,8 +143,18 @@ where
         };
         let batch = if let Some(ref mut batch) = self.batch {
             batch
-        } else if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
-            self.batch.insert(HarvestBatch::new(bw))
+        } else if let Some(Bundled(wallet_wrap, tx_out)) = self.onchain_index.get_buffer_wallet().await {
+            let bundled = Bundled(wallet_wrap.wallet, tx_out);
+            let input_merkle_tree = if let Some(m) = wallet_wrap.predicted_merkle_tree {
+                m
+            } else {
+                self.onchain_index
+                    .last_confirmed_merkle_tree()
+                    .await
+                    .unwrap()
+                    .tree
+            };
+            self.batch.insert(HarvestBatch::new(bundled, input_merkle_tree))
         } else {
             error!("No buffer wallet found");
             return Control::Stop;
@@ -423,6 +436,7 @@ where
             let output = HarvestFlowEntityUpdates {
                 predicted_buffer_wallet_update,
                 predicted_harvest_order_spends,
+                predicted_merkle_tree: batch.input_merkle_tree, // TODO: DEX-935
                 resolved_tx,
                 time_millis,
             };
@@ -472,8 +486,9 @@ where
         let batch = if let Some(ref mut batch) = self.batch {
             batch
         } else if let Some(bw) = self.onchain_index.get_buffer_wallet().await {
+            let bundled = Bundled(bw.0.wallet, bw.1);
             if let Some(auth_manager) = self.onchain_index.get_auth_manager().await {
-                self.batch.insert(BufferingBatch::new(bw, auth_manager))
+                self.batch.insert(BufferingBatch::new(bundled, auth_manager))
             } else {
                 error!("No auth manager found");
                 return Control::Stop;
@@ -1052,6 +1067,7 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
         TypedExecutionUpdate::Harvesting(HarvestFlowEntityUpdates {
             predicted_buffer_wallet_update,
             predicted_harvest_order_spends,
+            predicted_merkle_tree,
             time_millis,
             ..
         }) => {
@@ -1063,10 +1079,14 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
 
             let EntityUpdated {
                 consumed,
-                created: (buffer_wallet, bearer),
+                created: (wallet, bearer),
             } = predicted_buffer_wallet_update.clone();
+            let wallet_wrap = BufferWalletWrap {
+                wallet,
+                predicted_merkle_tree: Some(predicted_merkle_tree),
+            };
             onchain_index
-                .write_predicted_buffer_wallet(Bundled(buffer_wallet, bearer), consumed)
+                .write_predicted_buffer_wallet(Bundled(wallet_wrap, bearer), consumed)
                 .await;
         }
         TypedExecutionUpdate::Buffering(BufferingFlowEntityUpdates {
@@ -1087,10 +1107,14 @@ async fn index_predicted_entities<StateId, GaugeId, Bearer, OnChainIndex, Fundin
 
             let EntityUpdated {
                 consumed,
-                created: (buffer_wallet, bearer),
+                created: (wallet, bearer),
             } = predicted_buffer_wallet_update.clone();
+            let wallet_wrap = BufferWalletWrap {
+                wallet,
+                predicted_merkle_tree: None,
+            };
             onchain_index
-                .write_predicted_buffer_wallet(Bundled(buffer_wallet, bearer), consumed)
+                .write_predicted_buffer_wallet(Bundled(wallet_wrap, bearer), consumed)
                 .await;
 
             if let Some(FundingBoxChanges {

@@ -37,7 +37,9 @@ use splash_dao_offchain::protocol_config::{
 use splash_dao_offchain::routines::{slot_to_epoch, Slot, TimedOutputRef};
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::auth_manager::{AuthManager, AuthManagerId};
-use splash_yf_offchain::entities::buffer_wallet::{try_extract_buffer_wallet, BufferWallet, BufferWalletId};
+use splash_yf_offchain::entities::buffer_wallet::{
+    try_extract_buffer_wallet, BufferWallet, BufferWalletId, BufferWalletWrap,
+};
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
 use splash_yf_offchain::entities::gauge::{try_extract_gauge, Gauge, UpdatedGauges};
 use splash_yf_offchain::entities::harvest_order::{try_extract_harvest_order, HarvestOrder};
@@ -48,15 +50,15 @@ use type_equalities::IsEqual;
 
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {
-    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>>;
+    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWalletWrap<StateId>, Bearer>>;
     async fn write_confirmed_buffer_wallet(
         &self,
-        bundle: Bundled<BufferWallet<StateId>, Bearer>,
+        bundle: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     );
     async fn write_predicted_buffer_wallet(
         &self,
-        bundle: Bundled<BufferWallet<StateId>, Bearer>,
+        bundle: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     );
     async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId>;
@@ -236,7 +238,11 @@ where
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
-                        let (entity, bearer) = buffer_wallet_update.created.clone();
+                        let (wallet, bearer) = buffer_wallet_update.created.clone();
+                        let entity = BufferWalletWrap {
+                            wallet,
+                            predicted_merkle_tree: None,
+                        };
                         let bundled = Bundled(entity, bearer);
                         indexer
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
@@ -276,7 +282,11 @@ where
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
-                        let (entity, bearer) = buffer_wallet_update.created.clone();
+                        let (wallet, bearer) = buffer_wallet_update.created.clone();
+                        let entity = BufferWalletWrap {
+                            wallet,
+                            predicted_merkle_tree: None,
+                        };
                         let bundled = Bundled(entity, bearer);
                         indexer
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
@@ -489,8 +499,8 @@ where
     StateId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
     Bearer: Serialize + DeserializeOwned + Send + 'static,
 {
-    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>> {
-        self.read::<BufferWallet<_>>(BufferWalletId)
+    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWalletWrap<StateId>, Bearer>> {
+        self.read::<BufferWalletWrap<_>>(BufferWalletId)
             .await
             .map(|bw| match bw {
                 AnyMod::Confirmed(Traced {
@@ -504,7 +514,7 @@ where
 
     async fn write_confirmed_buffer_wallet(
         &self,
-        bundled: Bundled<BufferWallet<StateId>, Bearer>,
+        bundled: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     ) {
         let traced = Traced::new(Confirmed(bundled), prev_state_id);
@@ -513,7 +523,7 @@ where
 
     async fn write_predicted_buffer_wallet(
         &self,
-        bundled: Bundled<BufferWallet<StateId>, Bearer>,
+        bundled: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     ) {
         let traced = Traced::new(Predicted(bundled), prev_state_id);
@@ -521,7 +531,7 @@ where
     }
 
     async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId> {
-        self.remove::<BufferWallet<_>>(BufferWalletId, id).await
+        self.remove::<BufferWalletWrap<_>>(BufferWalletId, id).await
     }
 }
 
