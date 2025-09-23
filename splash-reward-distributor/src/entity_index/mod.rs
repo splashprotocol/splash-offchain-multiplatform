@@ -4,18 +4,23 @@ pub(crate) mod rocksdb;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
+use crate::accounts::{Accounts, PositionIndex};
 use crate::entity_index::rocksdb::OnChainIndex;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cardano_chain_sync::atomic_flow::BlockEvents;
+use cml_chain::address::Address;
+use cml_chain::certs::Credential;
 use cml_chain::transaction::Transaction;
 use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{SinkExt, StreamExt};
+use rs_merkle::algorithms::Keccak256;
+use rs_merkle::{Hasher, MerkleTree};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::tx_view::TimedOutput;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -28,27 +33,31 @@ use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
-use splash_dao_offchain::routines::{Slot, TimedOutputRef};
+use splash_dao_offchain::routines::{slot_to_epoch, Slot, TimedOutputRef};
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::auth_manager::{AuthManager, AuthManagerId};
-use splash_yf_offchain::entities::buffer_wallet::{try_extract_buffer_wallet, BufferWallet, BufferWalletId};
+use splash_yf_offchain::entities::buffer_wallet::{
+    try_extract_buffer_wallet, BufferWallet, BufferWalletId, BufferWalletWrap,
+};
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
 use splash_yf_offchain::entities::gauge::{try_extract_gauge, Gauge, UpdatedGauges};
 use splash_yf_offchain::entities::harvest_order::{try_extract_harvest_order, HarvestOrder};
-use splash_yf_offchain::events::OnChainEvent;
+use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use splash_yf_offchain::Epoch;
 use type_equalities::IsEqual;
 
 #[async_trait]
 pub trait BufferWalletIndex<StateId, Bearer> {
-    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>>;
+    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWalletWrap<StateId>, Bearer>>;
     async fn write_confirmed_buffer_wallet(
         &self,
-        bundle: Bundled<BufferWallet<StateId>, Bearer>,
+        bundle: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     );
     async fn write_predicted_buffer_wallet(
         &self,
-        bundle: Bundled<BufferWallet<StateId>, Bearer>,
+        bundle: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     );
     async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId>;
@@ -127,9 +136,9 @@ pub enum Mod<T> {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum HarvestOrderStatus {
-    Spent,
+    Spent(Epoch),
     Unspent,
-    Refunded,
+    Refunded(Slot),
 }
 
 #[async_trait::async_trait]
@@ -143,19 +152,62 @@ where
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
-    async fn write_predicted_spend_harvest_order(&self, id: StateId);
-    async fn write_confirmed_spend_harvest_order(&self, id: StateId);
-    async fn write_confirmed_refund_harvest_order(&self, id: StateId);
-    /// Used on rollback of a spent or refunded order
+    async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend);
+    async fn write_confirmed_spend_harvest_orders(
+        &self,
+        orders: Vec<(StateId, HarvestOrderSpend)>,
+        confirmed_slot: u64,
+    );
+    async fn write_confirmed_refund_harvest_order(&self, id: StateId, slot: Slot);
+    /// Used on rollback of a harvest-order TX.
+    async fn unconsume_confirmed_spent_harvest_orders(
+        &self,
+        spent_orders: Vec<(Ed25519KeyHash, StateId)>,
+        confirmed_slot: u64,
+    );
+    /// Used on rollback of a user-refunded order or a harvest-order TX that was dropped from
+    /// mempool.
     async fn unconsume_harvest_order(&self, id: StateId);
     /// Used on rollback of an unspent order
     async fn remove_created_harvest_order(&self, id: StateId);
+    async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch>;
+    async fn last_confirmed_merkle_tree(&self) -> Option<IndexedMerkleTree>;
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct IndexedMerkleTree {
+    pub tree: MerkleTree<Keccak256>,
+    pub slot: Slot,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HarvestOrderSpend {
+    pub amount: u64,
+    pub epoch_start: Epoch,
+    pub epoch_end: Epoch,
+    pub user: Ed25519KeyHash,
+    pub reward_address: Address,
+}
+
+impl HarvestOrderSpend {
+    pub fn hash(&self) -> [u8; 32] {
+        use cml_crypto::RawBytesEncoding;
+        let mut data = self.amount.to_be_bytes().to_vec();
+        data.extend_from_slice(u64::from(self.epoch_start).to_be_bytes().as_ref());
+        data.extend_from_slice(u64::from(self.epoch_end).to_be_bytes().as_ref());
+        data.extend_from_slice(self.user.to_raw_bytes());
+        data.extend_from_slice(self.reward_address.to_raw_bytes().as_ref());
+
+        Keccak256::hash(&data)
+    }
 }
 
 pub async fn index_events<GaugeId, StateId, Bearer, I, F>(
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
     indexer: &I,
     funding: &F,
+    genesis_start_time: GenesisEpochStartTime,
+    network_id: NetworkId,
 ) -> BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>
 where
     GaugeId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
@@ -168,7 +220,9 @@ where
     F: FundingRepo + Clone,
 {
     match &events {
-        BlockEvents::RollForward { events, .. } => {
+        BlockEvents::RollForward {
+            events, block_slot, ..
+        } => {
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction {
@@ -178,17 +232,42 @@ where
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
-                        let (entity, bearer) = buffer_wallet_update.created.clone();
+                        let (wallet, bearer) = buffer_wallet_update.created.clone();
+                        let entity = BufferWalletWrap {
+                            wallet,
+                            predicted_merkle_tree: None,
+                        };
                         let bundled = Bundled(entity, bearer);
                         indexer
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
                             .await;
 
-                        for (harvest_order, _) in payouts {
-                            indexer
-                                .write_confirmed_spend_harvest_order(harvest_order.id)
-                                .await;
+                        let epoch_end_inner =
+                            slot_to_epoch(*block_slot, genesis_start_time, network_id).0 as u64;
+                        assert!(epoch_end_inner > 0);
+                        let epoch_end = Epoch::from(epoch_end_inner - 1);
+
+                        let mut orders = vec![];
+                        for (harvest_order, SplashPayout(amount)) in payouts {
+                            let epoch_start = indexer
+                                .last_epoch_harvested(harvest_order.account_key)
+                                .await
+                                .map(|e| e.next())
+                                .unwrap_or(Epoch::from(0));
+                            assert!(epoch_start <= epoch_end);
+
+                            let confirmed_spend = HarvestOrderSpend {
+                                amount: *amount,
+                                epoch_start,
+                                epoch_end,
+                                user: harvest_order.account_key,
+                                reward_address: harvest_order.reward_receiver.to_address(network_id),
+                            };
+                            orders.push((harvest_order.id, confirmed_spend));
                         }
+                        indexer
+                            .write_confirmed_spend_harvest_orders(orders, *block_slot)
+                            .await;
                     }
                     OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
@@ -197,7 +276,11 @@ where
                     } => {
                         // Index new buffer_wallet state
                         let prev_state_id = buffer_wallet_update.consumed;
-                        let (entity, bearer) = buffer_wallet_update.created.clone();
+                        let (wallet, bearer) = buffer_wallet_update.created.clone();
+                        let entity = BufferWalletWrap {
+                            wallet,
+                            predicted_merkle_tree: None,
+                        };
                         let bundled = Bundled(entity, bearer);
                         indexer
                             .write_confirmed_buffer_wallet(bundled, prev_state_id)
@@ -231,7 +314,9 @@ where
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for id in harvest_ids {
-                            indexer.write_confirmed_refund_harvest_order(*id).await;
+                            indexer
+                                .write_confirmed_refund_harvest_order(*id, Slot(*block_slot))
+                                .await;
                         }
                     }
                     OnChainEvent::Funding(funding_updates) => {
@@ -247,7 +332,9 @@ where
                 }
             }
         }
-        BlockEvents::RollBackward { events, .. } => {
+        BlockEvents::RollBackward {
+            events, block_slot, ..
+        } => {
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction {
@@ -259,9 +346,13 @@ where
                             .remove_buffer_wallet(buffer_wallet_update.created.0.state_id)
                             .await;
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
-                        for (harvest_order, _) in payouts {
-                            indexer.unconsume_harvest_order(harvest_order.id).await;
-                        }
+                        let spent_orders: Vec<_> = payouts
+                            .iter()
+                            .map(|(order, _)| (order.account_key, order.id))
+                            .collect();
+                        indexer
+                            .unconsume_confirmed_spent_harvest_orders(spent_orders, *block_slot)
+                            .await;
                     }
                     OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
@@ -407,8 +498,8 @@ where
     StateId: Send + Sync + Debug + Display + Copy + Hash + Serialize + DeserializeOwned + Eq + 'static,
     Bearer: Serialize + DeserializeOwned + Send + 'static,
 {
-    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWallet<StateId>, Bearer>> {
-        self.read::<BufferWallet<_>>(BufferWalletId)
+    async fn get_buffer_wallet(&self) -> Option<Bundled<BufferWalletWrap<StateId>, Bearer>> {
+        self.read::<BufferWalletWrap<_>>(BufferWalletId)
             .await
             .map(|bw| match bw {
                 AnyMod::Confirmed(Traced {
@@ -422,7 +513,7 @@ where
 
     async fn write_confirmed_buffer_wallet(
         &self,
-        bundled: Bundled<BufferWallet<StateId>, Bearer>,
+        bundled: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     ) {
         let traced = Traced::new(Confirmed(bundled), prev_state_id);
@@ -431,7 +522,7 @@ where
 
     async fn write_predicted_buffer_wallet(
         &self,
-        bundled: Bundled<BufferWallet<StateId>, Bearer>,
+        bundled: Bundled<BufferWalletWrap<StateId>, Bearer>,
         prev_state_id: Option<StateId>,
     ) {
         let traced = Traced::new(Predicted(bundled), prev_state_id);
@@ -439,7 +530,7 @@ where
     }
 
     async fn remove_buffer_wallet(&self, id: StateId) -> Option<StateId> {
-        self.remove::<BufferWallet<_>>(BufferWalletId, id).await
+        self.remove::<BufferWalletWrap<_>>(BufferWalletId, id).await
     }
 }
 

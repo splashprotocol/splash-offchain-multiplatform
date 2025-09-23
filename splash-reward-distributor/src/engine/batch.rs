@@ -1,20 +1,29 @@
 use bloom_offchain::execution_engine::bundled::Bundled;
+use rs_merkle::algorithms::Keccak256;
+use rs_merkle::MerkleTree;
 use splash_yf_offchain::entities::auth_manager::AuthManager;
 use splash_yf_offchain::entities::buffer_wallet::BufferWallet;
 use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::HarvestOrder;
 
-#[derive(Debug, Clone, PartialEq)]
+use crate::entity_index::HarvestOrderSpend;
+
+#[derive(Clone)]
 pub struct HarvestBatch<StateId, Bearer> {
     pub buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
-    pub orders: Vec<OrderWithPayout<StateId, Bearer>>,
+    pub orders: Vec<OrderWithSpendDetails<StateId, Bearer>>,
+    pub input_merkle_tree: MerkleTree<Keccak256>,
     pub total_payout: u64,
 }
 
 impl<StateId, Bearer> HarvestBatch<StateId, Bearer> {
-    pub fn new(buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>) -> Self {
+    pub fn new(
+        buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
+        input_merkle_tree: MerkleTree<Keccak256>,
+    ) -> Self {
         Self {
             buffer_wallet,
+            input_merkle_tree,
             orders: vec![],
             total_payout: 0,
         }
@@ -24,17 +33,16 @@ impl<StateId, Bearer> HarvestBatch<StateId, Bearer> {
         self.total_payout + payout <= self.buffer_wallet.0.balance
     }
 
-    pub fn add_order(&mut self, order: Bundled<HarvestOrder<StateId>, Bearer>, payout: u64) {
-        let order = OrderWithPayout { order, payout };
+    pub fn add_order(&mut self, order: OrderWithSpendDetails<StateId, Bearer>) {
+        self.total_payout += order.spend.amount;
         self.orders.push(order);
-        self.total_payout += payout;
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct OrderWithPayout<StateId, Bearer> {
-    pub order: Bundled<HarvestOrder<StateId>, Bearer>,
-    pub payout: u64,
+pub struct OrderWithSpendDetails<StateId, Bearer> {
+    pub order_bundle: Bundled<HarvestOrder<StateId>, Bearer>,
+    pub spend: HarvestOrderSpend,
 }
 
 #[derive(Debug, Clone, PartialEq)]

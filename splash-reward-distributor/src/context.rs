@@ -7,6 +7,7 @@ use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::protocol_config::BufferWalletScript;
 use splash_dao_offchain::protocol_config::{OperatorCreds, PermManagerAuthPolicy, SplashPolicy};
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use type_equalities::IsEqual;
 
@@ -73,5 +74,11 @@ impl Has<SplashPolicy> for RuntimeContext {
 impl Has<PermManagerAuthPolicy> for RuntimeContext {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         todo!()
+    }
+}
+
+impl Has<GenesisEpochStartTime> for RuntimeContext {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+        todo!() // TODO: fix DEX-935
     }
 }

@@ -27,6 +27,7 @@ pub struct AppConfig {
     pub event_cache_ttl: Duration,
     pub tx_submission_buffer_size: usize,
     pub verifier_url: String,
+    pub max_number_merkle_tree_snapshots: u8,
 }
 
 #[derive(serde::Deserialize)]

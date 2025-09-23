@@ -4,6 +4,7 @@ use std::hash::Hash;
 use cml_chain::{certs::StakeCredential, transaction::TransactionOutput};
 use cml_crypto::ScriptHash;
 use derive_more::From;
+use rs_merkle::{algorithms::Keccak256, MerkleTree};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
     output::FinalizedTxOut,
@@ -45,7 +46,15 @@ pub struct BufferWallet<StateId> {
     pub balance: u64,
 }
 
-impl<StateId> Stable for BufferWallet<StateId> {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BufferWalletWrap<StateId> {
+    pub wallet: BufferWallet<StateId>,
+    /// If the associated `BufferWallet` instance is predicted (i.e. not yet confirmed on-chain),
+    /// this field will store the computed Merkle-tree.
+    pub predicted_merkle_tree: Option<MerkleTree<Keccak256>>,
+}
+
+impl<StateId> Stable for BufferWalletWrap<StateId> {
     type StableId = BufferWalletId;
 
     fn stable_id(&self) -> Self::StableId {
@@ -57,14 +66,14 @@ impl<StateId> Stable for BufferWallet<StateId> {
     }
 }
 
-impl<StateId> EntitySnapshot for BufferWallet<StateId>
+impl<StateId> EntitySnapshot for BufferWalletWrap<StateId>
 where
     StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
 {
     type Version = StateId;
 
     fn version(&self) -> Self::Version {
-        self.state_id
+        self.wallet.state_id
     }
 }
 

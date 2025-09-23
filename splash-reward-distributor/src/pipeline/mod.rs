@@ -1,5 +1,6 @@
 mod confirm_txs;
 
+use crate::accounts::Accounts;
 use crate::entity_index::{index_events, AuthManagerIndex, BufferWalletIndex, GaugeIndex, HarvestOrderIndex};
 use crate::pipeline::confirm_txs::forward_confirmed_txs;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
@@ -22,6 +23,7 @@ use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
     BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::events::OnChainEvent;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::collections::HashSet;
@@ -60,6 +62,7 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
         + Has<NetworkId>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
+        + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>,
     I: HarvestOrderIndex<OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
@@ -72,7 +75,10 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
         let (block, tx_handle) = upstream.select_next_some().await;
         forward_confirmed_txs(&block, confirmed_txs.clone()).await;
         let batch = read_events(block, &context, &utxos, &utxo_filter).await;
-        let batch = index_events(batch, &indexer, &funding).await;
+
+        let genesis_start_time = context.select::<GenesisEpochStartTime>();
+        let network_id = context.select::<NetworkId>();
+        let batch = index_events(batch, &indexer, &funding, genesis_start_time, network_id).await;
         let _ = sink.send((batch, tx_handle)).await;
     }
 }
