@@ -313,7 +313,7 @@ where
                 let current_epoch = confirmed_spend.epoch_end.next();
                 assert!(u64::from(current_epoch) > 0);
 
-                user_end_epochs.push((confirmed_spend.user, Epoch::from(u64::from(current_epoch) - 1)));
+                user_end_epochs.push((confirmed_spend.user, confirmed_spend.epoch_end));
                 if let Some(any_mod) = read_inner::<HarvestOrderWrap<StateId>, _>(id, &tx, cf) {
                     match any_mod {
                         AnyMod::Confirmed(Traced {
@@ -766,12 +766,8 @@ fn prev_version_key<Id: Serialize, Ver: Serialize>(id: &Id, ver: &Ver) -> Vec<u8
 mod tests {
 
     use bloom_offchain::execution_engine::bundled::Bundled;
-    use cml_chain::{
-        address::{Address, RewardAddress},
-        certs::StakeCredential,
-        NetworkId,
-    };
-    use cml_crypto::{Ed25519KeyHash, PublicKey, RawBytesEncoding};
+    use cml_chain::{address::RewardAddress, certs::StakeCredential};
+    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
     use rand::{Rng, RngCore};
     use rs_merkle::{algorithms::Keccak256, MerkleTree};
     use spectrum_cardano_lib::address::{PlutusAddress, PlutusCredential};
