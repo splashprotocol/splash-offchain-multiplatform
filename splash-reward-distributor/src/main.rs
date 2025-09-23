@@ -101,7 +101,10 @@ async fn main() {
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
     let position_index = PositionIndex::new();
-    let onchain_index = IndexerDB::new(config.onchain_index_db_path);
+    let onchain_index = IndexerDB::new(
+        config.onchain_index_db_path,
+        config.max_number_merkle_tree_snapshots,
+    );
     let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
     let verifier = HttpVerifier::new(config.verifier_url);
     let ctx = RuntimeContext {};

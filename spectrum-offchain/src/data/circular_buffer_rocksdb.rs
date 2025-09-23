@@ -1,3 +1,6 @@
+//! Circular buffer implementation in RocksDB. For flexibility the store is embedded within a
+//! provided `ColumnFamily`. Uses wrapping addition/subtraction on the start and end indexes, so
+//! we don't need to worry about integer overflow.
 use std::{fmt::Display, sync::Arc};
 
 use num::{
@@ -38,6 +41,8 @@ where
     false
 }
 
+/// Pushes an element to the back of the buffer.
+/// Note: we don't call `tx.commit()`.
 pub fn buffer_push_back<Ix, T>(t: &T, capacity: Ix, tx: &Transaction<TransactionDB>, cf: &ColumnFamily)
 where
     Ix: Display + Unsigned + Integer + Into<u128> + Copy + FromBeBytes + Bounded + WrappingSub + WrappingAdd,
@@ -73,6 +78,7 @@ where
     }
 }
 
+/// Returns the last element of the buffer. Note that the buffer is not modified.
 pub fn buffer_read_back<Ix, T>(db: &Arc<TransactionDB>, cf: &ColumnFamily) -> Option<T>
 where
     Ix: Unsigned
@@ -103,6 +109,7 @@ where
     }
 }
 
+/// Removes and returns the last element of the buffer.
 pub fn buffer_pop_back<Ix, T>(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<T>
 where
     Ix: Unsigned

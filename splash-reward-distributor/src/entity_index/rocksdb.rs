@@ -29,9 +29,7 @@ use tokio::task::spawn_blocking;
 
 use crate::entity_index::rocksdb::unique_ids::UniqueId;
 use crate::entity_index::{HarvestOrderIndex, HarvestOrderSpend, HarvestOrderStatus, IndexedMerkleTree, Mod};
-use splash_yf_offchain::entities::{
-    auth_manager::AuthManager, buffer_wallet::BufferWallet, gauge::Gauge, harvest_order::HarvestOrder,
-};
+use splash_yf_offchain::entities::{auth_manager::AuthManager, gauge::Gauge, harvest_order::HarvestOrder};
 
 #[async_trait::async_trait]
 pub trait OnChainIndex<Bearer>
@@ -64,6 +62,7 @@ where
 #[derive(Clone)]
 pub struct IndexerDB {
     pub db: Arc<TransactionDB>,
+    max_number_merkle_tree_snapshots: u8,
 }
 
 const LATEST_VERSION_PREFIX: &str = "id:";
@@ -72,7 +71,7 @@ const PREVIOUS_VERSION_PREFIX: &str = "p_id:";
 const STATE_PREFIX: &str = "s:";
 
 impl IndexerDB {
-    pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(db_path: P, max_number_merkle_tree_snapshots: u8) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
@@ -88,10 +87,18 @@ impl IndexerDB {
         };
         if new_store {
             let tx = db.transaction();
-            buffer_push_back::<u8, IndexedMerkleTree>(&indexed_tree, 20, &tx, merkle_snapshot_cf);
+            buffer_push_back::<u8, IndexedMerkleTree>(
+                &indexed_tree,
+                max_number_merkle_tree_snapshots,
+                &tx,
+                merkle_snapshot_cf,
+            );
             tx.commit().unwrap();
         }
-        Self { db }
+        Self {
+            db,
+            max_number_merkle_tree_snapshots,
+        }
     }
 }
 
@@ -295,7 +302,7 @@ where
         confirmed_slot: u64,
     ) {
         let db = self.db.clone();
-
+        let max_number_merkle_tree_snapshots = self.max_number_merkle_tree_snapshots;
         spawn_blocking(move || {
             let tx = db.transaction();
             let cf = db.cf_handle(HarvestOrderWrap::<StateId>::ID).unwrap();
@@ -336,10 +343,10 @@ where
             }
 
             let merkle_snapshot_cf = db.cf_handle(CF_MERKLE_TREE_SNAPSHOTS).unwrap();
-            let harvest_orders_extra_cf = db.cf_handle(CF_HARVEST_ORDERS_EXTRA).unwrap();
+            let harvest_orders_ending_epoch_cf = db.cf_handle(CF_HARVEST_ORDERS_ENDING_EPOCH).unwrap();
 
             for (user_key_hash, epoch) in user_end_epochs {
-                add_confirmed_harvest_epoch_end(user_key_hash, epoch, &tx, harvest_orders_extra_cf);
+                add_confirmed_harvest_epoch_end(user_key_hash, epoch, &tx, harvest_orders_ending_epoch_cf);
             }
 
             let mut tree = buffer_read_back::<u8, IndexedMerkleTree>(&db, merkle_snapshot_cf)
@@ -351,7 +358,12 @@ where
                 tree,
                 slot: Slot(confirmed_slot),
             };
-            buffer_push_back::<u8, IndexedMerkleTree>(&indexed_tree, 20, &tx, merkle_snapshot_cf);
+            buffer_push_back::<u8, IndexedMerkleTree>(
+                &indexed_tree,
+                max_number_merkle_tree_snapshots,
+                &tx,
+                merkle_snapshot_cf,
+            );
             tx.commit().unwrap();
         })
         .await
@@ -427,9 +439,9 @@ where
             let indexed_tree = buffer_pop_back::<u8, IndexedMerkleTree>(&tx, merkle_snapshot_cf).unwrap();
             assert_eq!(indexed_tree.slot.0, confirmed_slot);
 
-            let harvest_orders_extra_cf = db.cf_handle(CF_HARVEST_ORDERS_EXTRA).unwrap();
+            let harvest_orders_ending_epoch_cf = db.cf_handle(CF_HARVEST_ORDERS_ENDING_EPOCH).unwrap();
             for (user_key_hash, _) in order_ids {
-                remove_last_confirmed_harvest_epoch_end(user_key_hash, &tx, harvest_orders_extra_cf);
+                remove_last_confirmed_harvest_epoch_end(user_key_hash, &tx, harvest_orders_ending_epoch_cf);
             }
             tx.commit().unwrap()
         })
@@ -475,7 +487,7 @@ where
     async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch> {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let cf = db.cf_handle(CF_HARVEST_ORDERS_EXTRA).unwrap();
+            let cf = db.cf_handle(CF_HARVEST_ORDERS_ENDING_EPOCH).unwrap();
             let mut key = LAST_CONFIRMED_HARVESTED_EPOCH_PREFIX.as_bytes().to_vec();
             key.extend_from_slice(user.to_raw_bytes());
             db.get_cf(cf, key)
@@ -657,12 +669,9 @@ impl<GaugeId, StateId> unique_ids::UniqueId for AuthManager<GaugeId, StateId> {
     const ID: &str = formatcp!("CF_{}", EntityId::AuthManager as u8);
 }
 
-/// Column family ID for ancillary harvest order data:
-/// 1. Each user's wallet public key key_hash is mapped to the last epoch for which they have
-///    harvested SPLASH rewards.
-/// 2. An ordered sequence of processed harvest orders. This is needed to compute the merkle
-///    tree.
-const CF_HARVEST_ORDERS_EXTRA: &str = "CF_4";
+/// Column family ID for a store that maps each user's wallet public key key_hash to the last epoch
+/// for which they have harvested SPLASH rewards.
+const CF_HARVEST_ORDERS_ENDING_EPOCH: &str = "CF_4";
 
 /// Store of the last N merkle trees, indexed by block slot.
 const CF_MERKLE_TREE_SNAPSHOTS: &str = "CF_5";
@@ -672,7 +681,7 @@ pub(crate) const COLUMN_FAMILIES: [&str; 6] = [
     <BufferWalletWrap<u8> as unique_ids::UniqueId>::ID,
     <Gauge<u8, u8> as unique_ids::UniqueId>::ID,
     <AuthManager<u8, u8> as unique_ids::UniqueId>::ID,
-    CF_HARVEST_ORDERS_EXTRA,
+    CF_HARVEST_ORDERS_ENDING_EPOCH,
     CF_MERKLE_TREE_SNAPSHOTS,
 ];
 
@@ -784,6 +793,8 @@ mod tests {
         },
         Epoch,
     };
+
+    const CAPACITY: u8 = 20;
 
     #[tokio::test]
     async fn test_state_harvest_orders() {
@@ -1190,7 +1201,7 @@ mod tests {
     fn spawn_db() -> IndexerDB {
         let rnd = rand::thread_rng().next_u32();
         let db_path = format!("./tmp/{}", rnd);
-        IndexerDB::new(db_path)
+        IndexerDB::new(db_path, CAPACITY)
     }
 
     fn predicted<T>(t: T, bearer: u32) -> Predicted<Bundled<T, u32>> {
