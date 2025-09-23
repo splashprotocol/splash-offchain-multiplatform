@@ -35,7 +35,6 @@ tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
 log4rs = "1.2.0"
 async-trait = "0.1.58"
-num = "0.4.3"
 pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
 petgraph = { version = "0.8.2", features = ["serde-1"]}
 type-equalities = "0.3.1"

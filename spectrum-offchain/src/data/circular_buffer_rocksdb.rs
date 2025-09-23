@@ -280,7 +280,7 @@ mod tests {
     use rand::RngCore;
     use rocksdb::{Options, TransactionDB, TransactionDBOptions};
 
-    use crate::entity_index::circular_buffer_rocksdb::{
+    use crate::data::circular_buffer_rocksdb::{
         buffer_debug, buffer_init, buffer_pop_back, buffer_push_back, buffer_read_all, buffer_read_back,
         BufferDebugInfo,
     };

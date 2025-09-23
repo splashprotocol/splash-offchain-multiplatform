@@ -1,5 +1,4 @@
 pub(crate) mod chained_tx_graph;
-pub(crate) mod circular_buffer_rocksdb;
 pub(crate) mod rocksdb;
 
 use std::fmt::{Debug, Display};
