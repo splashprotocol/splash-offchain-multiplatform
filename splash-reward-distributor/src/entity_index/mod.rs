@@ -332,7 +332,9 @@ where
                 }
             }
         }
-        BlockEvents::RollBackward { events, .. } => {
+        BlockEvents::RollBackward {
+            events, block_slot, ..
+        } => {
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction {
@@ -344,10 +346,13 @@ where
                             .remove_buffer_wallet(buffer_wallet_update.created.0.state_id)
                             .await;
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
-                        for (harvest_order, _) in payouts {
-                            indexer.unconsume_harvest_order(harvest_order.id).await;
-                            // TODO: bundle harvest orders together, form new method: unconsume_spent_harvest_orders()
-                        }
+                        let spent_orders: Vec<_> = payouts
+                            .iter()
+                            .map(|(order, _)| (order.account_key, order.id))
+                            .collect();
+                        indexer
+                            .unconsume_confirmed_spent_harvest_orders(spent_orders, *block_slot)
+                            .await;
                     }
                     OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
