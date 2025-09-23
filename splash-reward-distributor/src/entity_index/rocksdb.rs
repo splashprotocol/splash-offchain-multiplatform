@@ -433,7 +433,6 @@ where
                 unconsume_harvest_order_inner::<StateId, Bearer>(*id, &tx, cf);
             }
             let merkle_snapshot_cf = db.cf_handle(CF_MERKLE_TREE_SNAPSHOTS).unwrap();
-            let tx = db.transaction();
 
             // Remove last merkle tree.
             let indexed_tree = buffer_pop_back::<u8, IndexedMerkleTree>(&tx, merkle_snapshot_cf).unwrap();
