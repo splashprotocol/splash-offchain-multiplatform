@@ -83,7 +83,7 @@ impl IndexerDB {
         let new_store = buffer_init::<u8>(&db, merkle_snapshot_cf);
         let indexed_tree = IndexedMerkleTree {
             tree: MerkleTree::new(),
-            slot: Slot(0), // TODO: fix with deployment
+            slot: Slot(0), // TODO: fix with deployment (DEX-935)
         };
         if new_store {
             let tx = db.transaction();
