@@ -815,8 +815,6 @@ mod tests {
             assert_eq!(expected, p);
         }
 
-        let epoch = Epoch::from(0);
-
         // Spend
         for h in &orders {
             let id = h.1;
@@ -966,7 +964,7 @@ mod tests {
             assert_eq!(h.1, bearer);
         }
 
-        // rollback
+        // Rollback the spending
         <IndexerDB as HarvestOrderIndex<u32, u32>>::unconsume_confirmed_spent_harvest_orders(
             &db,
             spent_orders,
@@ -985,45 +983,42 @@ mod tests {
             assert!(end_epoch.is_none());
         }
 
-        //let unconsume_orders = || async {
-        //    for i in 0..n {
-        //        <IndexerDB as HarvestOrderIndex<u32, u32>>::unconsume_harvest_order(&db, i).await;
-        //        let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
-        //            db.read_harvest_order(i).await.unwrap();
-        //        let Bundled(order, bearer) = orders[i as usize].clone();
-        //        let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Unspent), bearer));
-        //        assert_eq!(expected, p);
-        //    }
-        //};
+        // Refund
+        for i in 0..n {
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(
+                &db,
+                i,
+                Slot(1000),
+            )
+            .await;
+            let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
+                db.read_harvest_order(i).await.unwrap();
+            let Bundled(order, bearer) = orders[i as usize].clone();
+            let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Refunded(Slot(1000))), bearer));
+            assert_eq!(expected, p);
+        }
 
-        //// Undo the spending
-        //unconsume_orders().await;
-
-        //// Refund
-        //for i in 0..n {
-        //    <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(
-        //        &db,
-        //        i,
-        //        Slot(1000),
-        //    )
-        //    .await;
-        //    let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
-        //        db.read_harvest_order(i).await.unwrap();
-        //    let Bundled(order, bearer) = orders[i as usize].clone();
-        //    let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Refunded(Slot(1000))), bearer));
-        //    assert_eq!(expected, p);
-        //}
+        let unconsume_orders = || async {
+            for i in 0..n {
+                <IndexerDB as HarvestOrderIndex<u32, u32>>::unconsume_harvest_order(&db, i).await;
+                let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
+                    db.read_harvest_order(i).await.unwrap();
+                let Bundled(order, bearer) = orders[i as usize].clone();
+                let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Unspent), bearer));
+                assert_eq!(expected, p);
+            }
+        };
 
         //// Undo the refunds
-        //unconsume_orders().await;
+        unconsume_orders().await;
 
-        //// Remove the orders
-        //for i in 0..n {
-        //    <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i).await;
-        //    let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
-        //        db.read_harvest_order(i).await;
-        //    assert!(p.is_none());
-        //}
+        // Remove the orders
+        for i in 0..n {
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i).await;
+            let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
+                db.read_harvest_order(i).await;
+            assert!(p.is_none());
+        }
     }
 
     #[tokio::test]
