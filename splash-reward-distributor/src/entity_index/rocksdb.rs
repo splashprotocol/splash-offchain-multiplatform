@@ -509,6 +509,51 @@ where
         .await
         .unwrap()
     }
+
+    async fn order_in_epoch(&self, user: Ed25519KeyHash, epoch: Epoch) -> Option<StateId> {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
+            let mut key = user.to_raw_bytes().to_vec();
+            key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
+            db.get_cf(cf, key)
+                .unwrap()
+                .map(|bytes| rmp_serde::from_slice(&bytes).unwrap())
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn set_order_in_epoch(&self, user: Ed25519KeyHash, id: StateId, epoch: Epoch) {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
+            let tx = db.transaction();
+            let mut key = user.to_raw_bytes().to_vec();
+            key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
+            let value = rmp_serde::to_vec_named(&id).unwrap();
+            tx.put_cf(cf, key, &value).unwrap();
+            tx.commit().unwrap();
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn unset_order_in_epoch(&self, user: Ed25519KeyHash, id: StateId, epoch: Epoch) {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
+            let tx = db.transaction();
+            let mut key = user.to_raw_bytes().to_vec();
+            key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
+            let value_bytes = db.get_cf(cf, &key).unwrap().unwrap();
+            assert_eq!(value_bytes, rmp_serde::to_vec_named(&id).unwrap());
+            tx.delete_cf(cf, key).unwrap();
+            tx.commit().unwrap();
+        })
+        .await
+        .unwrap()
+    }
 }
 
 fn read_inner<T, Bearer>(
@@ -675,13 +720,18 @@ const CF_HARVEST_ORDERS_ENDING_EPOCH: &str = "CF_4";
 /// Store of the last N merkle trees, indexed by block slot.
 const CF_MERKLE_TREE_SNAPSHOTS: &str = "CF_5";
 
-pub(crate) const COLUMN_FAMILIES: [&str; 6] = [
+/// Column family ID for a store that maps each user's public key key_hash and epoch to the harvest
+/// order ID
+const CF_USER_EPOCH_ORDER: &str = "CF_6";
+
+pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
     <HarvestOrderWrap<u8> as unique_ids::UniqueId>::ID,
     <BufferWalletWrap<u8> as unique_ids::UniqueId>::ID,
     <Gauge<u8, u8> as unique_ids::UniqueId>::ID,
     <AuthManager<u8, u8> as unique_ids::UniqueId>::ID,
     CF_HARVEST_ORDERS_ENDING_EPOCH,
     CF_MERKLE_TREE_SNAPSHOTS,
+    CF_USER_EPOCH_ORDER,
 ];
 
 #[repr(u8)]
@@ -1126,6 +1176,24 @@ mod tests {
 
             expected_prev_version -= 1;
         }
+    }
+
+    #[tokio::test]
+    async fn test_on_chain_index_user_epoch_order_guard() {
+        let db = spawn_db();
+        let user = Ed25519KeyHash::from_raw_bytes(&[0; 28]).unwrap();
+        let epoch = Epoch::from(1);
+        let id = 1;
+        <IndexerDB as HarvestOrderIndex<u32, u32>>::set_order_in_epoch(&db, user, id, epoch).await;
+        assert_eq!(
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::order_in_epoch(&db, user, epoch).await,
+            Some(id)
+        );
+        <IndexerDB as HarvestOrderIndex<u32, u32>>::unset_order_in_epoch(&db, user, id, epoch).await;
+        assert_eq!(
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::order_in_epoch(&db, user, epoch).await,
+            None
+        );
     }
 
     fn mk_harvest_order(id: u32) -> HarvestOrder<u32> {
