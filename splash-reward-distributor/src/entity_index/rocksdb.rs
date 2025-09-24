@@ -191,60 +191,11 @@ where
     {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let current_version_key = prefixed_key(LATEST_VERSION_PREFIX, &id);
             let cf = db.cf_handle(T::ID).unwrap();
-            if let Some(current_version_bytes) = db.get_cf(cf, &current_version_key).unwrap() {
-                let current_version: T::Version = rmp_serde::from_slice(&current_version_bytes).unwrap();
-                assert_eq!(current_version, version);
-                trace!(
-                    "StateProjectionWrite::remove: id: {}, ver: {}",
-                    id,
-                    current_version
-                );
-                let prev_ver_key = prev_version_key(&id, &current_version);
-
-                let tx = db.transaction();
-                tx.delete_cf(cf, &current_version_key).unwrap();
-
-                // Delete current state key
-                {
-                    let mut bytes = rmp_serde::to_vec(&id).unwrap();
-                    bytes.extend_from_slice(&current_version_bytes);
-                    let old_current_state_key = prefixed_bytes(STATE_PREFIX, &bytes);
-                    tx.delete_cf(cf, old_current_state_key).unwrap();
-                }
-
-                if let Some(prev_version_bytes) = db.get_cf(cf, &prev_ver_key).unwrap() {
-                    let prev_version: T::Version = rmp_serde::from_slice(&prev_version_bytes).unwrap();
-                    trace!("StateProjectionWrite::remove: prev_version {}", prev_version);
-                    let mut bytes = rmp_serde::to_vec(&id).unwrap();
-                    bytes.extend_from_slice(&prev_version_bytes);
-                    let prev_state_key = prefixed_bytes(STATE_PREFIX, &bytes);
-                    let prev_state_bytes = db.get_cf(cf, prev_state_key).unwrap().unwrap();
-                    let prev_state: AnyMod<Bundled<T, Bearer>> =
-                        rmp_serde::from_slice(&prev_state_bytes).unwrap();
-                    match prev_state {
-                        AnyMod::Confirmed(Traced { prev_state_id, .. })
-                        | AnyMod::Predicted(Traced { prev_state_id, .. }) => {
-                            // Set new latest version
-                            tx.put_cf(cf, current_version_key, prev_version_bytes).unwrap();
-                            // Update new previous version if it exists
-                            if let Some(prev_prev_version) = prev_state_id {
-                                let prev_prev_version_bytes = rmp_serde::to_vec(&prev_prev_version).unwrap();
-                                tx.put_cf(cf, prev_ver_key, prev_prev_version_bytes).unwrap();
-                            }
-
-                            tx.commit().unwrap();
-                            Some(prev_version)
-                        }
-                    }
-                } else {
-                    tx.commit().unwrap();
-                    None
-                }
-            } else {
-                None
-            }
+            let tx = db.transaction();
+            let res = remove_inner::<T, Bearer>(id, version, &tx, cf);
+            tx.commit().unwrap();
+            res
         })
         .await
         .unwrap()
@@ -399,24 +350,50 @@ where
         }
     }
 
-    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
+    async fn write_confirmed_harvest_order(
+        &self,
+        order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>,
+        epoch: Epoch,
+    ) {
         let id = order.0 .0.id;
         assert!(
             <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id)
                 .await
                 .is_none()
         );
-        let harvest_order = HarvestOrderWrap {
-            order: order.0 .0,
-            status: HarvestOrderStatus::Unspent,
-        };
-        let bearer = order.0 .1;
-        let state = Confirmed(Bundled(harvest_order, bearer));
-        self.write_confirmed(Traced {
-            state,
-            prev_state_id: None,
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let tx = db.transaction();
+            let harvest_order_cf = db.cf_handle(HarvestOrderWrap::<StateId>::ID).unwrap();
+            let user_epoch_order_cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
+
+            if get_order_in_epoch_inner::<StateId>(order.0 .0.account_key, epoch, &tx, user_epoch_order_cf)
+                .is_none()
+            {
+                set_order_in_epoch_inner::<StateId>(
+                    order.0 .0.account_key,
+                    id,
+                    epoch,
+                    &tx,
+                    user_epoch_order_cf,
+                );
+
+                let harvest_order = HarvestOrderWrap {
+                    order: order.0 .0,
+                    status: HarvestOrderStatus::Unspent,
+                };
+                let bearer = order.0 .1;
+                let state = Confirmed(Bundled(harvest_order, bearer));
+                let entity = Traced {
+                    state,
+                    prev_state_id: None,
+                };
+                write_confirmed_inner(entity, &tx, harvest_order_cf);
+                tx.commit().unwrap();
+            }
         })
-        .await;
+        .await
+        .unwrap()
     }
 
     async fn unconsume_confirmed_spent_harvest_orders(
@@ -461,7 +438,7 @@ where
         .unwrap()
     }
 
-    async fn remove_created_harvest_order(&self, id: StateId) {
+    async fn remove_created_harvest_order(&self, id: StateId, user: Ed25519KeyHash, epoch: Epoch) {
         let r = <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id).await;
         assert!(matches!(
             r,
@@ -476,11 +453,26 @@ where
                 ..
             }))
         ));
-        assert!(
-            <IndexerDB as OnChainIndex<Bearer>>::remove::<HarvestOrderWrap<StateId>>(self, id, id)
-                .await
-                .is_none()
-        );
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let harvest_order_cf = db.cf_handle(HarvestOrderWrap::<StateId>::ID).unwrap();
+            let tx = db.transaction();
+            let user_epoch_order_cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
+            if let Some(order_id_in_epoch) =
+                get_order_in_epoch_inner::<StateId>(user, epoch, &tx, user_epoch_order_cf)
+            {
+                if order_id_in_epoch == id {
+                    unset_order_in_epoch_inner::<StateId>(user, id, epoch, &tx, user_epoch_order_cf);
+                    let res =
+                        remove_inner::<HarvestOrderWrap<StateId>, Bearer>(id, id, &tx, harvest_order_cf);
+                    // There is no previous version
+                    assert!(res.is_none());
+                }
+            }
+            tx.commit().unwrap();
+        })
+        .await
+        .unwrap();
     }
 
     async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch> {
@@ -505,51 +497,6 @@ where
         spawn_blocking(move || {
             let merkle_snapshot_cf = db.cf_handle(CF_MERKLE_TREE_SNAPSHOTS).unwrap();
             buffer_read_back::<u8, IndexedMerkleTree>(&db, merkle_snapshot_cf)
-        })
-        .await
-        .unwrap()
-    }
-
-    async fn order_in_epoch(&self, user: Ed25519KeyHash, epoch: Epoch) -> Option<StateId> {
-        let db = self.db.clone();
-        spawn_blocking(move || {
-            let cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
-            let mut key = user.to_raw_bytes().to_vec();
-            key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
-            db.get_cf(cf, key)
-                .unwrap()
-                .map(|bytes| rmp_serde::from_slice(&bytes).unwrap())
-        })
-        .await
-        .unwrap()
-    }
-
-    async fn set_order_in_epoch(&self, user: Ed25519KeyHash, id: StateId, epoch: Epoch) {
-        let db = self.db.clone();
-        spawn_blocking(move || {
-            let cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
-            let tx = db.transaction();
-            let mut key = user.to_raw_bytes().to_vec();
-            key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
-            let value = rmp_serde::to_vec_named(&id).unwrap();
-            tx.put_cf(cf, key, &value).unwrap();
-            tx.commit().unwrap();
-        })
-        .await
-        .unwrap()
-    }
-
-    async fn unset_order_in_epoch(&self, user: Ed25519KeyHash, id: StateId, epoch: Epoch) {
-        let db = self.db.clone();
-        spawn_blocking(move || {
-            let cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
-            let tx = db.transaction();
-            let mut key = user.to_raw_bytes().to_vec();
-            key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
-            let value_bytes = db.get_cf(cf, &key).unwrap().unwrap();
-            assert_eq!(value_bytes, rmp_serde::to_vec_named(&id).unwrap());
-            tx.delete_cf(cf, key).unwrap();
-            tx.commit().unwrap();
         })
         .await
         .unwrap()
@@ -612,6 +559,66 @@ fn write_confirmed_inner<T, Bearer>(
 
     tx.put_cf(cf, state_key, state_bytes).unwrap();
     tx.put_cf(cf, current_version_key, new_version_bytes).unwrap();
+}
+
+fn remove_inner<T, Bearer>(
+    id: T::StableId,
+    version: T::Version,
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<T::Version>
+where
+    T: unique_ids::UniqueId + EntitySnapshot + Send + Clone + Serialize + DeserializeOwned + 'static,
+    T::StableId: Serialize + DeserializeOwned + 'static,
+    T::Version: Debug + Eq + PartialEq,
+    Bearer: Send + 'static + Serialize + DeserializeOwned,
+{
+    let current_version_key = prefixed_key(LATEST_VERSION_PREFIX, &id);
+    if let Some(current_version_bytes) = tx.get_cf(cf, &current_version_key).unwrap() {
+        let current_version: T::Version = rmp_serde::from_slice(&current_version_bytes).unwrap();
+        assert_eq!(current_version, version);
+        trace!(
+            "StateProjectionWrite::remove: id: {}, ver: {}",
+            id,
+            current_version
+        );
+        let prev_ver_key = prev_version_key(&id, &current_version);
+
+        tx.delete_cf(cf, &current_version_key).unwrap();
+
+        // Delete current state key
+        {
+            let mut bytes = rmp_serde::to_vec(&id).unwrap();
+            bytes.extend_from_slice(&current_version_bytes);
+            let old_current_state_key = prefixed_bytes(STATE_PREFIX, &bytes);
+            tx.delete_cf(cf, old_current_state_key).unwrap();
+        }
+
+        if let Some(prev_version_bytes) = tx.get_cf(cf, &prev_ver_key).unwrap() {
+            let prev_version: T::Version = rmp_serde::from_slice(&prev_version_bytes).unwrap();
+            trace!("StateProjectionWrite::remove: prev_version {}", prev_version);
+            let mut bytes = rmp_serde::to_vec(&id).unwrap();
+            bytes.extend_from_slice(&prev_version_bytes);
+            let prev_state_key = prefixed_bytes(STATE_PREFIX, &bytes);
+            let prev_state_bytes = tx.get_cf(cf, prev_state_key).unwrap().unwrap();
+            let prev_state: AnyMod<Bundled<T, Bearer>> = rmp_serde::from_slice(&prev_state_bytes).unwrap();
+            match prev_state {
+                AnyMod::Confirmed(Traced { prev_state_id, .. })
+                | AnyMod::Predicted(Traced { prev_state_id, .. }) => {
+                    // Set new latest version
+                    tx.put_cf(cf, current_version_key, prev_version_bytes).unwrap();
+                    // Update new previous version if it exists
+                    if let Some(prev_prev_version) = prev_state_id {
+                        let prev_prev_version_bytes = rmp_serde::to_vec(&prev_prev_version).unwrap();
+                        tx.put_cf(cf, prev_ver_key, prev_prev_version_bytes).unwrap();
+                    }
+
+                    return Some(prev_version);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn unconsume_harvest_order_inner<StateId, Bearer>(
@@ -744,6 +751,54 @@ enum EntityId {
 }
 
 // -------------------------------------------------------------------------------------------------
+fn get_order_in_epoch_inner<StateId>(
+    user: Ed25519KeyHash,
+    epoch: Epoch,
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<StateId>
+where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+{
+    let mut key = user.to_raw_bytes().to_vec();
+    key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
+    tx.get_cf(cf, &key)
+        .unwrap()
+        .map(|bytes| rmp_serde::from_slice(&bytes).unwrap())
+}
+
+fn set_order_in_epoch_inner<StateId>(
+    user: Ed25519KeyHash,
+    id: StateId,
+    epoch: Epoch,
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+{
+    let mut key = user.to_raw_bytes().to_vec();
+    key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
+    let value = rmp_serde::to_vec_named(&id).unwrap();
+    tx.put_cf(cf, key, &value).unwrap();
+}
+
+fn unset_order_in_epoch_inner<StateId>(
+    user: Ed25519KeyHash,
+    id: StateId,
+    epoch: Epoch,
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) where
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
+{
+    let mut key = user.to_raw_bytes().to_vec();
+    key.extend_from_slice(u64::from(epoch).to_be_bytes().as_ref());
+    let value_bytes = tx.get_cf(cf, &key).unwrap().unwrap();
+    assert_eq!(value_bytes, rmp_serde::to_vec_named(&id).unwrap());
+    tx.delete_cf(cf, key).unwrap();
+}
+
+// -------------------------------------------------------------------------------------------------
 
 /// Maps (LAST_CONFIRMED_HARVESTED_EPOCH_PREFIX | user_key_hash) to an `Epoch`
 const LAST_CONFIRMED_HARVESTED_EPOCH_PREFIX: &str = "e:";
@@ -846,10 +901,11 @@ mod tests {
         let db = spawn_db();
         let mut orders = vec![];
         let n = 20;
+        let epoch = Epoch::from(0);
         for i in 0..n {
             let h = confirmed(mk_harvest_order(i), i);
             orders.push(h.0.clone());
-            db.write_confirmed_harvest_order(h).await;
+            db.write_confirmed_harvest_order(h, epoch).await;
         }
 
         for i in 0..n {
@@ -920,7 +976,9 @@ mod tests {
 
         // Remove the orders
         for i in 0..n {
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i).await;
+            let user = orders[i as usize].0.account_key;
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i, user, epoch)
+                .await;
             let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
                 db.read_harvest_order(i).await;
             assert!(p.is_none());
@@ -932,10 +990,11 @@ mod tests {
         let db = spawn_db();
         let mut orders = vec![];
         let n = 20;
+        let epoch = Epoch::from(0);
         for i in 0..n {
             let h = confirmed(mk_harvest_order(i), i);
             orders.push(h.0.clone());
-            db.write_confirmed_harvest_order(h).await;
+            db.write_confirmed_harvest_order(h, epoch).await;
         }
 
         for i in 0..n {
@@ -1059,7 +1118,9 @@ mod tests {
 
         // Remove the orders
         for i in 0..n {
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i).await;
+            let user = orders[i as usize].0.account_key;
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i, user, epoch)
+                .await;
             let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
                 db.read_harvest_order(i).await;
             assert!(p.is_none());
@@ -1179,20 +1240,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_on_chain_index_user_epoch_order_guard() {
+    async fn test_on_multiple_user_orders_in_same_epoch() {
         let db = spawn_db();
-        let user = Ed25519KeyHash::from_raw_bytes(&[0; 28]).unwrap();
+        let h_0 = confirmed(mk_harvest_order(0), 0);
+        let id_0 = h_0.0 .0.id;
+        let mut h_1 = h_0.clone();
+        h_1.0 .0.id += 1;
+        let id_1 = h_1.0 .0.id;
         let epoch = Epoch::from(1);
-        let id = 1;
-        <IndexerDB as HarvestOrderIndex<u32, u32>>::set_order_in_epoch(&db, user, id, epoch).await;
+
+        <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_harvest_order(&db, h_0.clone(), epoch)
+            .await;
+        // This order won't be in the epoch
+        <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_harvest_order(&db, h_1, epoch).await;
+
         assert_eq!(
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::order_in_epoch(&db, user, epoch).await,
-            Some(id)
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::read_harvest_order(&db, id_0).await,
+            Some(Mod::Confirmed(Bundled(
+                (h_0.0 .0, HarvestOrderStatus::Unspent),
+                h_0.0 .1
+            ))),
         );
-        <IndexerDB as HarvestOrderIndex<u32, u32>>::unset_order_in_epoch(&db, user, id, epoch).await;
+
+        // The second order is not in the epoch
         assert_eq!(
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::order_in_epoch(&db, user, epoch).await,
-            None
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::read_harvest_order(&db, id_1).await,
+            None,
         );
     }
 

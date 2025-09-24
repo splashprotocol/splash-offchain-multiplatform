@@ -151,7 +151,11 @@ where
         &self,
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
-    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
+    async fn write_confirmed_harvest_order(
+        &self,
+        order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>,
+        epoch: Epoch,
+    );
     async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend);
     async fn write_confirmed_spend_harvest_orders(
         &self,
@@ -169,15 +173,9 @@ where
     /// mempool.
     async fn unconsume_harvest_order(&self, id: StateId);
     /// Used on rollback of an unspent order
-    async fn remove_created_harvest_order(&self, id: StateId);
+    async fn remove_created_harvest_order(&self, id: StateId, user: Ed25519KeyHash, epoch: Epoch);
     async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch>;
     async fn last_confirmed_merkle_tree(&self) -> Option<IndexedMerkleTree>;
-    /// Returns true if there is already a harvest order recorded for the given user in the given epoch.
-    async fn order_in_epoch(&self, user: Ed25519KeyHash, epoch: Epoch) -> Option<StateId>;
-    /// Records that the given user has created a harvest order in the given epoch.
-    async fn set_order_in_epoch(&self, user: Ed25519KeyHash, id: StateId, epoch: Epoch);
-    /// Removes the record for the given user's order in the given epoch (used on rollback/cancel).
-    async fn unset_order_in_epoch(&self, user: Ed25519KeyHash, id: StateId, epoch: Epoch);
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -315,17 +313,11 @@ where
                         indexer.write_confirmed_auth_manager(bundled, prev_state_id).await;
                     }
                     OnChainEvent::NewHarvestRequest(harvest, output) => {
-                        // Only index one order per user per epoch; ignore extras.
                         let current_epoch =
                             slot_to_epoch(harvest.issued_at.0, genesis_start_time, network_id);
                         let epoch = Epoch::from(current_epoch.0 as u64);
-                        if indexer.order_in_epoch(harvest.account_key, epoch).await.is_none() {
-                            let order = Confirmed(Bundled(harvest.clone(), output.clone()));
-                            indexer.write_confirmed_harvest_order(order).await;
-                            indexer
-                                .set_order_in_epoch(harvest.account_key, harvest.id, epoch)
-                                .await;
-                        }
+                        let order = Confirmed(Bundled(harvest.clone(), output.clone()));
+                        indexer.write_confirmed_harvest_order(order, epoch).await;
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for id in harvest_ids {
@@ -402,14 +394,9 @@ where
                     OnChainEvent::NewHarvestRequest(harvest_order, _) => {
                         let current_epoch = slot_to_epoch(*block_slot, genesis_start_time, network_id);
                         let epoch = Epoch::from(current_epoch.0 as u64);
-                        if let Some(id) = indexer.order_in_epoch(harvest_order.account_key, epoch).await {
-                            if id == harvest_order.id {
-                                indexer
-                                    .unset_order_in_epoch(harvest_order.account_key, harvest_order.id, epoch)
-                                    .await;
-                                indexer.remove_created_harvest_order(harvest_order.id).await;
-                            }
-                        }
+                        indexer
+                            .remove_created_harvest_order(harvest_order.id, harvest_order.account_key, epoch)
+                            .await;
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for harvest_id in harvest_ids {
