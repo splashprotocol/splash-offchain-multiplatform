@@ -706,6 +706,7 @@ where
     None
 }
 
+/// Undo a spending or refund of a harvest order in the index.
 fn unconsume_harvest_order_inner<StateId, Bearer>(
     id: StateId,
     tx: &Transaction<TransactionDB>,
