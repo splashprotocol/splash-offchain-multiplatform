@@ -2,6 +2,7 @@ use cml_chain::transaction::{Transaction, TransactionOutput};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::OutputRef;
 use splash_dao_offchain::routines::Slot;
+use splash_yf_offchain::Epoch;
 
 /// Transaction with resolved inputs attached to it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -14,7 +15,7 @@ pub struct PartiallySignedTx<Tx, Inputs> {
 pub struct CardanoTxInput {
     pub output_ref: OutputRef,
     pub tx_output: TransactionOutput,
-    pub issued_at: Option<Slot>,
+    pub issued_at: Option<(Slot, Epoch)>,
 }
 
 pub type CardanoTxInputs = Vec<CardanoTxInput>;

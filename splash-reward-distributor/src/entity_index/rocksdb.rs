@@ -188,22 +188,45 @@ where
         &self,
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>> {
-        let wrapped = self.read::<HarvestOrderWrap<StateId>>(id).await;
+        let wrapped = self.read::<HarvestOrderWrap<StateId>>(id).await?;
 
-        wrapped.map(|h| match h {
+        let (user, epoch, res) = match wrapped {
             AnyMod::Confirmed(t) => {
                 let harvest_order = t.state.0 .0.order;
                 let status = t.state.0 .0.status;
                 let bearer = t.state.0 .1;
-                Mod::Confirmed(Bundled((harvest_order, status), bearer))
+                (
+                    harvest_order.account_key,
+                    harvest_order.issued_at.1,
+                    Mod::Confirmed(Bundled((harvest_order, status), bearer)),
+                )
             }
             AnyMod::Predicted(t) => {
                 let harvest_order = t.state.0 .0.order;
                 let status = t.state.0 .0.status;
                 let bearer = t.state.0 .1;
-                Mod::Predicted(Bundled((harvest_order, status), bearer))
+                (
+                    harvest_order.account_key,
+                    harvest_order.issued_at.1,
+                    Mod::Predicted(Bundled((harvest_order, status), bearer)),
+                )
             }
+        };
+
+        let db = self.db.clone();
+        let is_designated = spawn_blocking(move || {
+            let tx = db.transaction();
+
+            let user_epoch_order_cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
+            get_designated_order_in_epoch::<StateId>(user, epoch, &tx, user_epoch_order_cf).is_some()
         })
+        .await
+        .unwrap();
+
+        if is_designated {
+            return Some(res);
+        }
+        None
     }
 
     async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend) {
@@ -297,7 +320,7 @@ where
         .unwrap()
     }
 
-    async fn write_confirmed_refund_harvest_order(&self, id: StateId, epoch: Epoch) {
+    async fn write_confirmed_refund_harvest_order(&self, id: StateId) {
         if let Some(any_mod) = self.read::<HarvestOrderWrap<StateId>>(id).await {
             let db = self.db.clone();
             spawn_blocking(move || {
@@ -315,6 +338,7 @@ where
                 assert!(prev_state_id.is_none());
 
                 let user = harvest_order.order.account_key;
+                let epoch = harvest_order.order.issued_at.1;
                 let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                     Confirmed(Bundled(harvest_order, bearer));
                 write_confirmed_inner(Traced { state, prev_state_id }, &tx, harvest_order_cf);
@@ -328,7 +352,7 @@ where
         }
     }
 
-    async fn undo_confirmed_refund_harvest_order(&self, id: StateId, epoch: Epoch) {
+    async fn undo_confirmed_refund_harvest_order(&self, id: StateId) {
         if let Some(any_mod) = self.read::<HarvestOrderWrap<StateId>>(id).await {
             let AnyMod::Confirmed(Traced {
                 prev_state_id,
@@ -346,6 +370,7 @@ where
                 assert_eq!(harvest_order.status, HarvestOrderStatus::Refunded);
                 harvest_order.status = HarvestOrderStatus::Unspent;
                 assert!(prev_state_id.is_none());
+                let epoch = harvest_order.order.issued_at.1;
                 let state: Confirmed<Bundled<HarvestOrderWrap<StateId>, Bearer>> =
                     Confirmed(Bundled(harvest_order, bearer));
                 write_confirmed_inner(Traced { state, prev_state_id }, &tx, harvest_order_cf);
@@ -363,11 +388,7 @@ where
         }
     }
 
-    async fn write_confirmed_harvest_order(
-        &self,
-        order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>,
-        epoch: Epoch,
-    ) {
+    async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
         let id = order.0 .0.id;
         assert!(
             <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id)
@@ -380,6 +401,7 @@ where
             let harvest_order_cf = db.cf_handle(HarvestOrderWrap::<StateId>::ID).unwrap();
             let user_epoch_order_cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
 
+            let epoch = order.0 .0.issued_at.1;
             if let Some(designated_order_id) = get_designated_order_in_epoch::<StateId>(
                 order.0 .0.account_key,
                 epoch,
@@ -458,27 +480,29 @@ where
         .unwrap()
     }
 
-    async fn remove_created_harvest_order(&self, id: StateId, user: Ed25519KeyHash, epoch: Epoch) {
+    async fn remove_created_harvest_order(&self, id: StateId, user: Ed25519KeyHash) {
         let r = <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id).await;
-        assert!(matches!(
-            r,
-            Some(AnyMod::Confirmed(Traced {
-                state: Confirmed(Bundled(
+        let Some(AnyMod::Confirmed(Traced {
+            state:
+                Confirmed(Bundled(
                     HarvestOrderWrap {
                         status: HarvestOrderStatus::Unspent,
-                        ..
+                        order: HarvestOrder { issued_at, .. },
                     },
-                    _
+                    _,
                 )),
-                ..
-            }))
-        ));
+            ..
+        })) = r
+        else {
+            panic!("Harvest order should be confirmed");
+        };
         let db = self.db.clone();
         spawn_blocking(move || {
             let harvest_order_cf = db.cf_handle(HarvestOrderWrap::<StateId>::ID).unwrap();
             let tx = db.transaction();
             let user_epoch_order_cf = db.cf_handle(CF_USER_EPOCH_ORDER).unwrap();
 
+            let epoch = issued_at.1;
             // Only delete the order if it is the designated one for the epoch.
             if let Some(order_id_in_epoch) =
                 get_designated_order_in_epoch::<StateId>(user, epoch, &tx, user_epoch_order_cf)
@@ -970,9 +994,9 @@ mod tests {
         let n = 20;
         let epoch = Epoch::from(0);
         for i in 0..n {
-            let h = confirmed(mk_harvest_order(i), i);
+            let h = confirmed(mk_harvest_order(i, epoch), i);
             orders.push(h.0.clone());
-            db.write_confirmed_harvest_order(h, epoch).await;
+            db.write_confirmed_harvest_order(h).await;
         }
 
         for i in 0..n {
@@ -1021,19 +1045,18 @@ mod tests {
 
         // Refund
         for i in 0..n {
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(&db, i, epoch)
-                .await;
-            let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
-                db.read_designated_harvest_order(i).await.unwrap();
-            let Bundled(order, bearer) = orders[i as usize].clone();
-            let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Refunded), bearer));
-            assert_eq!(expected, p);
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(&db, i).await;
+
+            assert!(
+                <IndexerDB as HarvestOrderIndex<u32, u32>>::read_designated_harvest_order(&db, i)
+                    .await
+                    .is_none()
+            );
         }
 
         // Undo the refunds
         for i in 0..n {
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::undo_confirmed_refund_harvest_order(&db, i, epoch)
-                .await;
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::undo_confirmed_refund_harvest_order(&db, i).await;
             let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
                 db.read_designated_harvest_order(i).await.unwrap();
             let Bundled(order, bearer) = orders[i as usize].clone();
@@ -1044,8 +1067,7 @@ mod tests {
         // Remove the orders
         for i in 0..n {
             let user = orders[i as usize].0.account_key;
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i, user, epoch)
-                .await;
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i, user).await;
             let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
                 db.read_designated_harvest_order(i).await;
             assert!(p.is_none());
@@ -1059,9 +1081,9 @@ mod tests {
         let n = 20;
         let epoch = Epoch::from(0);
         for i in 0..n {
-            let h = confirmed(mk_harvest_order(i), i);
+            let h = confirmed(mk_harvest_order(i, epoch), i);
             orders.push(h.0.clone());
-            db.write_confirmed_harvest_order(h, epoch).await;
+            db.write_confirmed_harvest_order(h).await;
         }
 
         for i in 0..n {
@@ -1156,21 +1178,17 @@ mod tests {
 
         // Refund
         for i in 0..n {
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(&db, i, epoch)
-                .await;
-            let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
-                db.read_designated_harvest_order(i).await.unwrap();
-            let Bundled(order, bearer) = orders[i as usize].clone();
-            let expected = Mod::Confirmed(Bundled((order, HarvestOrderStatus::Refunded), bearer));
-            assert_eq!(expected, p);
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_refund_harvest_order(&db, i).await;
+            assert!(
+                <IndexerDB as HarvestOrderIndex<u32, u32>>::read_designated_harvest_order(&db, i)
+                    .await
+                    .is_none()
+            );
         }
 
         let unconsume_orders = || async {
             for i in 0..n {
-                <IndexerDB as HarvestOrderIndex<u32, u32>>::undo_confirmed_refund_harvest_order(
-                    &db, i, epoch,
-                )
-                .await;
+                <IndexerDB as HarvestOrderIndex<u32, u32>>::undo_confirmed_refund_harvest_order(&db, i).await;
                 let p: Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), _>> =
                     db.read_designated_harvest_order(i).await.unwrap();
                 let Bundled(order, bearer) = orders[i as usize].clone();
@@ -1185,8 +1203,7 @@ mod tests {
         // Remove the orders
         for i in 0..n {
             let user = orders[i as usize].0.account_key;
-            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i, user, epoch)
-                .await;
+            <IndexerDB as HarvestOrderIndex<u32, u32>>::remove_created_harvest_order(&db, i, user).await;
             let p: Option<Mod<Bundled<(HarvestOrder<u32>, HarvestOrderStatus), u32>>> =
                 db.read_designated_harvest_order(i).await;
             assert!(p.is_none());
@@ -1308,17 +1325,16 @@ mod tests {
     #[tokio::test]
     async fn test_on_multiple_user_orders_in_same_epoch() {
         let db = spawn_db();
-        let h_0 = confirmed(mk_harvest_order(0), 0);
+        let epoch = Epoch::from(1);
+        let h_0 = confirmed(mk_harvest_order(0, epoch), 0);
         let id_0 = h_0.0 .0.id;
         let mut h_1 = h_0.clone();
         h_1.0 .0.id += 1;
         let id_1 = h_1.0 .0.id;
-        let epoch = Epoch::from(1);
 
-        <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_harvest_order(&db, h_0.clone(), epoch)
-            .await;
+        <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_harvest_order(&db, h_0.clone()).await;
         // This order won't be in the epoch
-        <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_harvest_order(&db, h_1, epoch).await;
+        <IndexerDB as HarvestOrderIndex<u32, u32>>::write_confirmed_harvest_order(&db, h_1).await;
 
         assert_eq!(
             <IndexerDB as HarvestOrderIndex<u32, u32>>::read_designated_harvest_order(&db, id_0).await,
@@ -1335,7 +1351,7 @@ mod tests {
         );
     }
 
-    fn mk_harvest_order(id: u32) -> HarvestOrder<u32> {
+    fn mk_harvest_order(id: u32, epoch: Epoch) -> HarvestOrder<u32> {
         let mut rng = rand::thread_rng();
         let mut array = [0u8; 28];
         rng.fill(&mut array);
@@ -1347,7 +1363,7 @@ mod tests {
         HarvestOrder {
             id,
             account_key,
-            issued_at: Slot(100),
+            issued_at: (Slot(100), epoch),
             reward_receiver,
         }
     }
