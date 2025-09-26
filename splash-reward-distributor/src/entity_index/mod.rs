@@ -142,28 +142,42 @@ pub enum HarvestOrderStatus {
 }
 
 /// Index of harvest orders. Note that the bot does not allow for multiple orders per user per
-/// epoch. This index designates one order per user per epoch, and ignores subsequent orders.
+/// epoch. This index **designates** one order per user per epoch, and ignores subsequent orders.
+///
+/// **NOTE:**
+/// - The only way a user can lose a designated order for an epoch is if they refund it. In
+///   particular, the designation remains even when the harvest order is spent.
+/// - If a designated harvest-order that was refunded is later rolled-back on chain (so that it is
+///   available to be spent again), the order will regain its designated status.
+/// - Suppose that a user creates 2 harvest orders A then B in the same epoch within separate TXs.
+///   A is the designated order and B will be ignored. Crucially, if A is refunded by the user
+///   before it is processed by the reward-bot, order B WILL NOT be designated.
 #[async_trait::async_trait]
 pub trait HarvestOrderIndex<StateId, Bearer>
 where
     StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Serialize + DeserializeOwned + 'static,
 {
+    /// Get the designated harvest order for a given state ID if it exists.
     async fn read_designated_harvest_order(
         &self,
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
 
-    /// Write a confirmed harvest order, but note that this method NOOPs if an existing order is
+    /// Write a confirmed harvest order, but note that this method no-ops if an existing order is
     /// already designated for the epoch.
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
     async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend);
+    /// Write a confirmed spending of all harvest orders withing a harvest-order TX. All spendings
+    /// are processed in a batch since we also need to update the merkle tree.
     async fn write_confirmed_spend_harvest_orders(
         &self,
         orders: Vec<(StateId, HarvestOrderSpend)>,
         confirmed_slot: u64,
     );
+    /// Confirm a refund of a harvest order.
     async fn write_confirmed_refund_harvest_order(&self, id: StateId);
+    /// Undo a confirmed refund of a harvest order, which occurs on chain-rollback.
     async fn undo_confirmed_refund_harvest_order(&self, id: StateId);
     /// Used on rollback of a harvest-order TX.
     async fn undo_confirmed_spent_harvest_orders(
@@ -171,9 +185,12 @@ where
         spent_orders: Vec<(Ed25519KeyHash, StateId)>,
         confirmed_slot: u64,
     );
+    /// Undo a predicted spending of a harvest order, which occurs when a harvest-order TX is
+    /// dropped from the mempool.
     async fn undo_predicted_spent_harvest_order(&self, id: StateId);
     /// Used on rollback of an unspent order
     async fn remove_created_harvest_order(&self, id: StateId, user: Ed25519KeyHash);
+    /// Get the last epoch a user harvested rewards from the DAO.
     async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch>;
     async fn last_confirmed_merkle_tree(&self) -> Option<IndexedMerkleTree>;
 }
