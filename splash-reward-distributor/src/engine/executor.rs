@@ -135,7 +135,11 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
-        let order = if let Some(order) = self.onchain_index.read_harvest_order(task.order_id).await {
+        let order = if let Some(order) = self
+            .onchain_index
+            .read_designated_harvest_order(task.order_id)
+            .await
+        {
             order
         } else {
             return Control::Drop(task_id);
