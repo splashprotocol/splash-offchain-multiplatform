@@ -1,4 +1,4 @@
-use crate::index::{Txo, TxoQuery, UtxoResolver};
+use crate::index::{CredentialKind, Txo, TxoQuery, UtxoResolver};
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
@@ -10,6 +10,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use cml_chain::certs::Credential;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +72,8 @@ async fn get_utxos<R>(req: web::Json<GetTxOsRequest>, db: Data<R>) -> impl Respo
 where
     R: UtxoResolver + 'static,
 {
-    let utxos = db.get_utxos(req.pkh, req.query, req.offset, req.limit).await;
+    let scope = (Credential::new_pub_key(req.pkh), CredentialKind::Payment);
+    let utxos = db.get_utxos(Some(scope), req.query, req.offset, req.limit).await;
     let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
     HttpResponse::Ok().json(result)
 }
