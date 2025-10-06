@@ -1,4 +1,4 @@
-use crate::settings::MinLovelacePerHarvest;
+use crate::{settings::MinLovelacePerHarvest, Epoch};
 use cml_chain::{
     certs::{Credential, StakeCredential},
     plutus::{ConstrPlutusData, PlutusData},
@@ -17,14 +17,18 @@ use spectrum_cardano_lib::{
 };
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use splash_dao_offchain::{deployment::ProtocolValidator as DaoProtocolValidator, routines::Slot};
+use splash_dao_offchain::{
+    deployment::ProtocolValidator as DaoProtocolValidator,
+    routines::{slot_to_epoch, Slot},
+    GenesisEpochStartTime,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
     /// Key that signs harvest
     pub account_key: Ed25519KeyHash,
-    pub issued_at: Slot,
+    pub issued_at: (Slot, Epoch),
     /// Where the reward should be sent
     pub reward_receiver: PlutusAddress,
 }
@@ -84,11 +88,17 @@ pub(crate) fn try_new_harvest_request<C>(
     ctx: &C,
 ) -> Option<(HarvestOrder<OutputRef>, FinalizedTxOut)>
 where
-    C: Has<MinLovelacePerHarvest> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
+    C: Has<MinLovelacePerHarvest>
+        + Has<GenesisEpochStartTime>
+        + Has<NetworkId>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
-        try_extract_harvest_order(output, output_ref, Slot(repr.slot), ctx)
+        let genesis_epoch_start_time = ctx.select::<GenesisEpochStartTime>();
+        let network_id = ctx.select::<NetworkId>();
+        let epoch = slot_to_epoch(repr.slot, genesis_epoch_start_time, network_id).0 as u64;
+        try_extract_harvest_order(output, output_ref, (Slot(repr.slot), Epoch::from(epoch)), ctx)
             .map(|order| (order, FinalizedTxOut(output.clone(), output_ref)))
     })
 }
@@ -99,14 +109,20 @@ pub(crate) fn get_consumed_harvest_orders<C>(
     ctx: &C,
 ) -> Vec<HarvestOrder<OutputRef>>
 where
-    C: Has<MinLovelacePerHarvest> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
+    C: Has<MinLovelacePerHarvest>
+        + Has<GenesisEpochStartTime>
+        + Has<NetworkId>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     repr.inputs
         .iter()
         .filter_map(|(tx_input, output)| {
             if let Some(TimedOutput { output, slot }) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
-                return try_extract_harvest_order(output, output_ref, Slot(*slot), ctx);
+                let genesis_epoch_start_time = ctx.select::<GenesisEpochStartTime>();
+                let network_id = ctx.select::<NetworkId>();
+                let epoch = slot_to_epoch(*slot, genesis_epoch_start_time, network_id).0 as u64;
+                return try_extract_harvest_order(output, output_ref, (Slot(*slot), Epoch::from(epoch)), ctx);
             }
             None
         })
@@ -116,7 +132,7 @@ where
 pub fn try_extract_harvest_order<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
-    issued_at: Slot,
+    issued_at: (Slot, Epoch),
     ctx: &C,
 ) -> Option<HarvestOrder<OutputRef>>
 where

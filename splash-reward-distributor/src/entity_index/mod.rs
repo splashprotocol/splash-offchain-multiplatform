@@ -138,38 +138,59 @@ pub enum Mod<T> {
 pub enum HarvestOrderStatus {
     Spent(Epoch),
     Unspent,
-    Refunded(Slot),
+    Refunded,
 }
 
+/// Index of harvest orders. Note that the bot does not allow for multiple orders per user per
+/// epoch. This index **designates** one order per user per epoch, and ignores subsequent orders.
+///
+/// **NOTE:**
+/// - The only way a user can lose a designated order for an epoch is if they refund it. In
+///   particular, the designation remains even when the harvest order is spent.
+/// - If a designated harvest-order that was refunded is later rolled-back on chain (so that it is
+///   available to be spent again), the order will regain its designated status.
+/// - Suppose that a user creates 2 harvest orders A then B in the same epoch within separate TXs.
+///   A is the designated order and B will be ignored. Crucially, if A is refunded by the user
+///   before it is processed by the reward-bot, order B WILL NOT be designated.
 #[async_trait::async_trait]
 pub trait HarvestOrderIndex<StateId, Bearer>
 where
     StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Serialize + DeserializeOwned + 'static,
 {
-    async fn read_harvest_order(
+    /// Get the designated harvest order for a given state ID if it exists.
+    async fn read_designated_harvest_order(
         &self,
         id: StateId,
     ) -> Option<Mod<Bundled<(HarvestOrder<StateId>, HarvestOrderStatus), Bearer>>>;
+
+    /// Write a confirmed harvest order, but note that this method no-ops if an existing order is
+    /// already designated for the epoch.
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>);
     async fn write_predicted_spend_harvest_order(&self, id: StateId, predicted_spend: &HarvestOrderSpend);
+    /// Write a confirmed spending of all harvest orders withing a harvest-order TX. All spendings
+    /// are processed in a batch since we also need to update the merkle tree.
     async fn write_confirmed_spend_harvest_orders(
         &self,
         orders: Vec<(StateId, HarvestOrderSpend)>,
         confirmed_slot: u64,
     );
-    async fn write_confirmed_refund_harvest_order(&self, id: StateId, slot: Slot);
+    /// Confirm a refund of a harvest order.
+    async fn write_confirmed_refund_harvest_order(&self, id: StateId);
+    /// Undo a confirmed refund of a harvest order, which occurs on chain-rollback.
+    async fn undo_confirmed_refund_harvest_order(&self, id: StateId);
     /// Used on rollback of a harvest-order TX.
-    async fn unconsume_confirmed_spent_harvest_orders(
+    async fn undo_confirmed_spent_harvest_orders(
         &self,
         spent_orders: Vec<(Ed25519KeyHash, StateId)>,
         confirmed_slot: u64,
     );
-    /// Used on rollback of a user-refunded order or a harvest-order TX that was dropped from
-    /// mempool.
-    async fn unconsume_harvest_order(&self, id: StateId);
+    /// Undo a predicted spending of a harvest order, which occurs when a harvest-order TX is
+    /// dropped from the mempool.
+    async fn undo_predicted_spent_harvest_order(&self, id: StateId);
     /// Used on rollback of an unspent order
-    async fn remove_created_harvest_order(&self, id: StateId);
+    async fn remove_created_harvest_order(&self, id: StateId, user: Ed25519KeyHash);
+    /// Get the last epoch a user harvested rewards from the DAO.
     async fn last_epoch_harvested(&self, user: Ed25519KeyHash) -> Option<Epoch>;
     async fn last_confirmed_merkle_tree(&self) -> Option<IndexedMerkleTree>;
 }
@@ -314,9 +335,7 @@ where
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for id in harvest_ids {
-                            indexer
-                                .write_confirmed_refund_harvest_order(*id, Slot(*block_slot))
-                                .await;
+                            indexer.write_confirmed_refund_harvest_order(*id).await;
                         }
                     }
                     OnChainEvent::Funding(funding_updates) => {
@@ -351,7 +370,7 @@ where
                             .map(|(order, _)| (order.account_key, order.id))
                             .collect();
                         indexer
-                            .unconsume_confirmed_spent_harvest_orders(spent_orders, *block_slot)
+                            .undo_confirmed_spent_harvest_orders(spent_orders, *block_slot)
                             .await;
                     }
                     OnChainEvent::BotGaugeBufferingAction {
@@ -385,11 +404,13 @@ where
                         assert_eq!(auth_update.consumed, prev_state_id);
                     }
                     OnChainEvent::NewHarvestRequest(harvest_order, _) => {
-                        indexer.remove_created_harvest_order(harvest_order.id).await;
+                        indexer
+                            .remove_created_harvest_order(harvest_order.id, harvest_order.account_key)
+                            .await;
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_ids) => {
                         for harvest_id in harvest_ids {
-                            indexer.unconsume_harvest_order(*harvest_id).await;
+                            indexer.undo_confirmed_refund_harvest_order(*harvest_id).await;
                         }
                     }
                     OnChainEvent::Funding(funding_updates) => {
@@ -444,9 +465,10 @@ pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
                 output_ref,
             };
             if let Some(TimedOutput { output, .. }) = utxos.get(output_ref).await {
-                // We don't need the actual slot value to parse the following entity; a dummy value suffices
-                if try_extract_harvest_order(&output, output_ref, Slot(100), &ctx).is_some() {
-                    index.unconsume_harvest_order(output_ref).await;
+                // We don't need the actual slot and epoch value to parse the following entity; a dummy value suffices
+                if try_extract_harvest_order(&output, output_ref, (Slot(100), Epoch::from(0)), &ctx).is_some()
+                {
+                    index.undo_predicted_spent_harvest_order(output_ref).await;
                 } else if FundingBoxSnapshot::try_from_ledger(&output, &funding_ctx).is_some() {
                     funding.unspend_predicted(output_ref.into()).await;
                 }

@@ -16,6 +16,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::Slot;
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_dao_offchain::{
     deployment::ProtocolValidator as DaoProtocolValidator, entities::onchain::smart_farm::FarmId,
     protocol_config::PermManagerAuthPolicy,
@@ -50,6 +51,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent<FarmId, Out
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<MinLovelacePerHarvest>
+        + Has<GenesisEpochStartTime>
         + Has<NetworkId>
         + Has<SplashPolicy>
         + Has<OperatorCreds>

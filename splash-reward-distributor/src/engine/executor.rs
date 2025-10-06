@@ -51,7 +51,7 @@ use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
-use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges};
+use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot};
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletWrap};
 use splash_yf_offchain::entities::gauge::Gauge;
@@ -135,7 +135,11 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
-        let order = if let Some(order) = self.onchain_index.read_harvest_order(task.order_id).await {
+        let order = if let Some(order) = self
+            .onchain_index
+            .read_designated_harvest_order(task.order_id)
+            .await
+        {
             order
         } else {
             return Control::Drop(task_id);
@@ -255,7 +259,7 @@ where
             struct InputData {
                 input: InputBuilderResult,
                 ex_units: Option<cml_chain::plutus::ExUnits>,
-                issued_at: Option<splash_dao_offchain::routines::Slot>,
+                issued_at: Option<(Slot, Epoch)>,
             }
 
             let mut sorted_input_data: Vec<_> = batch
