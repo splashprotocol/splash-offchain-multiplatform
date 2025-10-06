@@ -309,6 +309,7 @@ pub struct BatchHarvestExecuted {
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for BatchHarvestExecuted
 where
     Cx: Has<PermManagerAuthPolicy>
+        + Has<GenesisEpochStartTime>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<MinLovelacePerHarvest>
@@ -327,7 +328,7 @@ where
             let accounts: Vec<_> = payouts
                 .iter()
                 .map(|(harvest_order, _)| {
-                    let issued_at = harvest_order.issued_at.0;
+                    let issued_at = harvest_order.issued_at.0 .0;
                     if issued_at > most_recent_slot {
                         most_recent_slot = issued_at;
                     }

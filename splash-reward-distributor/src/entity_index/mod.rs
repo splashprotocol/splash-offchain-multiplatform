@@ -111,10 +111,13 @@ pub trait UnconfirmedHarvestTxIndex<Tx> {
     ) -> bool;
 
     /// If the chain experiences a rollback which leads to a change in the last-confirmed
-    /// `buffer_wallet` UTxO, this method is called to sync the index accordingly.
+    /// `buffer_wallet` UTxO, this method is called to sync the index accordingly. Note that
+    /// `rolled_back_user_creds` denotes the users who have harvested rewards in the TX that is
+    /// being rolled back and `confirmed_buffer_wallet_tx_hash` denotes the hash of the last-confirmed
+    /// TX AFTER the rollback.
     fn rollback(
         &mut self,
-        user_creds_harvested_epoch: HashSet<Ed25519KeyHash>,
+        rolled_back_user_creds: HashSet<Ed25519KeyHash>,
         confirmed_buffer_wallet_tx_hash: TransactionHash,
     );
 
@@ -123,6 +126,9 @@ pub trait UnconfirmedHarvestTxIndex<Tx> {
     /// 2. The TX is either a gauge-buffering action, or it was signed by another verifier. For the
     ///    latter case it is essential to be given a Vec of `confirmed_user_harvests` for this
     ///    epoch. Return false.
+    ///
+    /// NOTE: `confirmed_user_harvests` denotes users who have harvested rewards in this confirmed
+    /// TX only.
     fn confirm_tx(
         &mut self,
         tx_hash: TransactionHash,
