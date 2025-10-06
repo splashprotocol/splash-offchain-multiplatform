@@ -515,7 +515,7 @@ where
                     assert!(res.is_none());
                 }
             } else {
-                println!("Order {} is not designated in epoch {}", id, epoch);
+                info!("Order {} is not designated in epoch {}", id, epoch);
             }
             tx.commit().unwrap();
         })
