@@ -11,7 +11,7 @@ use splash_yf_offchain::{settings::MinLovelacePerHarvest, ve_config::VeConfig};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VerifierAppConfig {
+pub struct AppConfig {
     pub chain_sync: ChainSyncConfig,
     pub node: NodeConfig,
     pub network_id: NetworkId,
@@ -32,12 +32,6 @@ pub struct VerifierAppConfig {
     pub splash_policy_id_hex: String,
     pub ve_config: VeConfig,
     pub authorized_executors: Vec<Ed25519KeyHash>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RewardBotAppConfig {
-    pub verifier_config: VerifierAppConfig,
     pub operator_sk: String,
 }
 

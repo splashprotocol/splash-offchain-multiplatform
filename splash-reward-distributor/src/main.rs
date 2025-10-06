@@ -9,7 +9,7 @@ mod pipeline;
 
 use crate::accounts::PositionIndex;
 use crate::api_endpoint::{handle_request_cosignature, VerifierAppState};
-use crate::config::{RewardBotAppConfig, VerifierAppConfig};
+use crate::config::AppConfig;
 use crate::context::{RewardBotRuntimeContext, VerifierRuntimeContext};
 use crate::engine::executor::Executor;
 use crate::engine::prover::VerifierProver;
@@ -63,10 +63,9 @@ async fn run_reward_bot(args: AppArgs) {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: RewardBotAppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
+    let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
     let operator_sk = config.operator_sk;
-    let config = config.verifier_config;
 
     let raw_deployment =
         std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
@@ -225,7 +224,7 @@ async fn run_verifier(args: AppArgs) {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: VerifierAppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
+    let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
     let raw_deployment =
         std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
@@ -322,7 +321,7 @@ async fn run_verifier(args: AppArgs) {
         onchain_index,
         position_index,
         <ChainedHarvestTxGraph<Transaction>>::new(),
-        VerifierProver,
+        VerifierProver::from(config.operator_sk),
     );
     let engine = VerifierEngine::new(engine_mailbox, voting_event_rcv, verifier);
     let engine_handle = tokio::spawn(engine.run(ctx));
