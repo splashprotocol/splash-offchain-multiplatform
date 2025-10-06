@@ -1,11 +1,12 @@
 mod batch;
 pub mod executor;
-mod prover;
+mod proposed_harvest_tx;
+pub mod prover;
 pub mod queue;
 pub mod resolved_tx;
 mod task;
 pub mod verifier;
-mod withdrawal;
+pub mod verifier_engine;
 
 use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};

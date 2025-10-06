@@ -2,6 +2,7 @@ use crate::engine::{
     resolved_tx::{CardanoTxInput, PartiallySignedCardanoTx},
     verifier::AuthorizedExecutors,
 };
+use cml_crypto::TransactionHash;
 use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension, value::ValueExtension, AssetClass, AssetName, NetworkId,
     OutputRef, Token,
@@ -21,6 +22,11 @@ use splash_yf_offchain::{
     settings::MinLovelacePerHarvest,
 };
 
+pub struct ProposedHarvestTx<OrderId> {
+    pub withdrawals: Vec<Withdrawal<OrderId>>,
+    pub buffer_wallet_tx_hash: TransactionHash,
+}
+
 #[derive(Debug)]
 pub struct Withdrawal<OrderId> {
     // Order that requested harvesting
@@ -29,7 +35,7 @@ pub struct Withdrawal<OrderId> {
     pub amount: u64,
 }
 
-impl<Ctx> TryFromLedger<PartiallySignedCardanoTx, Ctx> for Vec<Withdrawal<OutputRef>>
+impl<Ctx> TryFromLedger<PartiallySignedCardanoTx, Ctx> for ProposedHarvestTx<OutputRef>
 where
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
@@ -44,7 +50,7 @@ where
         let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
         let network_id = ctx.select::<NetworkId>();
 
-        let mut buffer_wallet_spent = false;
+        let mut buffer_wallet = None;
 
         let withdrawals: Vec<_> = repr
             .inputs
@@ -70,9 +76,8 @@ where
                         })
                     });
 
-                    if res.is_none() && !buffer_wallet_spent {
-                        buffer_wallet_spent =
-                            try_extract_buffer_wallet(tx_output, *output_ref, ctx).is_some();
+                    if res.is_none() && buffer_wallet.is_none() {
+                        buffer_wallet = try_extract_buffer_wallet(tx_output, *output_ref, ctx);
                     }
 
                     res
@@ -96,8 +101,15 @@ where
             })
             .unwrap_or(false);
 
-        if buffer_wallet_spent && !withdrawals.is_empty() && valid_tx_signature {
-            Some(withdrawals)
+        if let Some(buffer_wallet) = buffer_wallet {
+            if !withdrawals.is_empty() && valid_tx_signature {
+                Some(ProposedHarvestTx {
+                    withdrawals,
+                    buffer_wallet_tx_hash: buffer_wallet.state_id.tx_hash(),
+                })
+            } else {
+                None
+            }
         } else {
             None
         }

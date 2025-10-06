@@ -14,6 +14,7 @@ rust-version = "1.80.0"
 name = "splash-reward-distributor" 
 
 [dependencies]
+axum = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 async-primitives = { version = "0.1.0", path = "../concurrent-primitives" }
 spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
@@ -32,6 +33,7 @@ cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git
 const_format = "0.2.34"
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
+tokio-stream = "0.1.17"
 log = "0.4.17"
 log4rs = "1.2.0"
 async-trait = "0.1.58"

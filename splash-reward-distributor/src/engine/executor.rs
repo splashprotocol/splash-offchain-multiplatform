@@ -1,4 +1,4 @@
-use crate::accounts::{AccountReward, Accounts, LockedByAnotherReq};
+use crate::accounts::{AccountReward, Accounts};
 use crate::constants::{
     GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
@@ -520,7 +520,7 @@ where
         }
         if let Some(batch) = self.batch.take() {
             let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
-            let Bundled(_, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
+            let Bundled(bw_tx_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
             let buffer_wallet_input =
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
                     .native_script(
@@ -747,6 +747,7 @@ where
             let buffer_wallet = BufferWallet {
                 state_id: buffer_wallet_out_output_ref,
                 balance: buffer_wallet_out_balance,
+                merkle_tree_root_hash: bw_tx_in.merkle_tree_root_hash, // Unchanged merkle tree
             };
             let buffer_wallet_bearer = FinalizedTxOut(buffer_wallet_out, buffer_wallet_out_output_ref);
 

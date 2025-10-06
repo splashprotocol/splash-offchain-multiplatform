@@ -9,9 +9,6 @@ pub struct AccountReward {
     pub latest_epoch_inclusive: Epoch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LockedByAnotherReq<RequestId>(pub RequestId);
-
 #[async_trait]
 pub trait Accounts<RequestId> {
     /// Query available `account` reward starting from the given epoch `from_epoch_inclusive`.

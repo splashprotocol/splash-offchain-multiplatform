@@ -1,6 +1,7 @@
 pub(crate) mod chained_tx_graph;
 pub(crate) mod rocksdb;
 
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
@@ -106,14 +107,14 @@ pub trait UnconfirmedHarvestTxIndex<Tx> {
         &mut self,
         buffer_wallet_input_tx_hash: TransactionHash,
         tx: Tx,
-        tx_user_creds: Vec<Ed25519KeyHash>,
+        tx_user_creds: HashSet<Ed25519KeyHash>,
     ) -> bool;
 
     /// If the chain experiences a rollback which leads to a change in the last-confirmed
     /// `buffer_wallet` UTxO, this method is called to sync the index accordingly.
     fn rollback(
         &mut self,
-        user_creds_harvested_epoch: Vec<Ed25519KeyHash>,
+        user_creds_harvested_epoch: HashSet<Ed25519KeyHash>,
         confirmed_buffer_wallet_tx_hash: TransactionHash,
     );
 
@@ -122,7 +123,11 @@ pub trait UnconfirmedHarvestTxIndex<Tx> {
     /// 2. The TX is either a gauge-buffering action, or it was signed by another verifier. For the
     ///    latter case it is essential to be given a Vec of `confirmed_user_harvests` for this
     ///    epoch. Return false.
-    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) -> bool;
+    fn confirm_tx(
+        &mut self,
+        tx_hash: TransactionHash,
+        confirmed_user_harvests: &HashSet<Ed25519KeyHash>,
+    ) -> bool;
 
     /// Upon the end of an epoch, the index will delete all its unconfirmed TXs.
     fn notify_end_of_epoch(&mut self);
