@@ -15,7 +15,7 @@ impl OperatorProver {
     }
 }
 
-impl<'a> TxProver<SignedTxBuilder, Transaction> for OperatorProver {
+impl TxProver<SignedTxBuilder, Transaction> for OperatorProver {
     fn prove(&self, mut candidate: SignedTxBuilder) -> Transaction {
         let body = candidate.body();
         let tx_hash = hash_transaction_canonical(&body);

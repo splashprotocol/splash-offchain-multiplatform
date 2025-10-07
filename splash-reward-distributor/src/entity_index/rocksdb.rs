@@ -1383,6 +1383,7 @@ mod tests {
         let wallet = BufferWallet {
             state_id: rng.next_u32(),
             balance: 1_000_000,
+            merkle_tree_root_hash: [0; 32], // TODO: impl in DEX-935
         };
         BufferWalletWrap {
             wallet,

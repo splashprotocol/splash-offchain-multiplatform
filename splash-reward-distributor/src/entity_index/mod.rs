@@ -1,6 +1,7 @@
 pub(crate) mod chained_tx_graph;
 pub(crate) mod rocksdb;
 
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
@@ -90,7 +91,7 @@ pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
     async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId>;
 }
 
-pub trait UnconfirmedHarvestTxIndex<Tx> {
+pub trait UnconfirmedHarvestTxIndex {
     /// Try adding a harvest TX to the index, returning true if successful.
     ///
     /// `buffer_wallet_input_tx_hash` must refer to a TX hash of a confirmed buffering/harvest
@@ -105,15 +106,18 @@ pub trait UnconfirmedHarvestTxIndex<Tx> {
     fn try_add_tx(
         &mut self,
         buffer_wallet_input_tx_hash: TransactionHash,
-        tx: Tx,
-        tx_user_creds: Vec<Ed25519KeyHash>,
+        tx_hash: TransactionHash,
+        tx_user_creds: HashSet<Ed25519KeyHash>,
     ) -> bool;
 
     /// If the chain experiences a rollback which leads to a change in the last-confirmed
-    /// `buffer_wallet` UTxO, this method is called to sync the index accordingly.
+    /// `buffer_wallet` UTxO, this method is called to sync the index accordingly. Note that
+    /// `rolled_back_user_creds` denotes the users who have harvested rewards in the TX that is
+    /// being rolled back and `confirmed_buffer_wallet_tx_hash` denotes the hash of the last-confirmed
+    /// TX AFTER the rollback.
     fn rollback(
         &mut self,
-        user_creds_harvested_epoch: Vec<Ed25519KeyHash>,
+        rolled_back_user_creds: HashSet<Ed25519KeyHash>,
         confirmed_buffer_wallet_tx_hash: TransactionHash,
     );
 
@@ -122,7 +126,14 @@ pub trait UnconfirmedHarvestTxIndex<Tx> {
     /// 2. The TX is either a gauge-buffering action, or it was signed by another verifier. For the
     ///    latter case it is essential to be given a Vec of `confirmed_user_harvests` for this
     ///    epoch. Return false.
-    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) -> bool;
+    ///
+    /// NOTE: `confirmed_user_harvests` denotes users who have harvested rewards in this confirmed
+    /// TX only.
+    fn confirm_tx(
+        &mut self,
+        tx_hash: TransactionHash,
+        confirmed_user_harvests: &HashSet<Ed25519KeyHash>,
+    ) -> bool;
 
     /// Upon the end of an epoch, the index will delete all its unconfirmed TXs.
     fn notify_end_of_epoch(&mut self);

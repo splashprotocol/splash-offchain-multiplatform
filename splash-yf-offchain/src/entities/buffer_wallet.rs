@@ -44,6 +44,7 @@ pub struct BufferWalletId;
 pub struct BufferWallet<StateId> {
     pub state_id: StateId,
     pub balance: u64,
+    pub merkle_tree_root_hash: [u8; 32],
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -129,6 +130,7 @@ where
             let buffer_wallet = BufferWallet {
                 balance: token_balance,
                 state_id: output_ref,
+                merkle_tree_root_hash: [0; 32], // TODO: impl in DEX-935
             };
             return Some(buffer_wallet);
         }

@@ -7,7 +7,6 @@ use petgraph::{
     visit::{Dfs, EdgeRef},
 };
 use serde::{Deserialize, Serialize};
-use spectrum_offchain::tx_hash::CanonicalHash;
 
 use crate::entity_index::UnconfirmedHarvestTxIndex;
 
@@ -27,18 +26,15 @@ use crate::entity_index::UnconfirmedHarvestTxIndex;
 /// from a confirmed TX. The graph must be notified of changes to this through the use of
 /// `confirm_tx()` and `rollback()` methods.
 #[derive(Serialize, Deserialize)]
-pub struct ChainedHarvestTxGraph<Tx> {
-    gr: StableDiGraph<NodeData<Tx>, ()>,
+pub struct ChainedHarvestTxGraph {
+    gr: StableDiGraph<NodeData, ()>,
     /// Contains all users who have already confirmed to have harvested in the current epoch.
-    last_confirmed_user_harvests: Vec<Ed25519KeyHash>,
+    last_confirmed_user_harvests: HashSet<Ed25519KeyHash>,
     /// The hash of the last-confirmed TX with `buffer_wallet` UTxO output (in position 0).
     last_confirmed_buffer_wallet_tx_hash: TransactionHash,
 }
 
-impl<'de, Tx> UnconfirmedHarvestTxIndex<Tx> for ChainedHarvestTxGraph<Tx>
-where
-    Tx: CanonicalHash<Hash = TransactionHash> + Serialize + Deserialize<'de>,
-{
+impl UnconfirmedHarvestTxIndex for ChainedHarvestTxGraph {
     /// Attempt to add a new TX to the store. If the TX spends a valid `buffer_wallet` input and
     /// does not perform double-harvesting, it will be added and `true` is returned.
     ///
@@ -48,11 +44,11 @@ where
     fn try_add_tx(
         &mut self,
         buffer_wallet_input_tx_hash: TransactionHash,
-        tx: Tx,
-        tx_user_creds: Vec<Ed25519KeyHash>,
+        tx_hash: TransactionHash,
+        tx_user_creds: HashSet<Ed25519KeyHash>,
     ) -> bool {
-        for cred in &self.last_confirmed_user_harvests {
-            if tx_user_creds.contains(cred) {
+        for cred in &tx_user_creds {
+            if self.last_confirmed_user_harvests.contains(cred) {
                 return false;
             }
         }
@@ -62,7 +58,7 @@ where
 
         if is_tx_spending_confirmed {
             let data = NodeData {
-                tx,
+                tx_hash,
                 user_creds: tx_user_creds,
             };
             self.gr.add_node(data);
@@ -71,7 +67,7 @@ where
             self.find_parent_chain_tx(&buffer_wallet_input_tx_hash, &tx_user_creds)
         {
             let data = NodeData {
-                tx,
+                tx_hash,
                 user_creds: tx_user_creds,
             };
             let child_ix = self.gr.add_node(data);
@@ -84,34 +80,34 @@ where
 
     fn rollback(
         &mut self,
-        user_creds_harvested_epoch: Vec<Ed25519KeyHash>,
+        rolled_back_user_creds: HashSet<Ed25519KeyHash>,
         confirmed_buffer_wallet_tx_hash: TransactionHash,
     ) {
-        if user_creds_harvested_epoch != self.last_confirmed_user_harvests {
-            // If rollback has resulted in a change to the last-confirmed `buffer_wallet` UTxO,
-            // delete all unconfirmed TXs, since they all depended on a `buffer_wallet` instance
-            // that no longer exists.
-            //
-            // Note: there's no risk of double-harvesting here. There's 2 possible cases to consider
-            // after rollback:
-            // 1. The reward-bot may be able to resubmit and confirm some of TXs in the graph before
-            // it was cleared. But it won't be possible for the bot to obtain a cosignature for a
-            // double-harvest TX afterwards because the verifier will only cosign a TX that spends
-            // the last-confirmed `buffer_wallet`, which is now out of date. Nothing can happen until
-            // the verifier re-syncs and we have the latest confirmed gauge-buffer/harvest TX.
-            //
-            // 2. If the reward-bot wasn't able to resubmit any TXs, it and the verifier will need
-            // to form the next TX from the same last-confirmed inputs, hence there is no chance to
-            // effect a double-harvest.
-            self.gr.clear();
-            self.last_confirmed_user_harvests = user_creds_harvested_epoch;
-            self.last_confirmed_buffer_wallet_tx_hash = confirmed_buffer_wallet_tx_hash;
-        } else {
-            assert_eq!(
-                self.last_confirmed_buffer_wallet_tx_hash,
-                confirmed_buffer_wallet_tx_hash
-            );
-        }
+        // The rollback has resulted in a change to the last-confirmed `buffer_wallet` UTxO,
+        // so we delete all unconfirmed TXs, since they all depended on a `buffer_wallet` instance
+        // that no longer exists.
+        //
+        // Note: there's no risk of double-harvesting here. There's 2 possible cases to consider
+        // after rollback:
+        // 1. The reward-bot may be able to resubmit and confirm some of TXs in the graph before
+        // it was cleared. But it won't be possible for the bot to obtain a cosignature for a
+        // double-harvest TX afterwards because the verifier will only cosign a TX that spends
+        // the last-confirmed `buffer_wallet`, which is now out of date. Nothing can happen until
+        // the verifier re-syncs and we have the latest confirmed gauge-buffer/harvest TX.
+        //
+        // 2. If the reward-bot wasn't able to resubmit any TXs, it and the verifier will need
+        // to form the next TX from the same last-confirmed inputs, hence there is no chance to
+        // effect a double-harvest.
+        self.gr.clear();
+        assert!(self
+            .last_confirmed_user_harvests
+            .is_superset(&rolled_back_user_creds));
+        self.last_confirmed_user_harvests = self
+            .last_confirmed_user_harvests
+            .difference(&rolled_back_user_creds)
+            .cloned()
+            .collect();
+        self.last_confirmed_buffer_wallet_tx_hash = confirmed_buffer_wallet_tx_hash;
     }
 
     /// Confirms the TX with the given TX-hash. If the confirmed TX has been cosigned by the
@@ -120,10 +116,14 @@ where
     ///
     /// Otherwise the confirmed TX was either a gauge-buffer action, or it was cosigned by another
     /// verifier. For the latter case, we will need the current confirmed user harvests.
-    fn confirm_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) -> bool {
+    fn confirm_tx(
+        &mut self,
+        tx_hash: TransactionHash,
+        confirmed_user_harvests: &HashSet<Ed25519KeyHash>,
+    ) -> bool {
         if let Some(ix) = self.gr.node_indices().find(|ix| {
             let node_data = self.gr.node_weight(*ix).unwrap();
-            node_data.tx.canonical_hash() == tx_hash
+            node_data.tx_hash == tx_hash
         }) {
             let children_nodes: Vec<_> = self
                 .gr
@@ -138,20 +138,14 @@ where
                 .next()
                 .is_none());
             let node_data = self.gr.remove_node(ix).unwrap();
-            self.last_confirmed_buffer_wallet_tx_hash = node_data.tx.canonical_hash();
+            self.last_confirmed_buffer_wallet_tx_hash = node_data.tx_hash;
+
+            assert_eq!(node_data.user_creds, *confirmed_user_harvests,);
 
             for cred in node_data.user_creds {
                 assert!(!self.last_confirmed_user_harvests.contains(&cred));
-                self.last_confirmed_user_harvests.push(cred);
+                self.last_confirmed_user_harvests.insert(cred);
             }
-
-            assert_eq!(
-                self.last_confirmed_user_harvests
-                    .clone()
-                    .into_iter()
-                    .collect::<HashSet<_>>(),
-                confirmed_user_harvests.iter().cloned().collect::<HashSet<_>>(),
-            );
 
             // Now need to remove all conflicting sub-graphs
             let root_nodes_to_delete = self.gr.node_indices().filter(|n_ix| {
@@ -176,7 +170,10 @@ where
             }
             true
         } else {
-            self.rollback(confirmed_user_harvests.to_vec(), tx_hash);
+            // Here we're confirming a TX that was signed by another verifier.
+            self.gr.clear();
+            self.last_confirmed_user_harvests = confirmed_user_harvests.clone();
+            self.last_confirmed_buffer_wallet_tx_hash = tx_hash;
             false
         }
     }
@@ -189,41 +186,36 @@ where
     }
 }
 
-impl<'de, Tx> ChainedHarvestTxGraph<Tx>
-where
-    Tx: CanonicalHash<Hash = TransactionHash> + Serialize + Deserialize<'de>,
-{
-    pub fn new(
-        last_confirmed_user_harvests: Vec<Ed25519KeyHash>,
-        last_confirmed_buffer_wallet_tx_hash: TransactionHash,
-    ) -> Self {
+impl ChainedHarvestTxGraph {
+    pub fn new() -> Self {
         Self {
             gr: StableDiGraph::new(),
-            last_confirmed_user_harvests,
-            last_confirmed_buffer_wallet_tx_hash,
+            last_confirmed_user_harvests: HashSet::new(),
+            // zero hash is fine since we need to wait for the first confirmed TX
+            last_confirmed_buffer_wallet_tx_hash: TransactionHash::from([0; 32]),
         }
     }
 
     pub fn is_unconfirmed_and_tracked(&self, tx_hash: TransactionHash) -> bool {
         self.gr
             .node_weights()
-            .any(|node_data| node_data.tx.canonical_hash() == tx_hash)
+            .any(|node_data| node_data.tx_hash == tx_hash)
     }
 
     fn find_parent_chain_tx(
         &self,
         tx_hash: &TransactionHash,
-        user_creds: &[Ed25519KeyHash],
+        user_creds: &HashSet<Ed25519KeyHash>,
     ) -> Option<NodeIndex> {
         // Ensure we don't double-harvest against confirmed orders in this epoch.
-        for cred in &self.last_confirmed_user_harvests {
-            if user_creds.contains(cred) {
+        for cred in user_creds {
+            if self.last_confirmed_user_harvests.contains(cred) {
                 return None;
             }
         }
         let mut curr_ix = self.gr.node_indices().find(|ix| {
             let node_data = self.gr.node_weight(*ix).unwrap();
-            node_data.tx.canonical_hash() == *tx_hash
+            node_data.tx_hash == *tx_hash
         });
 
         let parent_ix = curr_ix;
@@ -247,13 +239,15 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-struct NodeData<Tx> {
-    tx: Tx,
-    user_creds: Vec<Ed25519KeyHash>,
+struct NodeData {
+    tx_hash: TransactionHash,
+    user_creds: HashSet<Ed25519KeyHash>,
 }
 
 #[cfg(test)]
 mod tests {
+
+    use std::collections::HashSet;
 
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use serde::{Deserialize, Serialize};
@@ -263,38 +257,47 @@ mod tests {
 
     #[test]
     fn test_full_tx_chain_confirmation() {
-        let last_confirmed_user_harvests: Vec<_> = (0_u8..10).map(gen_key_hash).collect();
-        let mut confirmed_users = last_confirmed_user_harvests.clone();
-        confirmed_users.extend(last_confirmed_user_harvests.iter().cloned());
+        let last_confirmed_user_harvests: HashSet<_> = (0_u8..10).map(gen_key_hash).collect();
         let tx_hashes: Vec<_> = (0_u8..20).map(gen_tx_hash).collect();
-        let mut gr =
-            ChainedHarvestTxGraph::<TxHash>::new(last_confirmed_user_harvests.clone(), tx_hashes[0].0);
+        let mut gr = ChainedHarvestTxGraph::new();
+        gr.confirm_tx(tx_hashes[0], &last_confirmed_user_harvests);
+        assert_eq!(gr.last_confirmed_user_harvests.len(), 10);
         let key_hash = gen_key_hash(10);
-        confirmed_users.push(key_hash);
-        assert!(gr.try_add_tx(tx_hashes[0].0, tx_hashes[1], vec![key_hash]));
 
-        gr.confirm_tx(tx_hashes[1].0, &confirmed_users);
-        assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[1].0);
+        let new_confirmed_users: HashSet<_> = vec![key_hash].into_iter().collect();
+        assert!(gr.try_add_tx(tx_hashes[0], tx_hashes[1], new_confirmed_users.clone()));
+
+        gr.confirm_tx(tx_hashes[1], &new_confirmed_users);
+        assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[1]);
+        assert_eq!(gr.last_confirmed_user_harvests.len(), 11);
 
         // Failed because it doesn't spend valid TX containing `buffer_wallet`.
-        assert!(!gr.try_add_tx(tx_hashes[2].0, tx_hashes[3], vec![gen_key_hash(11)]));
+        let new_confirmed_users: HashSet<_> = vec![gen_key_hash(11)].into_iter().collect();
+        assert!(!gr.try_add_tx(tx_hashes[2], tx_hashes[3], new_confirmed_users));
 
         // Failed because user_key already harvested
-        assert!(!gr.try_add_tx(tx_hashes[1].0, tx_hashes[2], vec![gen_key_hash(0)]));
+        let new_confirmed_users: HashSet<_> = vec![gen_key_hash(0)].into_iter().collect();
+        assert!(!gr.try_add_tx(tx_hashes[1], tx_hashes[2], new_confirmed_users,));
 
-        let mut conf = vec![confirmed_users.clone()];
+        let mut conf = vec![];
         // Add TX chain T_2, T_3, ..., T_19
         for i in 1..19 {
             let key_hash = gen_key_hash(i as u8 + 10);
-            confirmed_users.push(key_hash);
-            conf.push(confirmed_users.clone());
-            assert!(gr.try_add_tx(tx_hashes[i].0, tx_hashes[i + 1], vec![key_hash]));
+            let new_confirmed_users: HashSet<_> = vec![key_hash].into_iter().collect();
+            conf.push(new_confirmed_users.clone());
+            assert!(gr.try_add_tx(tx_hashes[i], tx_hashes[i + 1], new_confirmed_users));
         }
 
         // Now confirm all TXs in the chain.
-        for (i, confirmed_users) in (1..20).zip(conf) {
-            gr.confirm_tx(tx_hashes[i].0, &confirmed_users);
-            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i].0);
+        for (i, confirmed_users) in (2..20).zip(&conf) {
+            gr.confirm_tx(tx_hashes[i], confirmed_users);
+            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i]);
+        }
+
+        // Finally let's rollback each TX
+        for (i, confirmed_users) in (1..20).zip(&conf).rev() {
+            gr.rollback(confirmed_users.clone(), tx_hashes[i - 1]);
+            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i - 1]);
         }
     }
 
@@ -319,54 +322,57 @@ mod tests {
         // 2. Confirm T_2.
         // 3. Confirm T_3, which leads to removal of T_6
         // 3. Confirm T_4, which leads to removal of T_5 (and so no more nodes in the unconfirmed graph)
-        let last_confirmed_user_harvests: Vec<_> = (0_u8..10).map(gen_key_hash).collect();
-        let mut confirmed_users = last_confirmed_user_harvests.clone();
+        let last_confirmed_user_harvests: HashSet<_> = (0_u8..10).map(gen_key_hash).collect();
         let tx_hashes: Vec<_> = (0_u8..20).map(gen_tx_hash).collect();
-        let mut gr =
-            ChainedHarvestTxGraph::<TxHash>::new(last_confirmed_user_harvests.clone(), tx_hashes[0].0);
-        confirmed_users.push(gen_key_hash(10));
+        let mut gr = ChainedHarvestTxGraph::new();
+        gr.confirm_tx(tx_hashes[0], &last_confirmed_user_harvests);
 
-        assert!(gr.try_add_tx(tx_hashes[0].0, tx_hashes[1], vec![gen_key_hash(10)]));
+        assert!(gr.try_add_tx(
+            tx_hashes[0],
+            tx_hashes[1],
+            vec![gen_key_hash(10)].into_iter().collect()
+        ));
         let mut i = 1;
         let key_hash_2 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(tx_hashes[1].0, tx_hashes[2], vec![key_hash_2]));
+        assert!(gr.try_add_tx(tx_hashes[1], tx_hashes[2], vec![key_hash_2].into_iter().collect()));
         i += 1;
         let key_hash_3 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(tx_hashes[2].0, tx_hashes[3], vec![key_hash_3]));
-        assert!(gr.try_add_tx(tx_hashes[2].0, tx_hashes[6], vec![key_hash_3])); // can safely have same key_hash
+        assert!(gr.try_add_tx(tx_hashes[2], tx_hashes[3], vec![key_hash_3].into_iter().collect()));
+        assert!(gr.try_add_tx(tx_hashes[2], tx_hashes[6], vec![key_hash_3].into_iter().collect())); // can safely have same key_hash
         i += 1;
         let key_hash_4 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(tx_hashes[3].0, tx_hashes[4], vec![key_hash_4]));
-        assert!(gr.try_add_tx(tx_hashes[3].0, tx_hashes[5], vec![key_hash_4]));
+        assert!(gr.try_add_tx(tx_hashes[3], tx_hashes[4], vec![key_hash_4].into_iter().collect()));
+        assert!(gr.try_add_tx(tx_hashes[3], tx_hashes[5], vec![key_hash_4].into_iter().collect()));
 
         // right subgraph
         i += 1;
         let key_hash_7 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(tx_hashes[0].0, tx_hashes[7], vec![key_hash_7]));
+        assert!(gr.try_add_tx(tx_hashes[0], tx_hashes[7], vec![key_hash_7].into_iter().collect()));
         i += 1;
         let key_hash_8 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(tx_hashes[7].0, tx_hashes[8], vec![key_hash_8]));
-        assert!(gr.try_add_tx(tx_hashes[7].0, tx_hashes[9], vec![key_hash_8]));
+        assert!(gr.try_add_tx(tx_hashes[7], tx_hashes[8], vec![key_hash_8].into_iter().collect()));
+        assert!(gr.try_add_tx(tx_hashes[7], tx_hashes[9], vec![key_hash_8].into_iter().collect()));
 
         // Confirming T_1, which will remove T_7 and its children nodes.
-        assert!(gr.confirm_tx(tx_hashes[1].0, &confirmed_users));
+        let user = vec![gen_key_hash(10)].into_iter().collect();
+        assert!(gr.confirm_tx(tx_hashes[1], &user));
 
         assert!(!gr.last_confirmed_user_harvests.contains(&key_hash_7));
         assert!(!gr.last_confirmed_user_harvests.contains(&key_hash_8));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[7].0));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[8].0));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[9].0));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[7]));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[8]));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[9]));
 
-        confirmed_users.push(key_hash_2);
-        assert!(gr.confirm_tx(tx_hashes[2].0, &confirmed_users));
+        let user = vec![key_hash_2].into_iter().collect();
+        assert!(gr.confirm_tx(tx_hashes[2], &user));
 
-        confirmed_users.push(key_hash_3);
-        assert!(gr.confirm_tx(tx_hashes[3].0, &confirmed_users));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[6].0));
+        let user = vec![key_hash_3].into_iter().collect();
+        assert!(gr.confirm_tx(tx_hashes[3], &user));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[6]));
 
-        confirmed_users.push(key_hash_4);
-        assert!(gr.confirm_tx(tx_hashes[4].0, &confirmed_users));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[5].0));
+        let user = vec![key_hash_4].into_iter().collect();
+        assert!(gr.confirm_tx(tx_hashes[4], &user));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[5]));
         assert_eq!(gr.gr.node_count(), 0);
     }
 
@@ -375,20 +381,8 @@ mod tests {
         bytes.into()
     }
 
-    fn gen_tx_hash(seed_value: u8) -> TxHash {
+    fn gen_tx_hash(seed_value: u8) -> TransactionHash {
         let bytes = [seed_value; 32];
-        let inner = TransactionHash::from(bytes);
-        inner.into()
-    }
-
-    #[derive(Serialize, Deserialize, derive_more::From, Clone, Copy)]
-    struct TxHash(TransactionHash);
-
-    impl CanonicalHash for TxHash {
-        type Hash = TransactionHash;
-
-        fn canonical_hash(&self) -> Self::Hash {
-            self.0
-        }
+        TransactionHash::from(bytes)
     }
 }

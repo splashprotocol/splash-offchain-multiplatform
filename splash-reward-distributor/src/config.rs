@@ -1,4 +1,5 @@
 use cml_core::Slot;
+use cml_crypto::{Ed25519KeyHash, PublicKey};
 use std::time::Duration;
 
 use crate::engine::EngineConfig;
@@ -6,7 +7,7 @@ use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use splash_yf_offchain::{settings::MinLovelacePerHarvest, ve_config::VeConfig};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +29,10 @@ pub struct AppConfig {
     pub tx_submission_buffer_size: usize,
     pub verifier_url: String,
     pub max_number_merkle_tree_snapshots: u8,
+    pub splash_policy_id_hex: String,
+    pub ve_config: VeConfig,
+    pub authorized_executors: Vec<PublicKey>,
+    pub operator_sk: String,
 }
 
 #[derive(serde::Deserialize)]

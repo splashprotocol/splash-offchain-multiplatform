@@ -1,4 +1,4 @@
-use crate::accounts::{AccountReward, Accounts, LockedByAnotherReq};
+use crate::accounts::{AccountReward, Accounts};
 use crate::constants::{
     GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, TransactionUnspentOutput};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
@@ -118,7 +118,7 @@ impl<Ctx, PositionIndex, OnChainIndex>
     BatchExecutor<
         TaskId,
         Harvesting<OutputRef>,
-        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, Transaction, CardanoTxInputs>,
+        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
         Error,
     > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex>
 where
@@ -231,7 +231,7 @@ where
     ) -> Result<
         ExecutionResult<
             TaskId,
-            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, Transaction, CardanoTxInputs>,
+            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
         >,
         Error,
     > {
@@ -411,10 +411,7 @@ where
             let tx_body = output.body();
             let tx_hash = hash_transaction_canonical(&tx_body);
 
-            let resolved_tx = PartiallySignedCardanoTx {
-                tx: output.build_unchecked(),
-                inputs,
-            };
+            let resolved_tx = PartiallySignedCardanoTx { tx: output, inputs };
 
             let mut buffer_wallet = buffer_wallet_in;
             buffer_wallet.balance -= batch.total_payout;
@@ -462,7 +459,7 @@ impl<Ctx, OnChainIndex, FundingIndex>
     BatchExecutor<
         TaskId,
         GaugeBuffering<FarmId>,
-        BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, Transaction, CardanoTxInputs>,
+        BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
         Error,
     > for BufferingFlow<FarmId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
@@ -509,7 +506,7 @@ where
     ) -> Result<
         ExecutionResult<
             TaskId,
-            BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, Transaction, CardanoTxInputs>,
+            BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
         >,
         Error,
     > {
@@ -520,7 +517,7 @@ where
         }
         if let Some(batch) = self.batch.take() {
             let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
-            let Bundled(_, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
+            let Bundled(bw_tx_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
             let buffer_wallet_input =
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
                     .native_script(
@@ -737,16 +734,14 @@ where
             let tx_body = output.body();
             let tx_hash = hash_transaction_canonical(&tx_body);
 
-            let resolved_tx = PartiallySignedCardanoTx {
-                tx: output.build_unchecked(),
-                inputs,
-            };
+            let resolved_tx = PartiallySignedCardanoTx { tx: output, inputs };
 
             // Gather predicted buffer_wallet update
             let buffer_wallet_out_output_ref = OutputRef::new(tx_hash, 0);
             let buffer_wallet = BufferWallet {
                 state_id: buffer_wallet_out_output_ref,
                 balance: buffer_wallet_out_balance,
+                merkle_tree_root_hash: bw_tx_in.merkle_tree_root_hash, // Unchanged merkle tree
             };
             let buffer_wallet_bearer = FinalizedTxOut(buffer_wallet_out, buffer_wallet_out_output_ref);
 
@@ -942,17 +937,17 @@ where
         + Sync,
     FundingIndex: FundingRepo + Clone + Send + Sync,
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
-    Verifier: RemoteVerifier<PartiallySignedTx<Tx, TxInputs>, Tx> + Send,
+    Verifier: RemoteVerifier<PartiallySignedTx<SignedTxBuilder, TxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex>: BatchExecutor<
         TaskId,
         Harvesting<StateId>,
-        HarvestFlowEntityUpdates<StateId, Bearer, Tx, TxInputs>,
+        HarvestFlowEntityUpdates<StateId, Bearer, SignedTxBuilder, TxInputs>,
         Error,
     >,
     BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
         TaskId,
         GaugeBuffering<GaugeId>,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs>,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SignedTxBuilder, TxInputs>,
         Error,
     >,
     Ctx: Send
@@ -1006,25 +1001,32 @@ where
 
                 loop {
                     match self.verifier.try_approve(&resolved_tx).await {
-                        Ok(coop_tx) => match (self.tx_submit.submit_tx(coop_tx).await, typed_result) {
-                            (Ok(_), update) => {
-                                index_predicted_entities(update, &self.onchain_index, &self.funding_index)
+                        Ok(coop_tx) => {
+                            match (self.tx_submit.submit_tx(coop_tx.clone()).await, typed_result) {
+                                (Ok(_), update) => {
+                                    index_predicted_entities(
+                                        update,
+                                        &self.onchain_index,
+                                        &self.funding_index,
+                                    )
                                     .await;
-                                return Ok(ExecutionResult {
-                                    executed_tasks,
-                                    output: resolved_tx.tx.canonical_hash(),
-                                });
-                            }
+                                    return Ok(ExecutionResult {
+                                        executed_tasks,
+                                        output: coop_tx.canonical_hash(),
+                                    });
+                                }
 
-                            (Err(reject_reasons), update) => {
-                                if let Some(failed_task_ids) = extract_failed_task_ids(update, reject_reasons)
-                                {
-                                    return Err(Error::TxInputsAlreadySpent { failed_task_ids });
-                                } else {
-                                    return Err(Error::UnrecoverableNodeError);
+                                (Err(reject_reasons), update) => {
+                                    if let Some(failed_task_ids) =
+                                        extract_failed_task_ids(update, reject_reasons)
+                                    {
+                                        return Err(Error::TxInputsAlreadySpent { failed_task_ids });
+                                    } else {
+                                        return Err(Error::UnrecoverableNodeError);
+                                    }
                                 }
                             }
-                        },
+                        }
                         Err(VerifierRejection::Unavailable) => continue, // todo: RestartVerifierWhenUnresponsive
                         Err(VerifierRejection::InvalidWithdrawal) => {
                             panic!() // todo: ShouldGoToIndexFaultMode; ShouldResyncOnMismatch
