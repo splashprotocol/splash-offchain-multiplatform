@@ -7,7 +7,6 @@ use petgraph::{
     visit::{Dfs, EdgeRef},
 };
 use serde::{Deserialize, Serialize};
-use spectrum_offchain::tx_hash::CanonicalHash;
 
 use crate::entity_index::UnconfirmedHarvestTxIndex;
 
@@ -27,18 +26,15 @@ use crate::entity_index::UnconfirmedHarvestTxIndex;
 /// from a confirmed TX. The graph must be notified of changes to this through the use of
 /// `confirm_tx()` and `rollback()` methods.
 #[derive(Serialize, Deserialize)]
-pub struct ChainedHarvestTxGraph<Tx> {
-    gr: StableDiGraph<NodeData<Tx>, ()>,
+pub struct ChainedHarvestTxGraph {
+    gr: StableDiGraph<NodeData, ()>,
     /// Contains all users who have already confirmed to have harvested in the current epoch.
     last_confirmed_user_harvests: HashSet<Ed25519KeyHash>,
     /// The hash of the last-confirmed TX with `buffer_wallet` UTxO output (in position 0).
     last_confirmed_buffer_wallet_tx_hash: TransactionHash,
 }
 
-impl<'de, Tx> UnconfirmedHarvestTxIndex<Tx> for ChainedHarvestTxGraph<Tx>
-where
-    Tx: CanonicalHash<Hash = TransactionHash> + Serialize + Deserialize<'de>,
-{
+impl UnconfirmedHarvestTxIndex for ChainedHarvestTxGraph {
     /// Attempt to add a new TX to the store. If the TX spends a valid `buffer_wallet` input and
     /// does not perform double-harvesting, it will be added and `true` is returned.
     ///
@@ -48,7 +44,7 @@ where
     fn try_add_tx(
         &mut self,
         buffer_wallet_input_tx_hash: TransactionHash,
-        tx: Tx,
+        tx_hash: TransactionHash,
         tx_user_creds: HashSet<Ed25519KeyHash>,
     ) -> bool {
         for cred in &tx_user_creds {
@@ -62,7 +58,7 @@ where
 
         if is_tx_spending_confirmed {
             let data = NodeData {
-                tx,
+                tx_hash,
                 user_creds: tx_user_creds,
             };
             self.gr.add_node(data);
@@ -71,7 +67,7 @@ where
             self.find_parent_chain_tx(&buffer_wallet_input_tx_hash, &tx_user_creds)
         {
             let data = NodeData {
-                tx,
+                tx_hash,
                 user_creds: tx_user_creds,
             };
             let child_ix = self.gr.add_node(data);
@@ -127,7 +123,7 @@ where
     ) -> bool {
         if let Some(ix) = self.gr.node_indices().find(|ix| {
             let node_data = self.gr.node_weight(*ix).unwrap();
-            node_data.tx.canonical_hash() == tx_hash
+            node_data.tx_hash == tx_hash
         }) {
             let children_nodes: Vec<_> = self
                 .gr
@@ -142,7 +138,7 @@ where
                 .next()
                 .is_none());
             let node_data = self.gr.remove_node(ix).unwrap();
-            self.last_confirmed_buffer_wallet_tx_hash = node_data.tx.canonical_hash();
+            self.last_confirmed_buffer_wallet_tx_hash = node_data.tx_hash;
 
             assert_eq!(node_data.user_creds, *confirmed_user_harvests,);
 
@@ -190,10 +186,7 @@ where
     }
 }
 
-impl<'de, Tx> ChainedHarvestTxGraph<Tx>
-where
-    Tx: CanonicalHash<Hash = TransactionHash> + Serialize + Deserialize<'de>,
-{
+impl ChainedHarvestTxGraph {
     pub fn new() -> Self {
         Self {
             gr: StableDiGraph::new(),
@@ -206,7 +199,7 @@ where
     pub fn is_unconfirmed_and_tracked(&self, tx_hash: TransactionHash) -> bool {
         self.gr
             .node_weights()
-            .any(|node_data| node_data.tx.canonical_hash() == tx_hash)
+            .any(|node_data| node_data.tx_hash == tx_hash)
     }
 
     fn find_parent_chain_tx(
@@ -222,7 +215,7 @@ where
         }
         let mut curr_ix = self.gr.node_indices().find(|ix| {
             let node_data = self.gr.node_weight(*ix).unwrap();
-            node_data.tx.canonical_hash() == *tx_hash
+            node_data.tx_hash == *tx_hash
         });
 
         let parent_ix = curr_ix;
@@ -246,8 +239,8 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-struct NodeData<Tx> {
-    tx: Tx,
+struct NodeData {
+    tx_hash: TransactionHash,
     user_creds: HashSet<Ed25519KeyHash>,
 }
 
@@ -266,25 +259,25 @@ mod tests {
     fn test_full_tx_chain_confirmation() {
         let last_confirmed_user_harvests: HashSet<_> = (0_u8..10).map(gen_key_hash).collect();
         let tx_hashes: Vec<_> = (0_u8..20).map(gen_tx_hash).collect();
-        let mut gr = ChainedHarvestTxGraph::<TxHash>::new();
-        gr.confirm_tx(tx_hashes[0].0, &last_confirmed_user_harvests);
+        let mut gr = ChainedHarvestTxGraph::new();
+        gr.confirm_tx(tx_hashes[0], &last_confirmed_user_harvests);
         assert_eq!(gr.last_confirmed_user_harvests.len(), 10);
         let key_hash = gen_key_hash(10);
 
         let new_confirmed_users: HashSet<_> = vec![key_hash].into_iter().collect();
-        assert!(gr.try_add_tx(tx_hashes[0].0, tx_hashes[1], new_confirmed_users.clone()));
+        assert!(gr.try_add_tx(tx_hashes[0], tx_hashes[1], new_confirmed_users.clone()));
 
-        gr.confirm_tx(tx_hashes[1].0, &new_confirmed_users);
-        assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[1].0);
+        gr.confirm_tx(tx_hashes[1], &new_confirmed_users);
+        assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[1]);
         assert_eq!(gr.last_confirmed_user_harvests.len(), 11);
 
         // Failed because it doesn't spend valid TX containing `buffer_wallet`.
         let new_confirmed_users: HashSet<_> = vec![gen_key_hash(11)].into_iter().collect();
-        assert!(!gr.try_add_tx(tx_hashes[2].0, tx_hashes[3], new_confirmed_users));
+        assert!(!gr.try_add_tx(tx_hashes[2], tx_hashes[3], new_confirmed_users));
 
         // Failed because user_key already harvested
         let new_confirmed_users: HashSet<_> = vec![gen_key_hash(0)].into_iter().collect();
-        assert!(!gr.try_add_tx(tx_hashes[1].0, tx_hashes[2], new_confirmed_users,));
+        assert!(!gr.try_add_tx(tx_hashes[1], tx_hashes[2], new_confirmed_users,));
 
         let mut conf = vec![];
         // Add TX chain T_2, T_3, ..., T_19
@@ -292,19 +285,19 @@ mod tests {
             let key_hash = gen_key_hash(i as u8 + 10);
             let new_confirmed_users: HashSet<_> = vec![key_hash].into_iter().collect();
             conf.push(new_confirmed_users.clone());
-            assert!(gr.try_add_tx(tx_hashes[i].0, tx_hashes[i + 1], new_confirmed_users));
+            assert!(gr.try_add_tx(tx_hashes[i], tx_hashes[i + 1], new_confirmed_users));
         }
 
         // Now confirm all TXs in the chain.
         for (i, confirmed_users) in (2..20).zip(&conf) {
-            gr.confirm_tx(tx_hashes[i].0, confirmed_users);
-            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i].0);
+            gr.confirm_tx(tx_hashes[i], confirmed_users);
+            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i]);
         }
 
         // Finally let's rollback each TX
         for (i, confirmed_users) in (1..20).zip(&conf).rev() {
-            gr.rollback(confirmed_users.clone(), tx_hashes[i - 1].0);
-            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i - 1].0);
+            gr.rollback(confirmed_users.clone(), tx_hashes[i - 1]);
+            assert_eq!(gr.last_confirmed_buffer_wallet_tx_hash, tx_hashes[i - 1]);
         }
     }
 
@@ -331,87 +324,55 @@ mod tests {
         // 3. Confirm T_4, which leads to removal of T_5 (and so no more nodes in the unconfirmed graph)
         let last_confirmed_user_harvests: HashSet<_> = (0_u8..10).map(gen_key_hash).collect();
         let tx_hashes: Vec<_> = (0_u8..20).map(gen_tx_hash).collect();
-        let mut gr = ChainedHarvestTxGraph::<TxHash>::new();
-        gr.confirm_tx(tx_hashes[0].0, &last_confirmed_user_harvests);
+        let mut gr = ChainedHarvestTxGraph::new();
+        gr.confirm_tx(tx_hashes[0], &last_confirmed_user_harvests);
 
         assert!(gr.try_add_tx(
-            tx_hashes[0].0,
+            tx_hashes[0],
             tx_hashes[1],
             vec![gen_key_hash(10)].into_iter().collect()
         ));
         let mut i = 1;
         let key_hash_2 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(
-            tx_hashes[1].0,
-            tx_hashes[2],
-            vec![key_hash_2].into_iter().collect()
-        ));
+        assert!(gr.try_add_tx(tx_hashes[1], tx_hashes[2], vec![key_hash_2].into_iter().collect()));
         i += 1;
         let key_hash_3 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(
-            tx_hashes[2].0,
-            tx_hashes[3],
-            vec![key_hash_3].into_iter().collect()
-        ));
-        assert!(gr.try_add_tx(
-            tx_hashes[2].0,
-            tx_hashes[6],
-            vec![key_hash_3].into_iter().collect()
-        )); // can safely have same key_hash
+        assert!(gr.try_add_tx(tx_hashes[2], tx_hashes[3], vec![key_hash_3].into_iter().collect()));
+        assert!(gr.try_add_tx(tx_hashes[2], tx_hashes[6], vec![key_hash_3].into_iter().collect())); // can safely have same key_hash
         i += 1;
         let key_hash_4 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(
-            tx_hashes[3].0,
-            tx_hashes[4],
-            vec![key_hash_4].into_iter().collect()
-        ));
-        assert!(gr.try_add_tx(
-            tx_hashes[3].0,
-            tx_hashes[5],
-            vec![key_hash_4].into_iter().collect()
-        ));
+        assert!(gr.try_add_tx(tx_hashes[3], tx_hashes[4], vec![key_hash_4].into_iter().collect()));
+        assert!(gr.try_add_tx(tx_hashes[3], tx_hashes[5], vec![key_hash_4].into_iter().collect()));
 
         // right subgraph
         i += 1;
         let key_hash_7 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(
-            tx_hashes[0].0,
-            tx_hashes[7],
-            vec![key_hash_7].into_iter().collect()
-        ));
+        assert!(gr.try_add_tx(tx_hashes[0], tx_hashes[7], vec![key_hash_7].into_iter().collect()));
         i += 1;
         let key_hash_8 = gen_key_hash(10 + i);
-        assert!(gr.try_add_tx(
-            tx_hashes[7].0,
-            tx_hashes[8],
-            vec![key_hash_8].into_iter().collect()
-        ));
-        assert!(gr.try_add_tx(
-            tx_hashes[7].0,
-            tx_hashes[9],
-            vec![key_hash_8].into_iter().collect()
-        ));
+        assert!(gr.try_add_tx(tx_hashes[7], tx_hashes[8], vec![key_hash_8].into_iter().collect()));
+        assert!(gr.try_add_tx(tx_hashes[7], tx_hashes[9], vec![key_hash_8].into_iter().collect()));
 
         // Confirming T_1, which will remove T_7 and its children nodes.
         let user = vec![gen_key_hash(10)].into_iter().collect();
-        assert!(gr.confirm_tx(tx_hashes[1].0, &user));
+        assert!(gr.confirm_tx(tx_hashes[1], &user));
 
         assert!(!gr.last_confirmed_user_harvests.contains(&key_hash_7));
         assert!(!gr.last_confirmed_user_harvests.contains(&key_hash_8));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[7].0));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[8].0));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[9].0));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[7]));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[8]));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[9]));
 
         let user = vec![key_hash_2].into_iter().collect();
-        assert!(gr.confirm_tx(tx_hashes[2].0, &user));
+        assert!(gr.confirm_tx(tx_hashes[2], &user));
 
         let user = vec![key_hash_3].into_iter().collect();
-        assert!(gr.confirm_tx(tx_hashes[3].0, &user));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[6].0));
+        assert!(gr.confirm_tx(tx_hashes[3], &user));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[6]));
 
         let user = vec![key_hash_4].into_iter().collect();
-        assert!(gr.confirm_tx(tx_hashes[4].0, &user));
-        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[5].0));
+        assert!(gr.confirm_tx(tx_hashes[4], &user));
+        assert!(!gr.is_unconfirmed_and_tracked(tx_hashes[5]));
         assert_eq!(gr.gr.node_count(), 0);
     }
 
@@ -420,20 +381,8 @@ mod tests {
         bytes.into()
     }
 
-    fn gen_tx_hash(seed_value: u8) -> TxHash {
+    fn gen_tx_hash(seed_value: u8) -> TransactionHash {
         let bytes = [seed_value; 32];
-        let inner = TransactionHash::from(bytes);
-        inner.into()
-    }
-
-    #[derive(Serialize, Deserialize, derive_more::From, Clone, Copy)]
-    struct TxHash(TransactionHash);
-
-    impl CanonicalHash for TxHash {
-        type Hash = TransactionHash;
-
-        fn canonical_hash(&self) -> Self::Hash {
-            self.0
-        }
+        TransactionHash::from(bytes)
     }
 }

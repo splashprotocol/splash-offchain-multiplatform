@@ -1,5 +1,5 @@
 use cml_core::Slot;
-use cml_crypto::Ed25519KeyHash;
+use cml_crypto::{Ed25519KeyHash, PublicKey};
 use std::time::Duration;
 
 use crate::engine::EngineConfig;
@@ -31,7 +31,7 @@ pub struct AppConfig {
     pub max_number_merkle_tree_snapshots: u8,
     pub splash_policy_id_hex: String,
     pub ve_config: VeConfig,
-    pub authorized_executors: Vec<Ed25519KeyHash>,
+    pub authorized_executors: Vec<PublicKey>,
     pub operator_sk: String,
 }
 

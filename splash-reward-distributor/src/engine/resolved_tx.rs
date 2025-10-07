@@ -1,4 +1,4 @@
-use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_chain::{builders::tx_builder::SignedTxBuilder, transaction::TransactionOutput};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::OutputRef;
 use splash_dao_offchain::routines::Slot;
@@ -20,4 +20,4 @@ pub struct CardanoTxInput {
 
 pub type CardanoTxInputs = Vec<CardanoTxInput>;
 
-pub type PartiallySignedCardanoTx = PartiallySignedTx<Transaction, CardanoTxInputs>;
+pub type PartiallySignedCardanoTx = PartiallySignedTx<SignedTxBuilder, CardanoTxInputs>;

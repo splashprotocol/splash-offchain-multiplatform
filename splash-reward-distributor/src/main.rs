@@ -12,7 +12,6 @@ use crate::api_endpoint::{handle_request_cosignature, VerifierAppState};
 use crate::config::AppConfig;
 use crate::context::{RewardBotRuntimeContext, VerifierRuntimeContext};
 use crate::engine::executor::Executor;
-use crate::engine::prover::VerifierProver;
 use crate::engine::queue::RocksDB;
 use crate::engine::verifier::{AuthorizedExecutors, HttpVerifier, Verifier};
 use crate::engine::verifier_engine::VerifierEngine;
@@ -36,6 +35,7 @@ use log::info;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
+use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use spectrum_streaming::run_stream;
@@ -44,7 +44,6 @@ use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
 };
 use splash_dao_offchain::funding::FundingRepoRocksDB;
-use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -320,8 +319,8 @@ async fn run_verifier(args: AppArgs) {
     let verifier = Verifier::new(
         onchain_index,
         position_index,
-        <ChainedHarvestTxGraph<Transaction>>::new(),
-        VerifierProver::from(config.operator_sk),
+        ChainedHarvestTxGraph::new(),
+        OperatorProver::new(config.operator_sk),
     );
     let engine = VerifierEngine::new(engine_mailbox, voting_event_rcv, verifier);
     let engine_handle = tokio::spawn(engine.run(ctx));

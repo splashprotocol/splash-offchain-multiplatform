@@ -2,14 +2,16 @@ use crate::accounts::{AccountReward, Accounts};
 use crate::engine::proposed_harvest_tx::{ProposedHarvestTx, Withdrawal};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
 use crate::entity_index::UnconfirmedHarvestTxIndex;
+use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::certs::Credential;
 use cml_chain::transaction::Transaction;
-use cml_crypto::{Ed25519KeyHash, TransactionHash};
+use cml_crypto::{Ed25519KeyHash, PublicKey, TransactionHash};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::deployment::ProtocolValidator;
@@ -120,8 +122,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prov> VerifierHandleLedgerEvent
 where
     Index: Send + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex<Transaction> + Send + Sync,
-    Prov: TxProver<PartiallySignedCardanoTx, Transaction> + Send + Sync,
+    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
 {
     fn confirm_harvest_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) {
         self.unconfirmed_harvest_tx_index
@@ -150,7 +152,7 @@ where
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct AuthorizedExecutors(pub Vec<Ed25519KeyHash>);
+pub struct AuthorizedExecutors(pub Vec<PublicKey>);
 
 #[async_trait::async_trait]
 impl<Index, PositionIndex, UHarvestIndex, Prov, Ctx> LocalVerifier<PartiallySignedCardanoTx, Transaction, Ctx>
@@ -158,8 +160,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prov, Ctx> LocalVerifier<PartiallySign
 where
     Index: Send + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex<Transaction> + Send + Sync,
-    Prov: TxProver<PartiallySignedCardanoTx, Transaction> + Send + Sync,
+    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<NetworkId>
@@ -188,15 +190,16 @@ where
                     return None;
                 }
             }
+            let tx_hash = tx.tx.clone().build_checked().unwrap().canonical_hash();
             if self.unconfirmed_harvest_tx_index.try_add_tx(
                 proposed_harvest_tx.buffer_wallet_tx_hash,
-                tx.tx.clone(),
+                tx_hash,
                 withdrawals
                     .iter()
                     .map(|withdrawal| withdrawal.order.account_key)
                     .collect(),
             ) {
-                return Some(self.prover.prove(tx.clone()));
+                return Some(self.prover.prove(tx.tx.clone()));
             }
         }
         None

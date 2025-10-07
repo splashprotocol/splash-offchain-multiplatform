@@ -1,7 +1,6 @@
 mod batch;
 pub mod executor;
 mod proposed_harvest_tx;
-pub mod prover;
 pub mod queue;
 pub mod resolved_tx;
 mod task;

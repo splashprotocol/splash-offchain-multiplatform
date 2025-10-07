@@ -2,10 +2,11 @@ use crate::engine::{
     resolved_tx::{CardanoTxInput, PartiallySignedCardanoTx},
     verifier::AuthorizedExecutors,
 };
-use cml_crypto::TransactionHash;
+use cml_chain::crypto::Vkeywitness;
+use cml_crypto::{RawBytesEncoding, TransactionHash};
 use spectrum_cardano_lib::{
-    transaction::TransactionOutputExtension, value::ValueExtension, AssetClass, AssetName, NetworkId,
-    OutputRef, Token,
+    hash::hash_transaction_canonical, transaction::TransactionOutputExtension, value::ValueExtension,
+    AssetClass, AssetName, NetworkId, OutputRef, Token,
 };
 use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
@@ -63,7 +64,7 @@ where
                  }| {
                     let res = issued_at.and_then(|issued_at| {
                         try_extract_harvest_order(tx_output, *output_ref, issued_at, ctx).and_then(|order| {
-                            repr.tx.body.outputs.iter().find_map(|tx_output| {
+                            repr.tx.body().outputs.iter().find_map(|tx_output| {
                                 if *tx_output.address() == order.reward_receiver.to_address(network_id) {
                                     let amount = tx_output.value().amount_of(splash_asset_class)?;
                                     return Some(Withdrawal {
@@ -85,21 +86,24 @@ where
             )
             .collect();
 
-        let valid_tx_signature = repr
-            .tx
-            .body
-            .required_signers
-            .as_ref()
-            .map(|signers| {
-                if signers.len() == 1 {
-                    let signer_key_hash = signers.first().unwrap();
-                    let authorized_signers = ctx.select::<AuthorizedExecutors>().0;
-                    authorized_signers.contains(signer_key_hash)
-                } else {
-                    false
-                }
-            })
-            .unwrap_or(false);
+        let valid_tx_signature = {
+            let vkeys = &repr.tx.witness_set().vkeys;
+
+            if vkeys.len() == 1 {
+                let Vkeywitness {
+                    vkey,
+                    ed25519_signature,
+                    ..
+                } = vkeys.values().next().unwrap();
+
+                let tx_hash = hash_transaction_canonical(&repr.tx.body());
+
+                let authorized_signers = ctx.select::<AuthorizedExecutors>().0;
+                vkey.verify(tx_hash.to_raw_bytes(), ed25519_signature) && authorized_signers.contains(vkey)
+            } else {
+                false
+            }
+        };
 
         if let Some(buffer_wallet) = buffer_wallet {
             if !withdrawals.is_empty() && valid_tx_signature {
