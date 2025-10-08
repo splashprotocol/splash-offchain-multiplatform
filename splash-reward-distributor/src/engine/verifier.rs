@@ -230,7 +230,7 @@ where
                     .0 as u64,
                 );
 
-                // TODO: validate `buffer_wallet`  (DEX-935)
+                // TODO: validate `buffer_wallet`  (DEX-962)
                 for withdrawal in &withdrawals {
                     let order = withdrawal.order.clone();
                     assert_eq!(order.issued_at.1, current_epoch);
@@ -315,7 +315,7 @@ where
                 }
 
                 // TODO: validate `buffer_wallet` (including rewards are deposited in the buffer
-                // wallet) (DEX-935)
+                // wallet) (DEX-962)
                 //     assert_eq!(total_rewards, buffer_wallet_balance);
                 return Some(self.prover.prove(tx.tx.clone()));
             }
