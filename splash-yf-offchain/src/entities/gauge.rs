@@ -1,7 +1,8 @@
 use std::fmt::Display;
 use std::hash::Hash;
 
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_crypto::TransactionHash;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
     output::FinalizedTxOut,
@@ -72,56 +73,70 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let slot = Slot(repr.slot);
-        let mut successor_ix = 1_u64;
+        try_extract_updated_gauges(slot, &repr.inputs, &repr.outputs, repr.hash, ctx)
+    }
+}
 
-        let consumed_gauges: Vec<_> = repr
-            .inputs
-            .iter()
-            .enumerate()
-            .filter_map(|(ix, (_, output))| {
-                let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), slot);
-                if let Some(TimedOutput { output, .. }) = output {
-                    return try_extract_gauge(output, output_ref, ctx).map(|gauge| {
-                        successor_ix += 1;
-                        (gauge, successor_ix - 1)
+pub fn try_extract_updated_gauges<C>(
+    slot: Slot,
+    inputs: &[(TransactionInput, Option<TimedOutput>)],
+    outputs: &[TransactionOutput],
+    tx_hash: TransactionHash,
+    ctx: &C,
+) -> Option<UpdatedGauges<FarmId, OutputRef, FinalizedTxOut>>
+where
+    C: Has<PermManagerAuthPolicy>
+        + Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
+{
+    let mut successor_ix = 1_u64;
+
+    let consumed_gauges: Vec<_> = inputs
+        .iter()
+        .enumerate()
+        .filter_map(|(ix, (_, output))| {
+            let output_ref = TimedOutputRef::new(OutputRef::new(tx_hash, ix as u64), slot);
+            if let Some(TimedOutput { output, .. }) = output {
+                return try_extract_gauge(output, output_ref, ctx).map(|gauge| {
+                    successor_ix += 1;
+                    (gauge, successor_ix - 1)
+                });
+            }
+            None
+        })
+        .collect();
+
+    let num_consumed_gauges = consumed_gauges.len();
+
+    // `outputs[0]`` contains buffer_wallet_output, `outputs.last` contains change UTxO, the rest
+    // are gauge outputs.
+    if num_consumed_gauges > 0 && outputs.len() == num_consumed_gauges + 2 {
+        let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, FinalizedTxOut>> = vec![];
+        for ((gauge_in, successor_ix), (output_ix, tx_output)) in consumed_gauges
+            .into_iter()
+            .zip(outputs.iter().enumerate().skip(1).take(num_consumed_gauges))
+        {
+            if successor_ix != output_ix as u64 {
+                return None;
+            }
+            let output_ref = TimedOutputRef::new(OutputRef::new(tx_hash, successor_ix), slot);
+            if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
+                if gauge_out.id == gauge_in.id {
+                    res.push(EntityUpdated {
+                        consumed: Some(gauge_in.state_id),
+                        created: (
+                            gauge_out,
+                            FinalizedTxOut(tx_output.clone(), output_ref.output_ref),
+                        ),
                     });
                 }
-                None
-            })
-            .collect();
-
-        let num_consumed_gauges = consumed_gauges.len();
-
-        // `outputs[0]`` contains buffer_wallet_output, `outputs.last` contains change UTxO, the rest
-        // are gauge outputs.
-        if num_consumed_gauges > 0 && repr.outputs.len() == num_consumed_gauges + 2 {
-            let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, FinalizedTxOut>> = vec![];
-            for ((gauge_in, successor_ix), (output_ix, tx_output)) in consumed_gauges
-                .into_iter()
-                .zip(repr.outputs.iter().enumerate().skip(1).take(num_consumed_gauges))
-            {
-                if successor_ix != output_ix as u64 {
-                    return None;
-                }
-                let output_ref = TimedOutputRef::new(OutputRef::new(repr.hash, successor_ix), slot);
-                if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
-                    if gauge_out.id == gauge_in.id {
-                        res.push(EntityUpdated {
-                            consumed: Some(gauge_in.state_id),
-                            created: (
-                                gauge_out,
-                                FinalizedTxOut(tx_output.clone(), output_ref.output_ref),
-                            ),
-                        });
-                    }
-                } else {
-                    return None;
-                }
+            } else {
+                return None;
             }
-            return Some(res.into());
         }
-        None
+        return Some(res.into());
     }
+    None
 }
 
 pub fn try_extract_gauge<C>(

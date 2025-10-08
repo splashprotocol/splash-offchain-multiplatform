@@ -87,6 +87,7 @@ async fn process_ledger_event<GaugeId, StateId, Bearer, Verifier>(
         BlockEvents::RollForward {
             events, block_slot, ..
         } => {
+            verifier.confirm_block_slot(block_slot);
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {
@@ -106,6 +107,7 @@ async fn process_ledger_event<GaugeId, StateId, Bearer, Verifier>(
         BlockEvents::RollBackward {
             events, block_slot, ..
         } => {
+            verifier.rollback_block_slot(block_slot);
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {

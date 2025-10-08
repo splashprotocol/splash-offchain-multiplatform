@@ -1,7 +1,7 @@
 use crate::accounts::{AccountReward, Accounts};
 use crate::engine::proposed_harvest_tx::{ProposedHarvestTx, Withdrawal};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
-use crate::entity_index::{AuthManagerIndex, UnconfirmedHarvestTxIndex};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedHarvestTxIndex};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::certs::Credential;
 use cml_chain::transaction::Transaction;
@@ -10,7 +10,9 @@ use log::info;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_offchain::data::circular_filter::CircularFilter;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::tx_hash::CanonicalHash;
@@ -18,7 +20,10 @@ use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
-use splash_dao_offchain::protocol_config::{BufferWalletScript, SplashPolicy};
+use splash_dao_offchain::protocol_config::{BufferWalletScript, PermManagerAuthPolicy, SplashPolicy};
+use splash_dao_offchain::routines::{slot_to_epoch, Slot};
+use splash_dao_offchain::GenesisEpochStartTime;
+use splash_yf_offchain::entities::gauge::try_extract_updated_gauges;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use splash_yf_offchain::Epoch;
 use std::collections::HashSet;
@@ -90,6 +95,8 @@ pub trait VerifierHandleLedgerEvent {
     fn confirm_gauge_buffering_tx(&mut self, tx_hash: TransactionHash);
     fn rollback_harvest_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: Vec<Ed25519KeyHash>);
     fn rollback_gauge_buffering_tx(&mut self, tx_hash: TransactionHash);
+    fn confirm_block_slot(&mut self, block_slot: u64);
+    fn rollback_block_slot(&mut self, block_slot: u64);
 }
 
 #[derive(Clone)]
@@ -97,6 +104,7 @@ pub struct Verifier<Tx, Index, PositionIndex, UHarvestIndex, Prover> {
     index: Index,
     position_index: PositionIndex,
     unconfirmed_harvest_tx_index: UHarvestIndex,
+    block_slot_buffer: CircularFilter<100, u64>,
     prover: Prover,
     pd: PhantomData<Tx>,
 }
@@ -114,9 +122,14 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
             index,
             position_index,
             unconfirmed_harvest_tx_index,
+            block_slot_buffer: CircularFilter::new(),
             prover,
             pd: PhantomData,
         }
+    }
+
+    fn get_current_slot(&self) -> u64 {
+        *self.block_slot_buffer.back().expect("Block slot buffer is empty")
     }
 }
 
@@ -152,6 +165,23 @@ where
         self.unconfirmed_harvest_tx_index
             .rollback(HashSet::new(), tx_hash);
     }
+
+    fn confirm_block_slot(&mut self, block_slot: u64) {
+        self.block_slot_buffer.add(block_slot);
+    }
+
+    fn rollback_block_slot(&mut self, block_slot: u64) {
+        let rolled_back_slot = self
+            .block_slot_buffer
+            .pop_back()
+            .expect("Block slot buffer is empty");
+        assert!(
+            rolled_back_slot == block_slot,
+            "Rolled back block slot {} != confirmed block slot {}",
+            rolled_back_slot,
+            block_slot
+        );
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -167,44 +197,71 @@ pub enum TxCosignRequest {
 impl<Index, PositionIndex, UHarvestIndex, Prov, Ctx> LocalVerifier<TxCosignRequest, Transaction, Ctx>
     for Verifier<TxCosignRequest, Index, PositionIndex, UHarvestIndex, Prov>
 where
-    Index: AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut> + Send + Sync,
+    Index: AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
+        + HarvestOrderIndex<OutputRef, FinalizedTxOut>
+        + Send
+        + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
     UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<NetworkId>
+        + Has<GenesisEpochStartTime>
+        + Has<PermManagerAuthPolicy>
         + Has<SplashPolicy>
         + Has<AuthorizedExecutors>
         + Has<BufferWalletScript>
         + Sync,
 {
     async fn try_approve(&mut self, tx: &TxCosignRequest, ctx: &Ctx) -> Option<Transaction> {
+        let current_slot = self.get_current_slot();
         match tx {
             TxCosignRequest::Harvest(tx) => {
                 let proposed_harvest_tx = <ProposedHarvestTx<OutputRef>>::try_from_ledger(tx, ctx)?;
                 let withdrawals = proposed_harvest_tx.withdrawals;
+                let current_epoch = Epoch::from(
+                    slot_to_epoch(
+                        current_slot,
+                        ctx.select::<GenesisEpochStartTime>(),
+                        ctx.select::<NetworkId>(),
+                    )
+                    .0 as u64,
+                );
+
+                // TODO: validate `buffer_wallet`  (DEX-935)
                 for withdrawal in &withdrawals {
                     let order = withdrawal.order.clone();
+                    assert_eq!(order.issued_at.1, current_epoch);
+                    let last_harvested_epoch = self
+                        .index
+                        .last_epoch_harvested(order.account_key)
+                        .await
+                        .unwrap_or(Epoch::from(0));
                     if let Some(AccountReward {
                         accumulated_amount: amount,
                         latest_epoch_inclusive,
                     }) = self
                         .position_index
-                        .query_account_reward(&Credential::new_pub_key(order.account_key), Epoch::from(0)) // todo: use correct epoch
+                        .query_account_reward(
+                            &Credential::new_pub_key(order.account_key),
+                            last_harvested_epoch,
+                        )
                         .await
                     {
                         if amount != withdrawal.amount {
                             info!(
-                                "Accumulated reward amount {} != harvest withdrawal amount {}",
+                                "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
                                 amount, withdrawal.amount
                             );
                             return None;
                         }
-                        if order.issued_at.1 > latest_epoch_inclusive.next() {
+                        if current_epoch > latest_epoch_inclusive.next() {
                             info!(
-                                "Harvest order issued at epoch {} is in the future",
-                                order.issued_at.1
+                                "lp-indexer chain tip (epoch = {}) lags current epoch ({})",
+                                latest_epoch_inclusive.next(),
+                                current_epoch,
                             );
                             return None;
                         }
@@ -225,10 +282,42 @@ where
                 }
             }
             TxCosignRequest::GaugeBuffering(tx) => {
-                let auth_manager = self.index.get_auth_manager().await?;
+                let suspended_gauges = self.index.get_auth_manager().await?.0.suspended_gauges;
+                let built_tx = tx.tx.clone().build_checked().unwrap();
+                let tx_hash = built_tx.canonical_hash();
+                let inputs: Vec<_> = tx
+                    .inputs
+                    .iter()
+                    .zip(built_tx.body.inputs)
+                    .map(|(cardano_tx_input, input)| {
+                        let timed_output = TimedOutput {
+                            output: cardano_tx_input.tx_output.clone(),
+                            slot: cardano_tx_input.issued_at.unwrap().0 .0,
+                        };
+                        (input, Some(timed_output))
+                    })
+                    .collect();
+                let updated_gauges = try_extract_updated_gauges(
+                    Slot(current_slot),
+                    &inputs,
+                    &built_tx.body.outputs,
+                    tx_hash,
+                    ctx,
+                )?;
+
                 // Check none of the gauges are suspended
-                // check that all rewards are deposited in the buffer wallet
-                todo!()
+                let mut total_rewards = 0;
+                for gauge in &updated_gauges.0 {
+                    if suspended_gauges.contains(&gauge.created.0.id) {
+                        return None;
+                    }
+                    total_rewards += gauge.created.0.balance;
+                }
+
+                // TODO: validate `buffer_wallet` (including rewards are deposited in the buffer
+                // wallet) (DEX-935)
+                //     assert_eq!(total_rewards, buffer_wallet_balance);
+                return Some(self.prover.prove(tx.tx.clone()));
             }
         }
         None
