@@ -290,11 +290,12 @@ where
                     .iter()
                     .zip(built_tx.body.inputs)
                     .map(|(cardano_tx_input, input)| {
-                        let timed_output = TimedOutput {
+                        let timed_output = cardano_tx_input.issued_at.map(|(slot, _)| TimedOutput {
                             output: cardano_tx_input.tx_output.clone(),
-                            slot: cardano_tx_input.issued_at.unwrap().0 .0,
-                        };
-                        (input, Some(timed_output))
+                            slot: slot.0,
+                        });
+
+                        (input, timed_output)
                     })
                     .collect();
                 let updated_gauges = try_extract_updated_gauges(
