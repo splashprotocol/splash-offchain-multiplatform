@@ -20,7 +20,7 @@ use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
 use cml_chain::certs::Credential;
-use cml_chain::transaction::{Transaction, TransactionInput};
+use cml_chain::transaction::{DatumOption, Transaction, TransactionInput};
 use cml_chain::{RequiredSigners, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use log::{error, warn};
@@ -34,8 +34,9 @@ use serde::Serialize;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::IntoPlutusData;
+use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::event::Predicted;
@@ -45,15 +46,17 @@ use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator::*};
+use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator};
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
-use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
+use splash_dao_offchain::protocol_config::{OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
 use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot};
 use splash_dao_offchain::GenesisEpochStartTime;
-use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletWrap};
+use splash_yf_offchain::entities::buffer_wallet::{
+    BufferWallet, BufferWalletAction, BufferWalletConfig, BufferWalletWrap,
+};
 use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
 use splash_yf_offchain::events::EntityUpdated;
@@ -126,8 +129,8 @@ where
     OnChainIndex:
         BufferWalletIndex<OutputRef, FinalizedTxOut> + HarvestOrderIndex<OutputRef, FinalizedTxOut> + Send,
     Ctx: Send
-        + Has<BufferWalletScript>
-        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<Collateral>
@@ -236,13 +239,12 @@ where
         Error,
     > {
         if let Some(batch) = self.batch.take() {
-            let harvest_order_deployed_validator =
-                self.ctx.select::<DeployedValidator<{ HarvestOrder as u8 }>>();
+            let harvest_order_deployed_validator = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>>();
             let harvest_order_ref_script_output = harvest_order_deployed_validator.reference_utxo;
 
             let num_payouts = batch.orders.len() as u64;
-
-            let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
 
             let mut accounts = vec![];
 
@@ -301,12 +303,17 @@ where
 
             let Bundled(buffer_wallet_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
 
+            let buffer_wallet_script_hash = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>()
+                .hash;
+            let buffer_wallet_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(buffer_wallet_script_hash),
+                BufferWalletAction::Admin.into_pd(),
+            );
             let buffer_wallet_input =
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
-                    .native_script(
-                        buffer_wallet_script.clone(),
-                        NativeScriptWitnessInfo::num_signatures(2),
-                    )
+                    .plutus_script_inline_datum(buffer_wallet_witness, RequiredSigners::from(vec![]))
                     .unwrap();
             sorted_input_data.push(InputData {
                 input: buffer_wallet_input,
@@ -315,6 +322,7 @@ where
             });
 
             sorted_input_data.sort_by_key(|InputData { input, .. }| input.input.clone());
+            predicted_harvest_order_spends.sort_by_key(|(id, _)| *id);
 
             let blueprint_sorted_inputs: Vec<_> = sorted_input_data
                 .iter()
@@ -324,6 +332,32 @@ where
             // Outputs
 
             let mut bw_out = bw_tx_out;
+            let mut bw_datum =
+                BufferWalletConfig::try_from_pd(bw_out.datum().unwrap().into_pd().unwrap()).unwrap();
+
+            // Compute the new merkle tree root hash digest
+            let mut last_confirmed_merkle_tree = self
+                .onchain_index
+                .last_confirmed_merkle_tree()
+                .await
+                .unwrap()
+                .tree;
+
+            let new_merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap();
+            assert_eq!(
+                new_merkle_tree_root_hash_digest.to_vec(),
+                bw_datum.merkle_tree_root_hash_digest
+            );
+
+            let mut merkle_leaves = predicted_harvest_order_spends
+                .iter()
+                .map(|(_, spend)| spend.hash())
+                .collect::<Vec<_>>();
+
+            last_confirmed_merkle_tree.append(&mut merkle_leaves);
+            last_confirmed_merkle_tree.commit();
+
+            bw_datum.merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap().into();
 
             let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
             let splash_policy = self.ctx.select::<SplashPolicy>().0;
@@ -334,7 +368,14 @@ where
                 .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
                 .is_ok());
 
-            let buffer_wallet_output = SingleOutputBuilderResult::new(bw_out.clone());
+            let buffer_wallet_output = TransactionOutputBuilder::new()
+                .with_address(bw_out.address().clone())
+                .with_data(DatumOption::new_datum(bw_datum.into_pd()))
+                .next()
+                .unwrap()
+                .with_value(bw_out.value().clone())
+                .build()
+                .unwrap();
 
             let mut outputs = vec![buffer_wallet_output];
 
@@ -465,11 +506,11 @@ impl<Ctx, OnChainIndex, FundingIndex>
 where
     Ctx: Send
         + Clone
-        + Has<BufferWalletScript>
         + Has<Collateral>
         + Has<OperatorCreds>
-        + Has<DeployedValidator<{ SmartFarm as u8 }>>
-        + Has<DeployedValidator<{ PermManager as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::PermManager as u8 }>>
         + Has<SplashPolicy>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
@@ -516,17 +557,23 @@ where
             Gauge,
         }
         if let Some(batch) = self.batch.take() {
-            let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
             let Bundled(bw_tx_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
+            let buffer_wallet_script_hash = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>()
+                .hash;
+            let buffer_wallet_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(buffer_wallet_script_hash),
+                BufferWalletAction::Deposit.into_pd(),
+            );
             let buffer_wallet_input =
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
-                    .native_script(
-                        buffer_wallet_script.clone(),
-                        NativeScriptWitnessInfo::num_signatures(2),
-                    )
+                    .plutus_script_inline_datum(buffer_wallet_witness, RequiredSigners::from(vec![]))
                     .unwrap();
 
-            let smart_farm_deployed_validator = self.ctx.select::<DeployedValidator<{ SmartFarm as u8 }>>();
+            let smart_farm_deployed_validator = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>();
 
             let smart_farm_ref_input = smart_farm_deployed_validator.reference_utxo;
 
@@ -952,8 +999,8 @@ where
     >,
     Ctx: Send
         + Clone
-        + Has<BufferWalletScript>
-        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {

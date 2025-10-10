@@ -1,15 +1,22 @@
 use std::fmt::Display;
 use std::hash::Hash;
 
-use cml_chain::{certs::StakeCredential, transaction::TransactionOutput};
-use cml_crypto::ScriptHash;
+use cml_chain::plutus::ConstrPlutusData;
+use cml_chain::{plutus::PlutusData, transaction::TransactionOutput};
+use cml_crypto::RawBytesEncoding;
+use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use derive_more::From;
 use rs_merkle::{algorithms::Keccak256, MerkleTree};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_cardano_lib::{
     output::FinalizedTxOut,
+    plutus_data::{
+        make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
+        PlutusDataExtension,
+    },
     transaction::TransactionOutputExtension,
     tx_view::{TimedOutput, TxViewPartiallyResolved},
+    types::TryFromPData,
     AssetName, OutputRef,
 };
 use spectrum_offchain::{
@@ -19,7 +26,8 @@ use spectrum_offchain::{
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
-    protocol_config::{BufferWalletScript, SplashPolicy},
+    deployment::ProtocolValidator as DaoProtocolValidator,
+    protocol_config::{BufferWalletAuthPolicy, SplashPolicy},
 };
 
 use crate::{entities::SplashBalanceChange, events::EntityUpdated};
@@ -39,6 +47,53 @@ use crate::{entities::SplashBalanceChange, events::EntityUpdated};
     Debug,
 )]
 pub struct BufferWalletId;
+
+pub struct BufferWalletConfig {
+    pub merkle_tree_root_hash_digest: Vec<u8>,
+    pub authorized_executors: Vec<Ed25519KeyHash>,
+}
+
+impl TryFromPData for BufferWalletConfig {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        let authorized_executors = cpd.take_field(1)?.into_vec_pd(|pd| {
+            pd.into_bytes()
+                .map(|bytes| Ed25519KeyHash::from_raw_bytes(&bytes).unwrap())
+        })?;
+        Some(Self {
+            merkle_tree_root_hash_digest: cpd.take_field(0)?.into_bytes()?,
+            authorized_executors,
+        })
+    }
+}
+
+impl IntoPlutusData for BufferWalletConfig {
+    fn into_pd(self) -> PlutusData {
+        let authorized_executors_vec: Vec<PlutusData> = self
+            .authorized_executors
+            .into_iter()
+            .map(|key_hash| PlutusData::new_bytes(key_hash.to_raw_bytes().to_vec()))
+            .collect();
+        make_constr_pd_indefinite_arr(vec![
+            PlutusData::new_bytes(self.merkle_tree_root_hash_digest),
+            PlutusData::new_list(authorized_executors_vec),
+        ])
+    }
+}
+
+pub enum BufferWalletAction {
+    Deposit,
+    Admin,
+}
+
+impl IntoPlutusData for BufferWalletAction {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            BufferWalletAction::Deposit => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
+            BufferWalletAction::Admin => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![])),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BufferWallet<StateId> {
@@ -88,7 +143,9 @@ pub struct BufferWalletAuthToken(ScriptHash);
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for BufferWalletUpdate<OutputRef, FinalizedTxOut>
 where
-    Cx: Has<BufferWalletScript> + Has<SplashPolicy>,
+    Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
+        + Has<BufferWalletAuthPolicy>
+        + Has<SplashPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let (created, output_balance) = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
@@ -130,29 +187,46 @@ pub fn try_extract_buffer_wallet<C>(
     ctx: &C,
 ) -> Option<BufferWallet<OutputRef>>
 where
-    C: Has<BufferWalletScript> + Has<SplashPolicy>,
+    C: Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
+        + Has<BufferWalletAuthPolicy>
+        + Has<SplashPolicy>,
 {
-    if let Some(StakeCredential::Script { hash, .. }) = output.address().payment_cred() {
-        if *hash == ctx.select::<BufferWalletScript>().0.hash() {
-            let splash_token_policy_id = ctx.select::<SplashPolicy>().0;
-            let splash_name = cml_chain::assets::AssetName::from(AssetName::from_utf8(SPLASH_NAME.into()));
-            let assets = output.value().multiasset.iter();
-            let mut token_balance = 0;
+    if test_address(output.address(), ctx) {
+        let datum = output.datum()?;
+        let BufferWalletConfig {
+            merkle_tree_root_hash_digest,
+            ..
+        } = datum.into_pd().and_then(BufferWalletConfig::try_from_pd)?;
+        let splash_token_policy_id = ctx.select::<SplashPolicy>().0;
+        let splash_name = cml_chain::assets::AssetName::from(AssetName::from_utf8(SPLASH_NAME.into()));
+        let assets = output.value().multiasset.iter();
+        let mut token_balance = 0;
 
-            for (script_hash, hash_map) in assets {
-                let (asset_name, qty) = hash_map.iter().next().unwrap();
-                if splash_token_policy_id == *script_hash && *asset_name == splash_name {
-                    token_balance = *qty;
-                }
-            }
-
-            let buffer_wallet = BufferWallet {
-                balance: token_balance,
-                state_id: output_ref,
-                merkle_tree_root_hash: [0; 32], // TODO: impl in DEX-935
-            };
-            return Some(buffer_wallet);
+        // Check for auth token
+        let auth_token_policy_id = ctx.select::<BufferWalletAuthPolicy>().0;
+        let auth_token_name =
+            cml_chain::assets::AssetName::new(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()).unwrap();
+        let auth_token_qty = output
+            .value()
+            .multiasset
+            .get(&auth_token_policy_id, &auth_token_name)?;
+        if auth_token_qty != 1 {
+            return None;
         }
+
+        for (script_hash, hash_map) in assets {
+            let (asset_name, qty) = hash_map.iter().next().unwrap();
+            if splash_token_policy_id == *script_hash && *asset_name == splash_name {
+                token_balance = *qty;
+            }
+        }
+
+        let buffer_wallet = BufferWallet {
+            balance: token_balance,
+            state_id: output_ref,
+            merkle_tree_root_hash: merkle_tree_root_hash_digest.try_into().unwrap(),
+        };
+        return Some(buffer_wallet);
     }
     None
 }
