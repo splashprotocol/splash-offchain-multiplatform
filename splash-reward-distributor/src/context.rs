@@ -10,8 +10,9 @@ use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator
 use splash_dao_offchain::deployment::{
     ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens, ProtocolValidator::*,
 };
-use splash_dao_offchain::protocol_config::BufferWalletScript;
-use splash_dao_offchain::protocol_config::{OperatorCreds, PermManagerAuthPolicy, SplashPolicy};
+use splash_dao_offchain::protocol_config::{
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+};
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::ops::Index;
@@ -59,9 +60,20 @@ has_deployed_script_info!(
     |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.perm_manager).into()
 );
 
-impl Has<BufferWalletScript> for VerifierRuntimeContext {
-    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
-        todo!() // TODO: fix DEX-935
+has_deployed_validator!(
+    BufferWallet,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| ctx.dao_deployment.buffer_wallet.clone()
+);
+has_deployed_script_info!(
+    BufferWallet,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.buffer_wallet).into()
+);
+
+impl Has<BufferWalletAuthPolicy> for VerifierRuntimeContext {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.dao_tokens.buffer_wallet.policy_id)
     }
 }
 
@@ -164,10 +176,20 @@ has_deployed_script_info!(
     RewardBotRuntimeContext,
     |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.perm_manager).into()
 );
+has_deployed_validator!(
+    BufferWallet,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| ctx.verifier_runtime_context.dao_deployment.buffer_wallet.clone()
+);
+has_deployed_script_info!(
+    BufferWallet,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.buffer_wallet).into()
+);
 
-impl Has<BufferWalletScript> for RewardBotRuntimeContext {
-    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
-        todo!() // TODO: fix DEX-935
+impl Has<BufferWalletAuthPolicy> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.verifier_runtime_context.dao_tokens.buffer_wallet.policy_id)
     }
 }
 

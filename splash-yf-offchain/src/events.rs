@@ -18,7 +18,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
+use splash_dao_offchain::protocol_config::{BufferWalletAuthPolicy, OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::Slot;
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_dao_offchain::{
@@ -63,7 +63,8 @@ where
         + Has<OperatorCreds>
         + Has<PermManagerAuthPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
-        + Has<BufferWalletScript>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
+        + Has<BufferWalletAuthPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
 {

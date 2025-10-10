@@ -6,10 +6,7 @@ use futures::Stream;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use splash_dao_offchain::{
-    deployment::ProtocolValidator,
-    protocol_config::{BufferWalletScript, SplashPolicy},
-};
+use splash_dao_offchain::{deployment::ProtocolValidator, protocol_config::SplashPolicy};
 use splash_yf_offchain::{events::OnChainEvent, settings::MinLovelacePerHarvest};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
@@ -53,10 +50,10 @@ where
         VerifierHandleLedgerEvent + LocalVerifier<TxCosignRequest, Transaction, Ctx> + Unpin + Send + 'static,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>>
         + Has<NetworkId>
         + Has<SplashPolicy>
         + Has<AuthorizedExecutors>
-        + Has<BufferWalletScript>
         + Sync,
 {
     pub async fn run(mut self, ctx: Ctx) {

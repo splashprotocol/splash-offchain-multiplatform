@@ -22,9 +22,9 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
-use splash_dao_offchain::routines::slot_to_epoch;
+use splash_dao_offchain::routines::{slot_to_epoch, Slot};
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::gauge::GaugeWithdrawals;
 use splash_yf_offchain::entities::{BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease};
@@ -215,13 +215,14 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>>
         + Has<NetworkId>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<AuthorizedExecutors>
-        + Has<BufferWalletScript>
+        + Has<BufferWalletAuthPolicy>
         + Sync,
 {
     async fn try_approve(&mut self, tx: &TxCosignRequest, ctx: &Ctx) -> Option<Transaction> {

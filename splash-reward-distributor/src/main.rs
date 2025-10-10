@@ -181,7 +181,7 @@ async fn run_reward_bot(args: AppArgs) {
     processes.push(flow_driver_handle);
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash()]);
+    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
 
     let mempool_index_handle = tokio::spawn(update_index_from_mempool_dropped_tx(
         failed_txs_recv,
@@ -272,7 +272,7 @@ async fn run_verifier(args: AppArgs) {
 
     let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash()]);
+    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
 
     let ctx = VerifierRuntimeContext {

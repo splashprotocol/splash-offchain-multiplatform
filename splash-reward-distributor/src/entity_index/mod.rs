@@ -32,7 +32,7 @@ use splash_dao_offchain::entities::onchain::funding_box::FundingBoxSnapshot;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::routines::{slot_to_epoch, Slot, TimedOutputRef};
 use splash_dao_offchain::GenesisEpochStartTime;
@@ -458,12 +458,13 @@ pub async fn update_index_from_mempool_dropped_tx<OnChainIndex, Utxos, Ctx, FB>(
         + Clone,
     Utxos: PersistentIndex<OutputRef, TimedOutput> + Clone,
     Ctx: Has<PermManagerAuthPolicy>
-        + Has<BufferWalletScript>
         + Has<OperatorCreds>
         + Has<SplashPolicy>
         + Has<MinLovelacePerHarvest>
+        + Has<BufferWalletAuthPolicy>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>,
+        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>>,
     FB: FundingRepo + Send + Sync,
 {
     recv.for_each(|tx| async {

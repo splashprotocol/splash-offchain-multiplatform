@@ -87,6 +87,7 @@ use splash_dao_offchain::{
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
 };
+use splash_yf_offchain::entities::buffer_wallet::BufferWalletConfig;
 use std::ops::Index;
 use user_simulator::{create_ve_metadata, user_simulator};
 
@@ -398,7 +399,7 @@ async fn deploy<'a>(
 
         // Buffer wallet validator is a 2-of-n multisig native script
         let authorised_pubkeys = dao_parameters
-            .authorized_executors
+            .dao_authorized_executors
             .iter()
             .map(|key_hash| NativeScript::new_script_pubkey(*key_hash))
             .collect();
@@ -509,7 +510,12 @@ async fn deploy<'a>(
                 cost: (&dsd.redeem_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
-            buffer_wallet,
+            buffer_wallet: DeployedValidatorRef {
+                hash: reference_input_script_hashes.buffer_wallet,
+                reference_utxo: make_ref_utxo(2, 7),
+                cost: (&dsd.buffer_wallet.ex_units).into(),
+                marginal_cost: None,
+            },
         };
 
         deployment_progress.deployed_validators = Some(d);
@@ -637,6 +643,7 @@ async fn create_dao_entities(
     tx_builder.add_reference_input(protocol_deployment.ve_factory.reference_utxo);
     tx_builder.add_reference_input(protocol_deployment.gov_proxy.reference_utxo);
     tx_builder.add_reference_input(protocol_deployment.perm_manager.reference_utxo);
+    tx_builder.add_reference_input(protocol_deployment.buffer_wallet.reference_utxo);
 
     // Need to track input coin to
     let mut input_coin = 0;
@@ -785,7 +792,7 @@ async fn create_dao_entities(
     );
 
     let perm_manager_datum = PermManagerDatum {
-        authorized_executors: deployment_params.authorized_executors.clone(),
+        authorized_executors: deployment_params.dao_authorized_executors.clone(),
         suspended_farms: vec![],
     };
 
@@ -796,6 +803,26 @@ async fn create_dao_entities(
     );
     output_coin += perm_manager_out.output.amount().coin;
     tx_builder.add_output(perm_manager_out).unwrap();
+
+    // buffer_wallet --------------------------------------------------------------------------------
+    let mut buffer_wallet_assets = MultiAsset::default();
+    buffer_wallet_assets.set(
+        minted_tokens.buffer_wallet.policy_id,
+        minted_tokens.buffer_wallet.asset_name.clone(),
+        1_u64,
+    );
+
+    let buffer_wallet_datum = BufferWalletConfig {
+        authorized_executors: deployment_params.buffer_wallet_authorized_executors.clone(),
+        merkle_tree_root_hash_digest: vec![],
+    };
+    let buffer_wallet_out = make_output(
+        protocol_deployment.buffer_wallet.hash,
+        DatumOption::new_datum(buffer_wallet_datum.into_pd()),
+        buffer_wallet_assets,
+    );
+    output_coin += buffer_wallet_out.output.amount().coin;
+    tx_builder.add_output(buffer_wallet_out).unwrap();
 
     tx_builder
         .add_collateral(InputBuilderResult::from(collateral))
