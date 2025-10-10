@@ -36,6 +36,7 @@ use cml_crypto::{
 };
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use num_rational::Ratio;
+use rs_merkle::{algorithms::Keccak256, MerkleTree};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{
     collateral::Collateral,
@@ -811,10 +812,12 @@ async fn create_dao_entities(
         minted_tokens.buffer_wallet.asset_name.clone(),
         1_u64,
     );
+    let merkle_tree = MerkleTree::<Keccak256>::new();
+    let merkle_tree_root_hash_digest = merkle_tree.root().unwrap().to_vec();
 
     let buffer_wallet_datum = BufferWalletConfig {
         authorized_executors: deployment_params.buffer_wallet_authorized_executors.clone(),
-        merkle_tree_root_hash_digest: vec![],
+        merkle_tree_root_hash_digest,
     };
     let buffer_wallet_out = make_output(
         protocol_deployment.buffer_wallet.hash,
