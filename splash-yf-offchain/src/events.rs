@@ -8,6 +8,7 @@ use crate::entities::{
 };
 use crate::settings::MinLovelacePerHarvest;
 use cml_crypto::TransactionHash;
+use serde::de;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
