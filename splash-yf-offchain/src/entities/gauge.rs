@@ -1,3 +1,4 @@
+use crate::entities::{SplashBalanceChange, SplashTokenDecrease, SplashTokenIncrease};
 use std::fmt::Display;
 use std::hash::Hash;
 
@@ -60,10 +61,26 @@ where
     }
 }
 
-#[derive(derive_more::From, Clone, Debug, PartialEq, Eq)]
-pub struct UpdatedGauges<FarmId, StateId, Bearer>(
-    pub Vec<EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GaugeDeposits<FarmId, StateId, Bearer>(
+    pub  Vec<(
+        EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>,
+        SplashTokenIncrease,
+    )>,
 );
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GaugeWithdrawals<FarmId, StateId, Bearer>(
+    pub  Vec<(
+        EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>,
+        SplashTokenDecrease,
+    )>,
+);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdatedGauges<FarmId, StateId, Bearer> {
+    Deposits(GaugeDeposits<FarmId, StateId, Bearer>),
+    Withdrawals(GaugeWithdrawals<FarmId, StateId, Bearer>),
+}
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for UpdatedGauges<FarmId, OutputRef, FinalizedTxOut>
 where
@@ -111,7 +128,7 @@ where
     // `outputs[0]`` contains buffer_wallet_output, `outputs.last` contains change UTxO, the rest
     // are gauge outputs.
     if num_consumed_gauges > 0 && outputs.len() == num_consumed_gauges + 2 {
-        let mut res: Vec<EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, FinalizedTxOut>> = vec![];
+        let mut res = vec![];
         for ((gauge_in, successor_ix), (output_ix, tx_output)) in consumed_gauges
             .into_iter()
             .zip(outputs.iter().enumerate().skip(1).take(num_consumed_gauges))
@@ -121,20 +138,49 @@ where
             }
             let output_ref = TimedOutputRef::new(OutputRef::new(tx_hash, successor_ix), slot);
             if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
+                let balance_change = SplashBalanceChange::from_diff(gauge_in.balance, gauge_out.balance);
                 if gauge_out.id == gauge_in.id {
-                    res.push(EntityUpdated {
-                        consumed: Some(gauge_in.state_id),
-                        created: (
-                            gauge_out,
-                            FinalizedTxOut(tx_output.clone(), output_ref.output_ref),
-                        ),
-                    });
+                    res.push((
+                        EntityUpdated {
+                            consumed: Some(gauge_in.state_id),
+                            created: (
+                                gauge_out,
+                                FinalizedTxOut(tx_output.clone(), output_ref.output_ref),
+                            ),
+                        },
+                        balance_change,
+                    ));
                 }
             } else {
                 return None;
             }
         }
-        return Some(res.into());
+
+        let all_deposits = res
+            .iter()
+            .all(|(_, balance_change)| matches!(balance_change, SplashBalanceChange::Increase(_)));
+        let all_withdrawals = res
+            .iter()
+            .all(|(_, balance_change)| matches!(balance_change, SplashBalanceChange::Decrease(_)));
+        if all_deposits {
+            let res = res
+                .into_iter()
+                .map(|(entity_updated, balance_change)| {
+                    (entity_updated, SplashTokenIncrease(balance_change.amount()))
+                })
+                .collect();
+            return Some(UpdatedGauges::Deposits(GaugeDeposits(res)));
+        } else if all_withdrawals {
+            let res = res
+                .into_iter()
+                .map(|(entity_updated, balance_change)| {
+                    (entity_updated, SplashTokenDecrease(balance_change.amount()))
+                })
+                .collect();
+            return Some(UpdatedGauges::Withdrawals(GaugeWithdrawals(res)));
+        } else {
+            panic!("Gauge updates are not all deposits or all withdrawals");
+        }
     }
     None
 }

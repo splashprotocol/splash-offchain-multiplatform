@@ -1,10 +1,12 @@
 use crate::entities::auth_manager::AuthManager;
-use crate::entities::buffer_wallet::BufferWallet;
+use crate::entities::buffer_wallet::{BufferWallet, BufferWalletUpdate};
 use crate::entities::funding_box::ConfirmedFundingBoxChanges;
-use crate::entities::gauge::{Gauge, UpdatedGauges};
+use crate::entities::gauge::{Gauge, GaugeDeposits, GaugeWithdrawals, UpdatedGauges};
 use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
+use crate::entities::{SplashBalanceChange, SplashTokenDecrease, SplashTokenIncrease};
 use crate::settings::MinLovelacePerHarvest;
 use cml_crypto::TransactionHash;
+use serde::de;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
@@ -30,14 +32,16 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     BotHarvestingAction {
         payouts: Vec<(HarvestOrder<StateId>, SplashPayout)>,
         buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+        buffer_wallet_withdrawn_amount: SplashTokenDecrease,
         tx_hash: TransactionHash,
     },
     BotGaugeBufferingAction {
-        drained_gauges: Vec<EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>>,
+        drained_gauges: GaugeWithdrawals<GaugeId, StateId, Bearer>,
         buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+        buffer_wallet_deposited_amount: SplashTokenIncrease,
         tx_hash: TransactionHash,
     },
-    UpdatedGauges(UpdatedGauges<GaugeId, StateId, Bearer>),
+    DepositToGauges(GaugeDeposits<GaugeId, StateId, Bearer>),
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
     NewHarvestRequest(HarvestOrder<StateId>, Bearer),
     HarvestRequestCancelled(Vec<StateId>),
@@ -62,7 +66,6 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        type BufferWalletUpdate = EntityUpdated<BufferWallet<OutputRef>, OutputRef, FinalizedTxOut>;
         type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, FinalizedTxOut>;
         let network_id = ctx.select::<NetworkId>();
 
@@ -91,9 +94,14 @@ where
                         payouts.push((harvest_order, splash_payout));
                     }
                 }
+                let SplashBalanceChange::Decrease(withdrawn_amount) = buffer_wallet_update.balance_change
+                else {
+                    unreachable!("Buffer wallet balance change should be decreased");
+                };
                 Some(OnChainEvent::BotHarvestingAction {
                     payouts,
-                    buffer_wallet_update,
+                    buffer_wallet_update: buffer_wallet_update.update,
+                    buffer_wallet_withdrawn_amount: SplashTokenDecrease(withdrawn_amount),
                     tx_hash,
                 })
             } else {
@@ -101,11 +109,20 @@ where
                 let Some(gauge_updates) = UpdatedGauges::try_from_ledger(repr, ctx) else {
                     unreachable!("Can't update buffer wallet with no harvest orders nor any gauge updates");
                 };
-                Some(OnChainEvent::BotGaugeBufferingAction {
-                    drained_gauges: gauge_updates.0,
-                    buffer_wallet_update,
-                    tx_hash,
-                })
+                if let UpdatedGauges::Withdrawals(drained_gauges) = gauge_updates {
+                    let SplashBalanceChange::Increase(deposited_amount) = buffer_wallet_update.balance_change
+                    else {
+                        unreachable!("Buffer wallet balance change should be an increase");
+                    };
+                    Some(OnChainEvent::BotGaugeBufferingAction {
+                        drained_gauges,
+                        buffer_wallet_update: buffer_wallet_update.update,
+                        buffer_wallet_deposited_amount: SplashTokenIncrease(deposited_amount),
+                        tx_hash,
+                    })
+                } else {
+                    None
+                }
             }
         } else if !consumed_harvest_orders.is_empty() {
             // Harvest order is refunded in this TX iff BufferWallet isn't present. Note that there
@@ -120,7 +137,10 @@ where
         } else if let Some((new_harvest_order, output)) = try_new_harvest_request(repr, ctx) {
             Some(OnChainEvent::NewHarvestRequest(new_harvest_order, output))
         } else if let Some(updated_gauges) = UpdatedGauges::try_from_ledger(repr, ctx) {
-            Some(OnChainEvent::UpdatedGauges(updated_gauges))
+            let UpdatedGauges::Deposits(deposits) = updated_gauges else {
+                unreachable!("Gauge updates are not deposits");
+            };
+            Some(OnChainEvent::DepositToGauges(deposits))
         } else if let Some(updated_auth_manager) = AuthManagerUpdate::try_from_ledger(repr, ctx) {
             Some(OnChainEvent::AuthManagerUpdated(updated_auth_manager))
         } else {
