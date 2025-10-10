@@ -335,6 +335,8 @@ where
             let mut bw_datum =
                 BufferWalletConfig::try_from_pd(bw_out.datum().unwrap().into_pd().unwrap()).unwrap();
 
+            // TODO: allow for predicted merkle tree (DEX-935)
+
             // Compute the new merkle tree root hash digest
             let mut last_confirmed_merkle_tree = self
                 .onchain_index

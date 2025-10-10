@@ -24,7 +24,7 @@ use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::protocol_config::{
     BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
-use splash_dao_offchain::routines::{slot_to_epoch, Slot};
+use splash_dao_offchain::routines::slot_to_epoch;
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::gauge::GaugeWithdrawals;
 use splash_yf_offchain::entities::{BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease};
