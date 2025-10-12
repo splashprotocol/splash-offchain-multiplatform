@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
+use reqwest::Client;
 use serde::Deserialize;
+use serde_json::json;
 use splash_yf_offchain::Epoch;
 
 #[derive(Debug, Deserialize)]
@@ -20,11 +22,17 @@ pub trait Accounts<RequestId> {
 }
 
 #[derive(Clone)]
-pub struct PositionIndex {}
+pub struct PositionIndex {
+    client: Client,
+    api_url: String,
+}
 
 impl PositionIndex {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(api_url: String) -> Self {
+        Self {
+            client: Client::new(),
+            api_url,
+        }
     }
 }
 
@@ -35,6 +43,24 @@ impl<RequestId> Accounts<RequestId> for PositionIndex {
         account: &Credential,
         from_epoch_inclusive: Epoch,
     ) -> Option<AccountReward> {
-        todo!("DEX-914")
+        let request_body = json!({
+            "account": account,
+            "from_epoch_inclusive": from_epoch_inclusive
+        });
+
+        let response = self
+            .client
+            .post(&format!("{}/accounts/query-reward", self.api_url))
+            .json(&request_body)
+            .send()
+            .await
+            .ok()?;
+
+        if response.status().is_success() {
+            let account_reward: AccountReward = response.json().await.ok()?;
+            Some(account_reward)
+        } else {
+            None
+        }
     }
 }

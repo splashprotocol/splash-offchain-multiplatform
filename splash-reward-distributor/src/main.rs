@@ -120,7 +120,7 @@ async fn run_reward_bot(args: AppArgs) {
         .expect("LocalTxSubmission initialization failed");
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
-    let position_index = PositionIndex::new();
+    let position_index = PositionIndex::new(config.lp_indexer_url);
     let onchain_index = IndexerDB::new(
         config.onchain_index_db_path,
         config.max_number_merkle_tree_snapshots,
@@ -264,7 +264,7 @@ async fn run_verifier(args: AppArgs) {
     // Consume confirmed transactions from the chain sync stream, but do nothing with them
     tokio::spawn(async move { while let Some((_tx, _)) = confirmed_txs_recv.next().await {} });
 
-    let position_index = PositionIndex::new();
+    let position_index = PositionIndex::new(config.lp_indexer_url);
     let onchain_index = IndexerDB::new(
         config.onchain_index_db_path,
         config.max_number_merkle_tree_snapshots,
