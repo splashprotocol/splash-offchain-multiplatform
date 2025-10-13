@@ -9,7 +9,7 @@ use crate::engine::resolved_tx::{
 };
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
-use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, HarvestOrderSpend};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, HarvestOrderSpend, HarvestOrderStatus, Mod};
 use crate::entity_index::{BufferWalletIndex, GaugeIndex};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -72,6 +72,8 @@ pub enum Control<TaskId> {
     Drop(TaskId),
     /// Ready to accept at least one more task
     Next,
+    /// Retry after a short delay
+    Retry,
     /// Batch is full
     Stop,
 }
@@ -138,12 +140,20 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
-        let order = if let Some(order) = self
+        let (harvest_order, tx_out) = if let Some(order) = self
             .onchain_index
             .read_designated_harvest_order(task.order_id)
             .await
         {
-            order
+            match order {
+                Mod::Confirmed(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
+                    (harvest_order, tx_out)
+                }
+                Mod::Predicted(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
+                    (harvest_order, tx_out)
+                }
+                _ => return Control::Drop(task_id),
+            }
         } else {
             return Control::Drop(task_id);
         };
@@ -165,10 +175,6 @@ where
             error!("No buffer wallet found");
             return Control::Stop;
         };
-        let (req, tx_out) = match order {
-            crate::entity_index::Mod::Confirmed(Bundled(req, tx_out))
-            | crate::entity_index::Mod::Predicted(Bundled(req, tx_out)) => (req.0, tx_out),
-        };
 
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -178,14 +184,14 @@ where
         let current_epoch = Epoch::from(time_millis_to_epoch(now, genesis_start_time).0 as u64);
         let epoch_start = self
             .onchain_index
-            .last_epoch_harvested(req.account_key)
+            .last_epoch_harvested(harvest_order.account_key)
             .await
             .map(|e| e.next())
             .unwrap_or(Epoch::from(0));
 
         match self
             .position_index
-            .query_account_reward(&Credential::new_pub_key(req.account_key), epoch_start)
+            .query_account_reward(&Credential::new_pub_key(harvest_order.account_key), epoch_start)
             .await
         {
             Some(AccountReward {
@@ -194,18 +200,18 @@ where
             }) => {
                 if latest_epoch_inclusive.next() < current_epoch {
                     warn!("lp-indexer chain-index lags reward-bot");
-                    return Control::Stop;
+                    return Control::Retry;
                 }
                 let network_id = self.ctx.select::<NetworkId>();
                 let spend = HarvestOrderSpend {
                     amount,
                     epoch_start,
                     epoch_end: latest_epoch_inclusive,
-                    user: req.account_key,
-                    reward_address: req.reward_receiver.to_address(network_id),
+                    user: harvest_order.account_key,
+                    reward_address: harvest_order.reward_receiver.to_address(network_id),
                 };
-                let order_id = req.id;
-                let order_bundle = Bundled(req, tx_out);
+                let order_id = harvest_order.id;
+                let order_bundle = Bundled(harvest_order, tx_out);
                 let order = OrderWithSpendDetails { order_bundle, spend };
                 if batch.can_accept(amount) {
                     batch.add_order(order);
@@ -220,8 +226,8 @@ where
             None => {
                 warn!(
                     "Account {} not found, dropping request {}",
-                    hex::encode(req.account_key.to_raw_bytes()),
-                    req.id
+                    hex::encode(harvest_order.account_key.to_raw_bytes()),
+                    harvest_order.id
                 );
                 return Control::Drop(task_id);
             }
@@ -335,15 +341,8 @@ where
             let mut bw_datum =
                 BufferWalletConfig::try_from_pd(bw_out.datum().unwrap().into_pd().unwrap()).unwrap();
 
-            // TODO: allow for predicted merkle tree (DEX-935)
-
             // Compute the new merkle tree root hash digest
-            let mut last_confirmed_merkle_tree = self
-                .onchain_index
-                .last_confirmed_merkle_tree()
-                .await
-                .unwrap()
-                .tree;
+            let mut last_confirmed_merkle_tree = batch.input_merkle_tree;
 
             let new_merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap();
             assert_eq!(
@@ -475,7 +474,7 @@ where
             let output = HarvestFlowEntityUpdates {
                 predicted_buffer_wallet_update,
                 predicted_harvest_order_spends,
-                predicted_merkle_tree: batch.input_merkle_tree, // TODO: DEX-935
+                predicted_merkle_tree: last_confirmed_merkle_tree,
                 resolved_tx,
             };
 
