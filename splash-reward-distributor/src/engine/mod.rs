@@ -268,6 +268,7 @@ where
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
 {
     let mut invalid_tasks = vec![];
+    let mut rescheduled_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
     loop {
         if let Some((task_id, task)) = stream.next().await {
@@ -277,6 +278,10 @@ where
                     continue;
                 }
                 Control::Next => {
+                    continue;
+                }
+                Control::Retry => {
+                    rescheduled_tasks.push(task_id);
                     continue;
                 }
                 Control::Stop => {}
@@ -292,6 +297,11 @@ where
                 .executed_tasks
                 .into_iter()
                 .map(|task_id| QueueCmd::Done(task_id, tx_hash))
+                .chain(
+                    rescheduled_tasks
+                        .into_iter()
+                        .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60))),
+                )
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
 
             queue.batch_execute(commands.collect()).await;
@@ -300,6 +310,12 @@ where
             let commands = failed_task_ids
                 .into_iter()
                 .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60)))
+                .chain(
+                    rescheduled_tasks
+                        .into_iter()
+                        .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60))),
+                )
+                .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel))
                 .collect();
             queue.batch_execute(commands).await;
         }

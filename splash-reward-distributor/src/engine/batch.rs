@@ -12,6 +12,7 @@ use crate::entity_index::HarvestOrderSpend;
 pub struct HarvestBatch<StateId, Bearer> {
     pub buffer_wallet: Bundled<BufferWallet<StateId>, Bearer>,
     pub orders: Vec<OrderWithSpendDetails<StateId, Bearer>>,
+    /// May be predicted or confirmed merkle tree.
     pub input_merkle_tree: MerkleTree<Keccak256>,
     pub total_payout: u64,
 }

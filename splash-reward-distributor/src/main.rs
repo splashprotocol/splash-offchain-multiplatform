@@ -320,6 +320,8 @@ async fn run_verifier(args: AppArgs) {
         onchain_index,
         position_index,
         ChainedHarvestTxGraph::new(),
+        config.ve_config.epoch_start.into(),
+        config.network_id,
         OperatorProver::new(config.operator_sk),
     );
     let engine = VerifierEngine::new(engine_mailbox, voting_event_rcv, verifier);
