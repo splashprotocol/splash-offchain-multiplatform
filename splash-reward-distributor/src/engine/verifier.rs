@@ -110,6 +110,8 @@ pub struct Verifier<Tx, Index, PositionIndex, UHarvestIndex, Prover> {
     position_index: PositionIndex,
     unconfirmed_harvest_tx_index: UHarvestIndex,
     block_slot_buffer: CircularFilter<100, u64>,
+    genesis_epoch_start_time: GenesisEpochStartTime,
+    network_id: NetworkId,
     prover: Prover,
     pd: PhantomData<Tx>,
 }
@@ -121,6 +123,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
         index: Index,
         position_index: PositionIndex,
         unconfirmed_harvest_tx_index: UHarvestIndex,
+        genesis_epoch_start_time: GenesisEpochStartTime,
+        network_id: NetworkId,
         prover: Prover,
     ) -> Self {
         Self {
@@ -128,6 +132,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
             position_index,
             unconfirmed_harvest_tx_index,
             block_slot_buffer: CircularFilter::new(),
+            genesis_epoch_start_time,
+            network_id,
             prover,
             pd: PhantomData,
         }
@@ -137,6 +143,10 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
         // We can be sure that `block_slot_buffer` is not empty because verification can't be
         // performed until chain-sync is complete.
         *self.block_slot_buffer.back().expect("Block slot buffer is empty")
+    }
+
+    fn compute_epoch(&self, slot: u64) -> u64 {
+        slot_to_epoch(slot, self.genesis_epoch_start_time, self.network_id).0 as u64
     }
 }
 
@@ -174,6 +184,14 @@ where
     }
 
     fn confirm_block_slot(&mut self, block_slot: u64) {
+        let current_slot = self.get_current_slot();
+        let current_epoch = self.compute_epoch(current_slot);
+        let new_epoch = self.compute_epoch(block_slot);
+        if new_epoch > current_epoch {
+            // It's still possible to see a rollback back to the previous epoch, but the worst thing
+            // to happen is that we delete some unconfirmed TXs, which is fine.
+            self.unconfirmed_harvest_tx_index.notify_end_of_epoch();
+        }
         self.block_slot_buffer.add(block_slot);
     }
 
