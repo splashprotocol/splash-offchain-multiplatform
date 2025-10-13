@@ -142,6 +142,10 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
     fn get_current_slot(&self) -> u64 {
         *self.block_slot_buffer.back().expect("Block slot buffer is empty")
     }
+
+    fn compute_epoch(&self, slot: u64) -> u64 {
+        slot_to_epoch(slot, self.genesis_epoch_start_time, self.network_id).0 as u64
+    }
 }
 
 impl<Index, PositionIndex, UHarvestIndex, Prov> VerifierHandleLedgerEvent
@@ -179,9 +183,8 @@ where
 
     fn confirm_block_slot(&mut self, block_slot: u64) {
         let current_slot = self.get_current_slot();
-        let current_epoch =
-            slot_to_epoch(current_slot, self.genesis_epoch_start_time, self.network_id).0 as u64;
-        let new_epoch = slot_to_epoch(block_slot, self.genesis_epoch_start_time, self.network_id).0 as u64;
+        let current_epoch = self.compute_epoch(current_slot);
+        let new_epoch = self.compute_epoch(block_slot);
         if new_epoch > current_epoch {
             // It's still possible to see a rollback back to the previous epoch, but the worst thing
             // to happen is that we delete some unconfirmed TXs, which is fine.

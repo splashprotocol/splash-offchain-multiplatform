@@ -140,20 +140,19 @@ where
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
-        let order = if let Some(order) = self
+        let (harvest_order, tx_out) = if let Some(order) = self
             .onchain_index
             .read_designated_harvest_order(task.order_id)
             .await
         {
-            let inner = match order {
-                Mod::Confirmed(ref t) => t.clone(),
-                Mod::Predicted(ref t) => t.clone(),
-            };
-
-            if inner.0 .1 == HarvestOrderStatus::Unspent {
-                order
-            } else {
-                return Control::Drop(task_id);
+            match order {
+                Mod::Confirmed(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
+                    (harvest_order, tx_out)
+                }
+                Mod::Predicted(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
+                    (harvest_order, tx_out)
+                }
+                _ => return Control::Drop(task_id),
             }
         } else {
             return Control::Drop(task_id);
@@ -176,9 +175,6 @@ where
             error!("No buffer wallet found");
             return Control::Stop;
         };
-        let (req, tx_out) = match order {
-            Mod::Confirmed(Bundled(req, tx_out)) | Mod::Predicted(Bundled(req, tx_out)) => (req.0, tx_out),
-        };
 
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -188,14 +184,14 @@ where
         let current_epoch = Epoch::from(time_millis_to_epoch(now, genesis_start_time).0 as u64);
         let epoch_start = self
             .onchain_index
-            .last_epoch_harvested(req.account_key)
+            .last_epoch_harvested(harvest_order.account_key)
             .await
             .map(|e| e.next())
             .unwrap_or(Epoch::from(0));
 
         match self
             .position_index
-            .query_account_reward(&Credential::new_pub_key(req.account_key), epoch_start)
+            .query_account_reward(&Credential::new_pub_key(harvest_order.account_key), epoch_start)
             .await
         {
             Some(AccountReward {
@@ -211,11 +207,11 @@ where
                     amount,
                     epoch_start,
                     epoch_end: latest_epoch_inclusive,
-                    user: req.account_key,
-                    reward_address: req.reward_receiver.to_address(network_id),
+                    user: harvest_order.account_key,
+                    reward_address: harvest_order.reward_receiver.to_address(network_id),
                 };
-                let order_id = req.id;
-                let order_bundle = Bundled(req, tx_out);
+                let order_id = harvest_order.id;
+                let order_bundle = Bundled(harvest_order, tx_out);
                 let order = OrderWithSpendDetails { order_bundle, spend };
                 if batch.can_accept(amount) {
                     batch.add_order(order);
@@ -230,8 +226,8 @@ where
             None => {
                 warn!(
                     "Account {} not found, dropping request {}",
-                    hex::encode(req.account_key.to_raw_bytes()),
-                    req.id
+                    hex::encode(harvest_order.account_key.to_raw_bytes()),
+                    harvest_order.id
                 );
                 return Control::Drop(task_id);
             }
