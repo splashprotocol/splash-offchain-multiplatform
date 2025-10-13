@@ -19,18 +19,18 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::protocol_config::{
     BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::routines::slot_to_epoch;
-use splash_dao_offchain::GenesisEpochStartTime;
+use splash_yf_offchain::Epoch;
 use splash_yf_offchain::entities::gauge::GaugeWithdrawals;
 use splash_yf_offchain::entities::{SplashTokenDecrease, SplashTokenIncrease};
 use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
-use splash_yf_offchain::Epoch;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 
@@ -162,9 +162,11 @@ where
     }
 
     fn confirm_gauge_buffering_tx(&mut self, tx_hash: TransactionHash) {
-        assert!(!self
-            .unconfirmed_harvest_tx_index
-            .confirm_tx(tx_hash, &HashSet::new()));
+        assert!(
+            !self
+                .unconfirmed_harvest_tx_index
+                .confirm_tx(tx_hash, &HashSet::new())
+        );
     }
 
     fn rollback_harvest_tx(
@@ -309,9 +311,9 @@ where
                         {
                             if amount != *payout {
                                 info!(
-                                "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
-                                amount, *payout
-                            );
+                                    "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
+                                    amount, *payout
+                                );
                                 return None;
                             }
                             if current_epoch > latest_epoch_inclusive.next() {

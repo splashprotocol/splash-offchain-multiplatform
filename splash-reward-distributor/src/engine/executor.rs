@@ -27,10 +27,10 @@ use log::{error, warn};
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
 };
-use rs_merkle::algorithms::Keccak256;
 use rs_merkle::MerkleTree;
-use serde::de::DeserializeOwned;
+use rs_merkle::algorithms::Keccak256;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -39,12 +39,13 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
-use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::Has;
+use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
+use splash_dao_offchain::GenesisEpochStartTime;
 use splash_dao_offchain::constants::SPLASH_NAME;
 use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator};
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
@@ -52,15 +53,14 @@ use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
-use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot};
-use splash_dao_offchain::GenesisEpochStartTime;
+use splash_dao_offchain::routines::{FundingBoxChanges, Slot, slot_to_epoch, time_millis_to_epoch};
+use splash_yf_offchain::Epoch;
 use splash_yf_offchain::entities::buffer_wallet::{
     BufferWallet, BufferWalletAction, BufferWalletConfig, BufferWalletWrap,
 };
 use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
 use splash_yf_offchain::events::EntityUpdated;
-use splash_yf_offchain::Epoch;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -364,10 +364,12 @@ where
             let splash_policy = self.ctx.select::<SplashPolicy>().0;
             let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
 
-            assert!(bw_out
-                .value_mut()
-                .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
-                .is_ok());
+            assert!(
+                bw_out
+                    .value_mut()
+                    .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
+                    .is_ok()
+            );
 
             let buffer_wallet_output = TransactionOutputBuilder::new()
                 .with_address(bw_out.address().clone())
@@ -892,19 +894,19 @@ pub struct Executor<
 }
 
 impl<
-        GaugeId,
-        StateId,
-        Bearer,
-        Tx,
-        TxInputs,
-        Ctx,
-        TxErr,
-        PositionIndex,
-        OnChainIndex,
-        FundingIndex,
-        TxSubmit,
-        Verifier,
-    >
+    GaugeId,
+    StateId,
+    Bearer,
+    Tx,
+    TxInputs,
+    Ctx,
+    TxErr,
+    PositionIndex,
+    OnChainIndex,
+    FundingIndex,
+    TxSubmit,
+    Verifier,
+>
     Executor<
         GaugeId,
         StateId,
@@ -943,18 +945,18 @@ impl<
 
 #[async_trait]
 impl<
-        GaugeId,
-        StateId,
-        Bearer,
-        Tx,
-        TxInputs,
-        Ctx,
-        PositionIndex,
-        OnChainIndex,
-        FundingIndex,
-        TxSubmit,
-        Verifier,
-    > BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, Error>
+    GaugeId,
+    StateId,
+    Bearer,
+    Tx,
+    TxInputs,
+    Ctx,
+    PositionIndex,
+    OnChainIndex,
+    FundingIndex,
+    TxSubmit,
+    Verifier,
+> BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, Error>
     for Executor<
         GaugeId,
         StateId,
@@ -987,17 +989,17 @@ where
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
     Verifier: RemoteVerifier<PartiallySignedTx<SignedTxBuilder, TxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex>: BatchExecutor<
-        TaskId,
-        Harvesting<StateId>,
-        HarvestFlowEntityUpdates<StateId, Bearer, SignedTxBuilder, TxInputs>,
-        Error,
-    >,
+            TaskId,
+            Harvesting<StateId>,
+            HarvestFlowEntityUpdates<StateId, Bearer, SignedTxBuilder, TxInputs>,
+            Error,
+        >,
     BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
-        TaskId,
-        GaugeBuffering<GaugeId>,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SignedTxBuilder, TxInputs>,
-        Error,
-    >,
+            TaskId,
+            GaugeBuffering<GaugeId>,
+            BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SignedTxBuilder, TxInputs>,
+            Error,
+        >,
     Ctx: Send
         + Clone
         + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
