@@ -1,6 +1,6 @@
 use crate::accounts::{AccountReward, Accounts};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
-use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedHarvestTxIndex};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedRewardTxIndex};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::certs::Credential;
 use cml_chain::crypto::Vkeywitness;
@@ -153,7 +153,7 @@ impl<Index, PositionIndex, UHarvestIndex, Prov> VerifierHandleLedgerEvent
 where
     Index: Send + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    UHarvestIndex: UnconfirmedRewardTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
 {
     fn confirm_harvest_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) {
@@ -227,7 +227,7 @@ where
         + Send
         + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    UHarvestIndex: UnconfirmedRewardTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
@@ -372,6 +372,7 @@ where
                 let tx_view = to_tx_view_partially_resolved(tx, current_slot);
                 if let Some(OnChainEvent::BotGaugeBufferingAction {
                     drained_gauges: GaugeWithdrawals(drained_gauges),
+                    buffer_wallet_update,
                     buffer_wallet_deposited_amount: SplashTokenIncrease(bw_deposited_amount),
                     ..
                 }) = OnChainEvent::try_from_ledger(&tx_view, ctx)
@@ -387,7 +388,14 @@ where
 
                     // Check that all rewards are only deposited in the buffer wallet
                     assert_eq!(total_rewards, bw_deposited_amount);
-                    return Some(self.prover.prove(tx.tx.clone()));
+                    let consumed_buffer_wallet_tx_hash = buffer_wallet_update.consumed?.tx_hash();
+                    if self.unconfirmed_harvest_tx_index.try_add_tx(
+                        consumed_buffer_wallet_tx_hash,
+                        tx_hash,
+                        HashSet::new(),
+                    ) {
+                        return Some(self.prover.prove(tx.tx.clone()));
+                    }
                 }
             }
         }

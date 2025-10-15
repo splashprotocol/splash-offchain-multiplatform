@@ -34,6 +34,7 @@ pub struct AppConfig {
     pub ve_config: VeConfig,
     pub authorized_executors: Vec<PublicKey>,
     pub operator_sk: String,
+    pub reward_tx_ttl_in_slots: u64,
 }
 
 #[derive(serde::Deserialize)]

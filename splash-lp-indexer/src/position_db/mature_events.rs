@@ -160,7 +160,7 @@ fn prepare_positions_for_update(
                     .iter()
                     .map(|e| {
                         (
-                            e.fist_slot(slots_in_epoch, epoch_start),
+                            e.first_slot(slots_in_epoch, epoch_start),
                             e.last_slot(slots_in_epoch, epoch_start),
                         )
                     })

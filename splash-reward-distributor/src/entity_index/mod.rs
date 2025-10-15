@@ -93,8 +93,8 @@ pub trait AuthManagerIndex<GaugeId, StateId, Bearer> {
     async fn remove_auth_manager(&self, state_id: StateId) -> Option<StateId>;
 }
 
-pub trait UnconfirmedHarvestTxIndex {
-    /// Try adding a harvest TX to the index, returning true if successful.
+pub trait UnconfirmedRewardTxIndex {
+    /// Try adding a harvest or gauge buffering TX to the index, returning true if successful.
     ///
     /// `buffer_wallet_input_tx_hash` must refer to a TX hash of a confirmed buffering/harvest
     /// action or an unconfirmed harvest operation that has **already been** cosigned by this
