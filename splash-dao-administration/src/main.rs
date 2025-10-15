@@ -398,15 +398,7 @@ async fn deploy<'a>(
             }
         };
 
-        // Buffer wallet validator is a 2-of-n multisig native script
-        let authorised_pubkeys = dao_parameters
-            .dao_authorized_executors
-            .iter()
-            .map(|key_hash| NativeScript::new_script_pubkey(*key_hash))
-            .collect();
-        let buffer_wallet = NativeScript::new_script_n_of_k(2, authorised_pubkeys);
-
-        // --------
+        // -----------------------------------------------------------------------------------------
         let dsd = DaoScriptData::global();
         let d = DeployedValidators {
             inflation: DeployedValidatorRef {
