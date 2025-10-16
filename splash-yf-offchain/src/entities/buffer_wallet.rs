@@ -22,7 +22,7 @@ use splash_dao_offchain::{
     protocol_config::{BufferWalletScript, SplashPolicy},
 };
 
-use crate::{entities::SplashBalanceChange, events::EntityUpdated};
+use crate::{entities::BufferWalletSplashBalanceChange, events::EntityUpdated};
 
 #[derive(
     Copy,
@@ -80,7 +80,7 @@ where
 
 pub struct BufferWalletUpdate<StateId, Bearer> {
     pub update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
-    pub balance_change: SplashBalanceChange,
+    pub balance_change: BufferWalletSplashBalanceChange,
 }
 
 #[derive(Debug, Clone)]
@@ -111,9 +111,9 @@ where
             None
         });
         let balance_change = if let Some((_, input_balance)) = consumed {
-            SplashBalanceChange::from_diff(input_balance, created.0.balance)
+            BufferWalletSplashBalanceChange::from_diff(input_balance, created.0.balance)
         } else {
-            SplashBalanceChange::from_diff(0, output_balance)
+            BufferWalletSplashBalanceChange::from_diff(0, output_balance)
         };
         let consumed = consumed.map(|(consumed, _)| consumed);
         let update = EntityUpdated { consumed, created };

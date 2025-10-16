@@ -7,7 +7,7 @@ use cml_chain::crypto::Vkeywitness;
 use cml_chain::transaction::Transaction;
 use cml_crypto::RawBytesEncoding;
 use cml_crypto::{Ed25519KeyHash, PublicKey, TransactionHash};
-use log::info;
+use log::{info, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -27,7 +27,7 @@ use splash_dao_offchain::protocol_config::{
 use splash_dao_offchain::routines::slot_to_epoch;
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::gauge::GaugeWithdrawals;
-use splash_yf_offchain::entities::{SplashTokenDecrease, SplashTokenIncrease};
+use splash_yf_offchain::entities::{BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease};
 use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use splash_yf_offchain::Epoch;
@@ -134,6 +134,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
     }
 
     fn get_current_slot(&self) -> u64 {
+        // We can be sure that `block_slot_buffer` is not empty because verification can't be
+        // performed until chain-sync is complete.
         *self.block_slot_buffer.back().expect("Block slot buffer is empty")
     }
 }
@@ -255,7 +257,7 @@ where
                 if let Some(OnChainEvent::BotHarvestingAction {
                     payouts,
                     buffer_wallet_update,
-                    buffer_wallet_withdrawn_amount: SplashTokenDecrease(bw_withdrawn_amount),
+                    buffer_wallet_withdrawn_amount: BufferWalletSplashTokenDecrease(bw_withdrawn_amount),
                     ..
                 }) = OnChainEvent::try_from_ledger(&tx_view, ctx)
                 {
@@ -307,8 +309,14 @@ where
                             return None;
                         }
                     }
-                    // Check that all payouts are withdrawn from the buffer wallet
-                    assert_eq!(total_payout, bw_withdrawn_amount);
+
+                    if total_payout != bw_withdrawn_amount {
+                        info!(
+                            "Total payout ({}) does not match buffer wallet withdrawn amount ({}) in Harvest TX.",
+                            total_payout, bw_withdrawn_amount
+                        );
+                        return None;
+                    }
 
                     let consumed_buffer_wallet_tx_hash = buffer_wallet_update.consumed?.tx_hash();
                     if self.unconfirmed_harvest_tx_index.try_add_tx(
@@ -351,12 +359,12 @@ where
                 let tx_view = to_tx_view_partially_resolved(tx, current_slot);
                 if let Some(OnChainEvent::BotGaugeBufferingAction {
                     drained_gauges: GaugeWithdrawals(drained_gauges),
-                    buffer_wallet_deposited_amount: SplashTokenIncrease(bw_deposited_amount),
+                    buffer_wallet_deposited_amount: BufferWalletSplashTokenIncrease(bw_deposited_amount),
                     ..
                 }) = OnChainEvent::try_from_ledger(&tx_view, ctx)
                 {
                     let mut total_rewards = 0;
-                    for (gauge_update, SplashTokenDecrease(amount)) in &drained_gauges {
+                    for (gauge_update, BufferWalletSplashTokenDecrease(amount)) in &drained_gauges {
                         // Check none of the gauges are suspended
                         if suspended_gauges.contains(&gauge_update.created.0.id) {
                             return None;
@@ -364,8 +372,14 @@ where
                         total_rewards += *amount;
                     }
 
-                    // Check that all rewards are only deposited in the buffer wallet
-                    assert_eq!(total_rewards, bw_deposited_amount);
+                    if total_rewards != bw_deposited_amount {
+                        warn!(
+                            "Total rewards ({}) do not match buffer wallet deposited amount ({}) in GaugeBuffering TX.",
+                            total_rewards,
+                            bw_deposited_amount
+                        );
+                        return None;
+                    }
                     return Some(self.prover.prove(tx.tx.clone()));
                 }
             }

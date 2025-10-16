@@ -1,4 +1,6 @@
-use crate::entities::{SplashBalanceChange, SplashTokenDecrease, SplashTokenIncrease};
+use crate::entities::{
+    BufferWalletSplashBalanceChange, BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease,
+};
 use std::fmt::Display;
 use std::hash::Hash;
 
@@ -65,14 +67,14 @@ where
 pub struct GaugeDeposits<FarmId, StateId, Bearer>(
     pub  Vec<(
         EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>,
-        SplashTokenIncrease,
+        BufferWalletSplashTokenIncrease,
     )>,
 );
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GaugeWithdrawals<FarmId, StateId, Bearer>(
     pub  Vec<(
         EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>,
-        SplashTokenDecrease,
+        BufferWalletSplashTokenDecrease,
     )>,
 );
 
@@ -138,7 +140,8 @@ where
             }
             let output_ref = TimedOutputRef::new(OutputRef::new(tx_hash, successor_ix), slot);
             if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
-                let balance_change = SplashBalanceChange::from_diff(gauge_in.balance, gauge_out.balance);
+                let balance_change =
+                    BufferWalletSplashBalanceChange::from_diff(gauge_in.balance, gauge_out.balance);
                 if gauge_out.id == gauge_in.id {
                     res.push((
                         EntityUpdated {
@@ -156,17 +159,20 @@ where
             }
         }
 
-        let all_deposits = res
-            .iter()
-            .all(|(_, balance_change)| matches!(balance_change, SplashBalanceChange::Increase(_)));
-        let all_withdrawals = res
-            .iter()
-            .all(|(_, balance_change)| matches!(balance_change, SplashBalanceChange::Decrease(_)));
+        let all_deposits = res.iter().all(|(_, balance_change)| {
+            matches!(balance_change, BufferWalletSplashBalanceChange::Increase(_))
+        });
+        let all_withdrawals = res.iter().all(|(_, balance_change)| {
+            matches!(balance_change, BufferWalletSplashBalanceChange::Decrease(_))
+        });
         if all_deposits {
             let res = res
                 .into_iter()
                 .map(|(entity_updated, balance_change)| {
-                    (entity_updated, SplashTokenIncrease(balance_change.amount()))
+                    (
+                        entity_updated,
+                        BufferWalletSplashTokenIncrease(balance_change.amount()),
+                    )
                 })
                 .collect();
             return Some(UpdatedGauges::Deposits(GaugeDeposits(res)));
@@ -174,7 +180,10 @@ where
             let res = res
                 .into_iter()
                 .map(|(entity_updated, balance_change)| {
-                    (entity_updated, SplashTokenDecrease(balance_change.amount()))
+                    (
+                        entity_updated,
+                        BufferWalletSplashTokenDecrease(balance_change.amount()),
+                    )
                 })
                 .collect();
             return Some(UpdatedGauges::Withdrawals(GaugeWithdrawals(res)));

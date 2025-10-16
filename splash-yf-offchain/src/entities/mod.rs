@@ -5,28 +5,29 @@ pub mod gauge;
 pub mod harvest_order;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SplashTokenIncrease(pub u64);
+pub struct BufferWalletSplashTokenIncrease(pub u64);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SplashTokenDecrease(pub u64);
+pub struct BufferWalletSplashTokenDecrease(pub u64);
 
-pub enum SplashBalanceChange {
+pub enum BufferWalletSplashBalanceChange {
     Increase(u64),
     Decrease(u64),
 }
 
-impl SplashBalanceChange {
+impl BufferWalletSplashBalanceChange {
     pub fn amount(&self) -> u64 {
         match self {
-            SplashBalanceChange::Increase(amount) | SplashBalanceChange::Decrease(amount) => *amount,
+            BufferWalletSplashBalanceChange::Increase(amount)
+            | BufferWalletSplashBalanceChange::Decrease(amount) => *amount,
         }
     }
 
-    pub fn from_diff(input: u64, output: u64) -> Self {
-        if input > output {
-            SplashBalanceChange::Increase(input - output)
+    pub fn from_diff(gauge_input_amount: u64, gauge_output_amount: u64) -> Self {
+        if gauge_input_amount > gauge_output_amount {
+            BufferWalletSplashBalanceChange::Increase(gauge_input_amount - gauge_output_amount)
         } else {
-            SplashBalanceChange::Decrease(output - input)
+            BufferWalletSplashBalanceChange::Decrease(gauge_output_amount - gauge_input_amount)
         }
     }
 }

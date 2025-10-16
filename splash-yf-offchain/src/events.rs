@@ -1,12 +1,13 @@
 use crate::entities::auth_manager::AuthManager;
 use crate::entities::buffer_wallet::{BufferWallet, BufferWalletUpdate};
 use crate::entities::funding_box::ConfirmedFundingBoxChanges;
-use crate::entities::gauge::{Gauge, GaugeDeposits, GaugeWithdrawals, UpdatedGauges};
+use crate::entities::gauge::{GaugeDeposits, GaugeWithdrawals, UpdatedGauges};
 use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
-use crate::entities::{SplashBalanceChange, SplashTokenDecrease, SplashTokenIncrease};
+use crate::entities::{
+    BufferWalletSplashBalanceChange, BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease,
+};
 use crate::settings::MinLovelacePerHarvest;
 use cml_crypto::TransactionHash;
-use serde::de;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
@@ -32,13 +33,13 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     BotHarvestingAction {
         payouts: Vec<(HarvestOrder<StateId>, SplashPayout)>,
         buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
-        buffer_wallet_withdrawn_amount: SplashTokenDecrease,
+        buffer_wallet_withdrawn_amount: BufferWalletSplashTokenDecrease,
         tx_hash: TransactionHash,
     },
     BotGaugeBufferingAction {
         drained_gauges: GaugeWithdrawals<GaugeId, StateId, Bearer>,
         buffer_wallet_update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
-        buffer_wallet_deposited_amount: SplashTokenIncrease,
+        buffer_wallet_deposited_amount: BufferWalletSplashTokenIncrease,
         tx_hash: TransactionHash,
     },
     DepositToGauges(GaugeDeposits<GaugeId, StateId, Bearer>),
@@ -94,14 +95,15 @@ where
                         payouts.push((harvest_order, splash_payout));
                     }
                 }
-                let SplashBalanceChange::Decrease(withdrawn_amount) = buffer_wallet_update.balance_change
+                let BufferWalletSplashBalanceChange::Decrease(withdrawn_amount) =
+                    buffer_wallet_update.balance_change
                 else {
                     unreachable!("Buffer wallet balance change should be decreased");
                 };
                 Some(OnChainEvent::BotHarvestingAction {
                     payouts,
                     buffer_wallet_update: buffer_wallet_update.update,
-                    buffer_wallet_withdrawn_amount: SplashTokenDecrease(withdrawn_amount),
+                    buffer_wallet_withdrawn_amount: BufferWalletSplashTokenDecrease(withdrawn_amount),
                     tx_hash,
                 })
             } else {
@@ -110,14 +112,15 @@ where
                     unreachable!("Can't update buffer wallet with no harvest orders nor any gauge updates");
                 };
                 if let UpdatedGauges::Withdrawals(drained_gauges) = gauge_updates {
-                    let SplashBalanceChange::Increase(deposited_amount) = buffer_wallet_update.balance_change
+                    let BufferWalletSplashBalanceChange::Increase(deposited_amount) =
+                        buffer_wallet_update.balance_change
                     else {
                         unreachable!("Buffer wallet balance change should be an increase");
                     };
                     Some(OnChainEvent::BotGaugeBufferingAction {
                         drained_gauges,
                         buffer_wallet_update: buffer_wallet_update.update,
-                        buffer_wallet_deposited_amount: SplashTokenIncrease(deposited_amount),
+                        buffer_wallet_deposited_amount: BufferWalletSplashTokenIncrease(deposited_amount),
                         tx_hash,
                     })
                 } else {
