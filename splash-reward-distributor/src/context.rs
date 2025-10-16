@@ -27,6 +27,7 @@ pub struct VerifierRuntimeContext {
     pub network_id: NetworkId,
     pub genesis_epoch_start_time: GenesisEpochStartTime,
     pub authorized_executors: AuthorizedExecutors,
+    pub reward_tx_ttl: RewardTxTtl,
 }
 
 has_deployed_validator!(
@@ -122,6 +123,16 @@ impl Has<OperatorCreds> for VerifierRuntimeContext {
             Credential::new_pub_key(dummy_key_hash),
         ));
         OperatorCreds(dummy_key_hash, dummy_address)
+    }
+}
+
+/// TX TTL for both harvest and gauge buffering TXs (specified in # slots).
+#[derive(Clone, Copy)]
+pub struct RewardTxTtl(pub u64);
+
+impl Has<RewardTxTtl> for VerifierRuntimeContext {
+    fn select<U: IsEqual<RewardTxTtl>>(&self) -> RewardTxTtl {
+        self.reward_tx_ttl
     }
 }
 
@@ -226,5 +237,11 @@ impl Has<GenesisEpochStartTime> for RewardBotRuntimeContext {
 impl Has<AuthorizedExecutors> for RewardBotRuntimeContext {
     fn select<U: IsEqual<AuthorizedExecutors>>(&self) -> AuthorizedExecutors {
         self.verifier_runtime_context.authorized_executors.clone()
+    }
+}
+
+impl Has<RewardTxTtl> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<RewardTxTtl>>(&self) -> RewardTxTtl {
+        self.verifier_runtime_context.reward_tx_ttl
     }
 }

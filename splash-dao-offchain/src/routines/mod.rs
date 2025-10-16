@@ -71,7 +71,7 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
 };
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::time::slot_to_time_millis;
+use spectrum_cardano_lib::time::{posix_to_slot, slot_to_time_millis};
 use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::backlog::ResilientBacklog;
@@ -2496,6 +2496,17 @@ pub fn time_millis_to_epoch(time_millis: u64, genesis_time: GenesisEpochStartTim
 pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime, network_id: NetworkId) -> CurrentEpoch {
     let time_millis = slot_to_time_millis(slot, network_id);
     time_millis_to_epoch(time_millis, genesis_time)
+}
+
+pub fn last_slot_of_epoch(
+    epoch: CurrentEpoch,
+    genesis_time: GenesisEpochStartTime,
+    network_id: NetworkId,
+) -> u64 {
+    let start_time = u64::from(genesis_time);
+    let next_epoch = (epoch.0 + 1) as u64;
+    let end_time_posix = (start_time + next_epoch * EPOCH_LEN - 1) / 1000;
+    posix_to_slot(end_time_posix, network_id)
 }
 
 pub enum EpochRoutineState<Out> {

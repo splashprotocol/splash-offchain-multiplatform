@@ -3,6 +3,7 @@ use crate::constants::{
     GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
 };
+use crate::context::RewardTxTtl;
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithSpendDetails};
 use crate::engine::resolved_tx::{
     CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx,
@@ -15,7 +16,9 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
+use cml_chain::builders::tx_builder::{
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionUnspentOutput,
+};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
@@ -35,6 +38,7 @@ use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData};
+use spectrum_cardano_lib::time::posix_to_slot;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -52,7 +56,9 @@ use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
 use splash_dao_offchain::protocol_config::{OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
-use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot};
+use splash_dao_offchain::routines::{
+    last_slot_of_epoch, slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot,
+};
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::buffer_wallet::{
     BufferWallet, BufferWalletAction, BufferWalletConfig, BufferWalletWrap,
@@ -64,7 +70,7 @@ use splash_yf_offchain::Epoch;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control<TaskId> {
@@ -137,7 +143,8 @@ where
         + Has<OperatorCreds>
         + Has<Collateral>
         + Has<GenesisEpochStartTime>
-        + Has<NetworkId>,
+        + Has<NetworkId>
+        + Has<RewardTxTtl>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
         let (harvest_order, tx_out) = if let Some(order) = self
@@ -430,6 +437,9 @@ where
             tx_builder
                 .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
                 .unwrap();
+
+            set_tx_ttl(&mut tx_builder, &self.ctx);
+
             let inputs = tx_builder
                 .get_inputs()
                 .clone()
@@ -512,7 +522,10 @@ where
         + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedValidator<{ ProtocolValidator::PermManager as u8 }>>
-        + Has<SplashPolicy>,
+        + Has<SplashPolicy>
+        + Has<RewardTxTtl>
+        + Has<GenesisEpochStartTime>
+        + Has<NetworkId>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
@@ -765,6 +778,9 @@ where
             tx_builder
                 .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
                 .unwrap();
+
+            set_tx_ttl(&mut tx_builder, &self.ctx);
+
             let inputs = tx_builder
                 .get_inputs()
                 .clone()
@@ -852,6 +868,23 @@ where
             panic!("No gauge buffering batch exists (didn't call .feed())")
         }
     }
+}
+
+/// Set TX TTL to be within the current epoch and under the configured reward TX TTL.
+fn set_tx_ttl<Ctx>(tx_builder: &mut TransactionBuilder, ctx: &Ctx)
+where
+    Ctx: Has<RewardTxTtl> + Has<GenesisEpochStartTime> + Has<NetworkId>,
+{
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let network_id = ctx.select::<NetworkId>();
+    let now_slot = posix_to_slot(now, network_id);
+    let genesis_start_time = ctx.select::<GenesisEpochStartTime>();
+    let current_epoch = slot_to_epoch(now_slot, genesis_start_time, network_id);
+    let last_slot_of_epoch = last_slot_of_epoch(current_epoch, genesis_start_time, network_id);
+    let reward_tx_ttl = ctx.select::<RewardTxTtl>();
+    let ttl = last_slot_of_epoch.min(now_slot + reward_tx_ttl.0);
+    tx_builder.set_validity_start_interval(now_slot);
+    tx_builder.set_ttl(ttl);
 }
 
 fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {

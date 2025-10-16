@@ -5,6 +5,7 @@ use cml_chain::{
     transaction::TransactionOutput,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+use log::info;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     address::PlutusAddress,
@@ -140,20 +141,31 @@ where
 {
     let harvest_limit = ctx.select::<MinLovelacePerHarvest>();
     let lovelace_amount = output.value().coin;
-    if test_address(output.address(), ctx) && lovelace_amount >= harvest_limit.0 {
-        let datum = output.datum()?;
-        let HarvestOrderDatum {
-            account_key,
-            reward_receiver,
-            ..
-        } = datum.into_pd().map(HarvestOrderDatum::try_from_pd)??;
-        let harvest_order = HarvestOrder {
-            id: output_ref,
-            account_key,
-            issued_at,
-            reward_receiver,
-        };
-        return Some(harvest_order);
+    if test_address(output.address(), ctx) {
+        if lovelace_amount < harvest_limit.0 {
+            info!("Harvest order {} below limit: {:?}", output_ref, lovelace_amount);
+            return None;
+        }
+        if let Some(datum) = output.datum() {
+            if let Some(Some(HarvestOrderDatum {
+                account_key,
+                reward_receiver,
+                ..
+            })) = datum.into_pd().map(HarvestOrderDatum::try_from_pd)
+            {
+                let harvest_order = HarvestOrder {
+                    id: output_ref,
+                    account_key,
+                    issued_at,
+                    reward_receiver,
+                };
+                return Some(harvest_order);
+            } else {
+                info!("Harvest order {} has invalid datum", output_ref);
+            }
+        } else {
+            info!("Harvest order {} has no datum", output_ref);
+        }
     }
     None
 }

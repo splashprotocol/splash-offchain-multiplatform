@@ -1,6 +1,6 @@
 use crate::accounts::{AccountReward, Accounts};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
-use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedHarvestTxIndex};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedRewardTxIndex};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::certs::Credential;
 use cml_chain::crypto::Vkeywitness;
@@ -155,7 +155,7 @@ impl<Index, PositionIndex, UHarvestIndex, Prov> VerifierHandleLedgerEvent
 where
     Index: Send + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    UHarvestIndex: UnconfirmedRewardTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
 {
     fn confirm_harvest_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) {
@@ -227,7 +227,7 @@ where
         + Send
         + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    UHarvestIndex: UnconfirmedRewardTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
@@ -317,9 +317,9 @@ where
                         {
                             if amount != *payout {
                                 info!(
-                                "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
-                                amount, *payout
-                            );
+                                    "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
+                                    amount, *payout
+                                );
                                 return None;
                             }
                             if current_epoch > latest_epoch_inclusive.next() {
