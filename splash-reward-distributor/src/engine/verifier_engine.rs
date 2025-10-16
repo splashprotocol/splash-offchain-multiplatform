@@ -80,7 +80,10 @@ where
             Cosign(TxCosignRequest, oneshot::Sender<Option<Transaction>>),
         }
         loop {
-            // Use poll_fn to manually poll both streams with bias toward ledger events
+            // Use poll_fn to manually poll both streams with bias toward ledger events (note that
+            // tokio::select! isn't appropriate here because the macro `.awaits` on multiple futures
+            // at the top level. This doesn't work for us because we need to inspect Option<..>
+            // values.
             let result = poll_fn(|cx| {
                 // First try ledger events (biased)
                 if let Poll::Ready(Some((event, tx))) = self.ledger_event_stream.poll_next_unpin(cx) {
