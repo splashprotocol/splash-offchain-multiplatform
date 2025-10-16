@@ -273,7 +273,13 @@ where
                     let mut total_payout = 0;
                     for (order, SplashPayout(payout)) in &payouts {
                         total_payout += *payout;
-                        assert_eq!(order.issued_at.1, current_epoch);
+                        if order.issued_at.1 != current_epoch {
+                            info!(
+                                "Order issued_at epoch ({}) does not match current epoch ({}) in Harvest TX.",
+                                order.issued_at.1, current_epoch
+                            );
+                            return None;
+                        }
                         let last_harvested_epoch = self
                             .index
                             .last_epoch_harvested(order.account_key)
