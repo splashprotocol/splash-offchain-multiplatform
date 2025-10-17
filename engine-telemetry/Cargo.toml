@@ -13,7 +13,7 @@ serde = { version = "1.0.210", features = ["derive"] }
 log = "0.4.22"
 serde_json = "1.0.121"
 clap = { version = "4.5.17", features = ["derive"] }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
