@@ -1,6 +1,6 @@
 use crate::accounts::{AccountReward, Accounts};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
-use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedHarvestTxIndex};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedRewardTxIndex};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::certs::Credential;
 use cml_chain::crypto::Vkeywitness;
@@ -22,7 +22,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::routines::slot_to_epoch;
 use splash_dao_offchain::GenesisEpochStartTime;
@@ -110,6 +110,8 @@ pub struct Verifier<Tx, Index, PositionIndex, UHarvestIndex, Prover> {
     position_index: PositionIndex,
     unconfirmed_harvest_tx_index: UHarvestIndex,
     block_slot_buffer: CircularFilter<100, u64>,
+    genesis_epoch_start_time: GenesisEpochStartTime,
+    network_id: NetworkId,
     prover: Prover,
     pd: PhantomData<Tx>,
 }
@@ -121,6 +123,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
         index: Index,
         position_index: PositionIndex,
         unconfirmed_harvest_tx_index: UHarvestIndex,
+        genesis_epoch_start_time: GenesisEpochStartTime,
+        network_id: NetworkId,
         prover: Prover,
     ) -> Self {
         Self {
@@ -128,6 +132,8 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
             position_index,
             unconfirmed_harvest_tx_index,
             block_slot_buffer: CircularFilter::new(),
+            genesis_epoch_start_time,
+            network_id,
             prover,
             pd: PhantomData,
         }
@@ -138,6 +144,10 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
         // performed until chain-sync is complete.
         *self.block_slot_buffer.back().expect("Block slot buffer is empty")
     }
+
+    fn compute_epoch(&self, slot: u64) -> u64 {
+        slot_to_epoch(slot, self.genesis_epoch_start_time, self.network_id).0 as u64
+    }
 }
 
 impl<Index, PositionIndex, UHarvestIndex, Prov> VerifierHandleLedgerEvent
@@ -145,7 +155,7 @@ impl<Index, PositionIndex, UHarvestIndex, Prov> VerifierHandleLedgerEvent
 where
     Index: Send + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    UHarvestIndex: UnconfirmedRewardTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
 {
     fn confirm_harvest_tx(&mut self, tx_hash: TransactionHash, confirmed_user_harvests: &[Ed25519KeyHash]) {
@@ -174,6 +184,14 @@ where
     }
 
     fn confirm_block_slot(&mut self, block_slot: u64) {
+        let current_slot = self.get_current_slot();
+        let current_epoch = self.compute_epoch(current_slot);
+        let new_epoch = self.compute_epoch(block_slot);
+        if new_epoch > current_epoch {
+            // It's still possible to see a rollback back to the previous epoch, but the worst thing
+            // to happen is that we delete some unconfirmed TXs, which is fine.
+            self.unconfirmed_harvest_tx_index.notify_end_of_epoch();
+        }
         self.block_slot_buffer.add(block_slot);
     }
 
@@ -209,19 +227,20 @@ where
         + Send
         + Sync,
     PositionIndex: Accounts<OutputRef> + Send + Sync,
-    UHarvestIndex: UnconfirmedHarvestTxIndex + Send + Sync,
+    UHarvestIndex: UnconfirmedRewardTxIndex + Send + Sync,
     Prov: TxProver<SignedTxBuilder, Transaction> + Send + Sync,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>>
         + Has<NetworkId>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<AuthorizedExecutors>
-        + Has<BufferWalletScript>
+        + Has<BufferWalletAuthPolicy>
         + Sync,
 {
     async fn try_approve(&mut self, tx: &TxCosignRequest, ctx: &Ctx) -> Option<Transaction> {
@@ -298,9 +317,9 @@ where
                         {
                             if amount != *payout {
                                 info!(
-                                "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
-                                amount, *payout
-                            );
+                                    "Accumulated reward amount {} (determined from lp-indexer) != harvest withdrawal amount {}",
+                                    amount, *payout
+                                );
                                 return None;
                             }
                             if current_epoch > latest_epoch_inclusive.next() {

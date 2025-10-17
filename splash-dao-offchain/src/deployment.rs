@@ -1,5 +1,5 @@
 use cardano_explorer::CardanoNetwork;
-use cml_chain::{plutus::ExUnits, transaction::NativeScript, utils::BigInteger};
+use cml_chain::{plutus::ExUnits, utils::BigInteger};
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{NetworkId, Token};
 use spectrum_offchain::domain::Has;
@@ -35,7 +35,7 @@ pub struct DeployedValidators {
     pub harvest_order: DeployedValidatorRef,
     pub redeem_ve_order: DeployedValidatorRef,
     pub wpoll_vote_order: DeployedValidatorRef,
-    pub buffer_wallet: NativeScript,
+    pub buffer_wallet: DeployedValidatorRef,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -76,6 +76,7 @@ pub struct ProtocolTokens {
     pub edao_msig: IssuedAsset,
     pub inflation_auth: IssuedAsset,
     pub gt: IssuedAsset,
+    pub buffer_wallet: IssuedAsset,
 }
 
 #[derive(serde::Deserialize)]
@@ -108,6 +109,7 @@ pub struct DaoScriptData {
     pub redeem_voting_escrow_witness: ScriptBytesAndCosts,
     pub proxy_order_witness: ScriptBytesAndCosts,
     pub harvest_order: ScriptBytesAndCosts,
+    pub buffer_wallet: ScriptBytesAndCosts,
 }
 
 impl DaoScriptData {
@@ -170,6 +172,7 @@ pub struct ProtocolScriptHashes {
     pub mint_ve_composition_token: DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
     pub weighting_power: DeployedScriptInfo<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
+    pub buffer_wallet: DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>,
     pub make_ve_order: DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>,
     pub extend_ve_order: DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>,
     pub harvest_order: DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>,
@@ -192,6 +195,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             mint_ve_composition_token: DeployedScriptInfo::from(&deployment.mint_ve_composition_token),
             weighting_power: DeployedScriptInfo::from(&deployment.weighting_power),
             smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
+            buffer_wallet: DeployedScriptInfo::from(&deployment.buffer_wallet),
             make_ve_order: DeployedScriptInfo::from(&deployment.make_ve_order),
             extend_ve_order: DeployedScriptInfo::from(&deployment.extend_ve_order),
             harvest_order: DeployedScriptInfo::from(&deployment.harvest_order),
@@ -215,12 +219,12 @@ pub struct ProtocolDeployment {
     pub mint_ve_composition_token: DeployedValidator<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
     pub weighting_power: DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
+    pub buffer_wallet: DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>,
     pub make_ve_order: DeployedValidator<{ ProtocolValidator::MakeVeOrder as u8 }>,
     pub extend_ve_order: DeployedValidator<{ ProtocolValidator::ExtendVeOrder as u8 }>,
     pub harvest_order: DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>,
     pub wpoll_vote_order: DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>,
     pub redeem_ve_order: DeployedValidator<{ ProtocolValidator::RedeemVeOrder as u8 }>,
-    pub buffer_wallet: NativeScript,
 }
 
 impl ProtocolDeployment {
@@ -242,12 +246,12 @@ impl ProtocolDeployment {
             )
             .await,
             weighting_power: DeployedValidator::unsafe_pull(validators.weighting_power, explorer).await,
+            buffer_wallet: DeployedValidator::unsafe_pull(validators.buffer_wallet, explorer).await,
             make_ve_order: DeployedValidator::unsafe_pull(validators.make_ve_order, explorer).await,
             extend_ve_order: DeployedValidator::unsafe_pull(validators.extend_ve_order, explorer).await,
             harvest_order: DeployedValidator::unsafe_pull(validators.harvest_order, explorer).await,
             wpoll_vote_order: DeployedValidator::unsafe_pull(validators.wpoll_vote_order, explorer).await,
             redeem_ve_order: DeployedValidator::unsafe_pull(validators.redeem_ve_order, explorer).await,
-            buffer_wallet: validators.buffer_wallet,
         }
     }
 }

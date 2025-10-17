@@ -9,6 +9,7 @@ pub mod verifier_engine;
 use crate::engine::executor::{BatchExecutor, Control, Error as ExecutorError};
 use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
+use async_primitives::beacon::{Beacon, Once};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::channel::mpsc::Receiver;
@@ -22,6 +23,7 @@ use std::future::Future;
 use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::time::Sleep;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct EngineConfig {
@@ -34,6 +36,10 @@ pub struct Engine<U, Q, E> {
     executor: E,
     current_task: Option<Pin<Box<dyn Future<Output = ControlFlow<(), ()>> + Send>>>,
     dropped_unconfirmed_tx_hashes_recv: Receiver<TransactionHash>,
+    /// Agent is synced with the network.
+    state_synced: Beacon,
+    blocker: Option<Once>,
+    initial_tx_ttl_delay: Option<Pin<Box<Sleep>>>,
     conf: EngineConfig,
 }
 
@@ -44,6 +50,8 @@ impl<U, Q, E> Engine<U, Q, E> {
         executor: E,
         conf: EngineConfig,
         dropped_unconfirmed_tx_hashes_recv: Receiver<TransactionHash>,
+        state_synced: Beacon,
+        initial_tx_ttl_delay: Sleep,
     ) -> Self {
         Self {
             event_stream,
@@ -52,6 +60,9 @@ impl<U, Q, E> Engine<U, Q, E> {
             current_task: None,
             conf,
             dropped_unconfirmed_tx_hashes_recv,
+            state_synced,
+            blocker: None,
+            initial_tx_ttl_delay: Some(Box::pin(initial_tx_ttl_delay)),
         }
     }
 
@@ -87,8 +98,6 @@ where
                     if cf.is_break() {
                         break;
                     }
-                } else {
-                    break;
                 }
             }
 
@@ -103,6 +112,27 @@ where
                 Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
             {
                 self.block_on(reschedule_tasks_from_dropped_tx(tx_hash, queue));
+                continue;
+            }
+
+            // Wait until initial tx TTL delay is resolved (CompleteDataLoss stressor).
+            if let Some(mut initial_tx_ttl_delay) = self.initial_tx_ttl_delay.take() {
+                if Future::poll(Pin::new(&mut initial_tx_ttl_delay), cx).is_pending() {
+                    self.initial_tx_ttl_delay = Some(initial_tx_ttl_delay);
+                    continue;
+                }
+            }
+
+            // Wait until blockers are resolved.
+            if let Some(mut blocker) = self.blocker.take() {
+                if Future::poll(Pin::new(&mut blocker), cx).is_pending() {
+                    self.blocker = Some(blocker);
+                    continue;
+                }
+            }
+
+            if !self.state_synced.read() {
+                self.blocker = Some(self.state_synced.once(true));
                 continue;
             }
             let executor = self.executor.clone();
@@ -268,6 +298,7 @@ where
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
 {
     let mut invalid_tasks = vec![];
+    let mut rescheduled_tasks = vec![];
     let mut stream = queue.clone().pending_stream();
     loop {
         if let Some((task_id, task)) = stream.next().await {
@@ -277,6 +308,10 @@ where
                     continue;
                 }
                 Control::Next => {
+                    continue;
+                }
+                Control::Retry => {
+                    rescheduled_tasks.push(task_id);
                     continue;
                 }
                 Control::Stop => {}
@@ -292,6 +327,11 @@ where
                 .executed_tasks
                 .into_iter()
                 .map(|task_id| QueueCmd::Done(task_id, tx_hash))
+                .chain(
+                    rescheduled_tasks
+                        .into_iter()
+                        .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60))),
+                )
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
 
             queue.batch_execute(commands.collect()).await;
@@ -300,6 +340,12 @@ where
             let commands = failed_task_ids
                 .into_iter()
                 .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60)))
+                .chain(
+                    rescheduled_tasks
+                        .into_iter()
+                        .map(|task_id| QueueCmd::Reschedule(task_id, StrikeTime::In(60))),
+                )
+                .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel))
                 .collect();
             queue.batch_execute(commands).await;
         }

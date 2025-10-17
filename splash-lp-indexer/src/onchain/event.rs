@@ -23,7 +23,7 @@ use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFact
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
 use splash_dao_offchain::entities::onchain::weighting_poll::WeightingPollSnapshot;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_dao_offchain::GenesisEpochStartTime;
@@ -67,8 +67,9 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<GenesisEpochStartTime>
-        + Has<BufferWalletScript>
+        + Has<BufferWalletAuthPolicy>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
@@ -312,12 +313,13 @@ where
         + Has<GenesisEpochStartTime>
         + Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
+        + Has<BufferWalletAuthPolicy>
         + Has<MinLovelacePerHarvest>
         + Has<OperatorCreds>
         + Has<NetworkId>
-        + Has<BufferWalletScript>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {

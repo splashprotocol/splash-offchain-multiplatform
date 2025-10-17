@@ -10,12 +10,12 @@ mod pipeline;
 use crate::accounts::PositionIndex;
 use crate::api_endpoint::{handle_request_cosignature, VerifierAppState};
 use crate::config::AppConfig;
-use crate::context::{RewardBotRuntimeContext, VerifierRuntimeContext};
+use crate::context::{RewardBotRuntimeContext, RewardTxTtl, VerifierRuntimeContext};
 use crate::engine::executor::Executor;
 use crate::engine::queue::RocksDB;
 use crate::engine::verifier::{AuthorizedExecutors, HttpVerifier, Verifier};
 use crate::engine::verifier_engine::VerifierEngine;
-use crate::entity_index::chained_tx_graph::ChainedHarvestTxGraph;
+use crate::entity_index::chained_tx_graph::ChainedRewardTxGraph;
 use crate::entity_index::rocksdb::IndexerDB;
 use crate::entity_index::update_index_from_mempool_dropped_tx;
 use crate::pipeline::event_pipeline;
@@ -46,6 +46,7 @@ use splash_dao_offchain::deployment::{
 use splash_dao_offchain::funding::FundingRepoRocksDB;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
@@ -96,7 +97,7 @@ async fn run_reward_bot(args: AppArgs) {
 
     let state_synced = Beacon::relaxed(false);
     let (flow_driver, block_events) = atomic_block_flow(
-        Box::pin(chain_sync_stream(chain_sync, state_synced)),
+        Box::pin(chain_sync_stream(chain_sync, state_synced.clone())),
         chain_sync_cache,
     );
 
@@ -120,7 +121,7 @@ async fn run_reward_bot(args: AppArgs) {
         .expect("LocalTxSubmission initialization failed");
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
-    let position_index = PositionIndex::new();
+    let position_index = PositionIndex::new(config.lp_indexer_url);
     let onchain_index = IndexerDB::new(
         config.onchain_index_db_path,
         config.max_number_merkle_tree_snapshots,
@@ -142,6 +143,7 @@ async fn run_reward_bot(args: AppArgs) {
         network_id: config.network_id,
         genesis_epoch_start_time: config.ve_config.epoch_start.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
+        reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
     };
 
     let ctx = RewardBotRuntimeContext {
@@ -164,12 +166,15 @@ async fn run_reward_bot(args: AppArgs) {
 
     let queue = RocksDB::new(config.persistent_queue_db_path);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
+    let initial_tx_ttl_delay = tokio::time::sleep(Duration::from_secs(config.reward_tx_ttl_in_slots));
     let engine = engine::Engine::new(
         engine_mailbox,
         queue,
         executor,
         config.engine,
         failed_tx_hash_recv,
+        state_synced,
+        initial_tx_ttl_delay,
     );
 
     let processes = FuturesUnordered::new();
@@ -181,7 +186,7 @@ async fn run_reward_bot(args: AppArgs) {
     processes.push(flow_driver_handle);
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash()]);
+    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
 
     let mempool_index_handle = tokio::spawn(update_index_from_mempool_dropped_tx(
         failed_txs_recv,
@@ -255,7 +260,7 @@ async fn run_verifier(args: AppArgs) {
 
     let state_synced = Beacon::relaxed(false);
     let (flow_driver, block_events) = atomic_block_flow(
-        Box::pin(chain_sync_stream(chain_sync, state_synced)),
+        Box::pin(chain_sync_stream(chain_sync, state_synced.clone())),
         chain_sync_cache,
     );
     let (confirmed_txs_snd, mut confirmed_txs_recv) =
@@ -264,7 +269,7 @@ async fn run_verifier(args: AppArgs) {
     // Consume confirmed transactions from the chain sync stream, but do nothing with them
     tokio::spawn(async move { while let Some((_tx, _)) = confirmed_txs_recv.next().await {} });
 
-    let position_index = PositionIndex::new();
+    let position_index = PositionIndex::new(config.lp_indexer_url);
     let onchain_index = IndexerDB::new(
         config.onchain_index_db_path,
         config.max_number_merkle_tree_snapshots,
@@ -272,7 +277,7 @@ async fn run_verifier(args: AppArgs) {
 
     let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash()]);
+    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
 
     let ctx = VerifierRuntimeContext {
@@ -283,6 +288,7 @@ async fn run_verifier(args: AppArgs) {
         network_id: config.network_id,
         genesis_epoch_start_time: config.ve_config.epoch_start.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
+        reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
     };
 
     let (voting_order_snd, voting_event_rcv) = mpsc::channel(100);
@@ -319,10 +325,19 @@ async fn run_verifier(args: AppArgs) {
     let verifier = Verifier::new(
         onchain_index,
         position_index,
-        ChainedHarvestTxGraph::new(),
+        ChainedRewardTxGraph::new(),
+        config.ve_config.epoch_start.into(),
+        config.network_id,
         OperatorProver::new(config.operator_sk),
     );
-    let engine = VerifierEngine::new(engine_mailbox, voting_event_rcv, verifier);
+    let initial_tx_ttl_delay = tokio::time::sleep(Duration::from_secs(config.reward_tx_ttl_in_slots));
+    let engine: VerifierEngine<_, _, _, VerifierRuntimeContext> = VerifierEngine::new(
+        engine_mailbox,
+        voting_event_rcv,
+        verifier,
+        state_synced,
+        initial_tx_ttl_delay,
+    );
     let engine_handle = tokio::spawn(engine.run(ctx));
     processes.push(engine_handle);
 

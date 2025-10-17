@@ -21,7 +21,7 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::events::OnChainEvent;
@@ -56,8 +56,9 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
     Utxos: PersistentIndex<OutputRef, TimedOutput>,
     Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
-        + Has<BufferWalletScript>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<BufferWalletAuthPolicy>
         + Has<MinLovelacePerHarvest>
         + Has<NetworkId>
         + Has<OperatorCreds>

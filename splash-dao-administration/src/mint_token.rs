@@ -13,7 +13,7 @@ use cml_chain::{
     },
     certs::StakeCredential,
     min_ada::min_ada_required,
-    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
     transaction::NativeScript,
     utils::BigInteger,
     PolicyId, Value,
@@ -26,9 +26,11 @@ use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension,
     NetworkId,
 };
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
+use spectrum_offchain_cardano::parametrized_validators::{
+    apply_params_validator_plutus_v2, apply_params_validator_plutus_v3,
+};
 use splash_dao_offchain::{
-    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
+    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY, SPLASH_NAME},
     deployment::{DaoScriptData, ExternallyMintedToken, IssuedAsset, ProtocolTokens},
     entities::onchain::{
         extend_voting_escrow_order::compute_extend_ve_order_validator,
@@ -48,6 +50,7 @@ use splash_dao_offchain::{
         wpoll_vote_order::compute_wpoll_vote_order_validator,
     },
 };
+use tokio::net;
 use uplc_pallas_primitives::BoundedBytes;
 
 use crate::DeploymentProgress;
@@ -140,9 +143,9 @@ pub fn mint_deployment_tokens(
 
     let mut built_policies = VecDeque::new();
 
-    // First 7 mints are for the NFTs, and the final mint is for GT.
+    // First 8 mints are for the NFTs, and the final mint is for GT.
     let qty = |index: usize| {
-        if index < 7 {
+        if index < 8 {
             1
         } else {
             MAX_GT_SUPPLY
@@ -151,13 +154,13 @@ pub fn mint_deployment_tokens(
 
     let mut output_multiasset = MultiAsset::new();
 
-    // Note that we have 7 NFTs to mint and the governance tokens too, hence the call to `.take(8)`.
-    for (index, input_result) in inputs.iter().enumerate().take(8) {
+    // Note that we have 8 NFTs to mint and the governance tokens too, hence the call to `.take(9)`.
+    for (index, input_result) in inputs.iter().enumerate().take(9) {
         let tx_hash = input_result.input.transaction_id;
         let quantity = qty(index);
         let plutus_script = compute_one_time_mint_validator(tx_hash, index, quantity);
         let policy_id = plutus_script.hash();
-        let inner = if index < 7 {
+        let inner = if index < 8 {
             DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()
         } else {
             GT_NAME.to_be_bytes().to_vec()
@@ -185,7 +188,7 @@ pub fn mint_deployment_tokens(
         println!("index {}", index);
     }
 
-    for index in 0..8 {
+    for index in 0..9 {
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, index as u64),
             DaoScriptData::global().one_time_mint.ex_units.clone(),
@@ -219,6 +222,7 @@ pub fn mint_deployment_tokens(
         proposal_auth: built_policies.pop_front().unwrap(),
         edao_msig: built_policies.pop_front().unwrap(),
         inflation_auth: built_policies.pop_front().unwrap(),
+        buffer_wallet: built_policies.pop_front().unwrap(),
         gt: built_policies.pop_front().unwrap(),
     };
     (signed_tx_builder, minted_tokens)
@@ -274,6 +278,7 @@ pub fn create_dao_reference_input_utxos(
     let ve_factory_auth_policy = minted_tokens.ve_factory_auth.policy_id;
     let proposal_auth_policy = minted_tokens.proposal_auth.policy_id;
     let perm_manager_auth_policy = minted_tokens.perm_auth.policy_id;
+    let buffer_wallet_auth_policy = minted_tokens.buffer_wallet.policy_id;
     let edao_msig = minted_tokens.edao_msig.policy_id;
     let inflation_auth_policy = minted_tokens.inflation_auth.policy_id;
 
@@ -303,6 +308,13 @@ pub fn create_dao_reference_input_utxos(
     let farm_factory_auth_policy = minted_tokens.factory_auth.policy_id;
 
     let splash_policy = config.splash_tokens.as_ref().unwrap().policy_id;
+
+    let buffer_wallet_script = compute_buffer_wallet_script(
+        buffer_wallet_auth_policy,
+        minted_tokens.buffer_wallet.asset_name.clone(),
+        splash_policy,
+        AssetName::try_from(SPLASH_NAME.as_bytes().to_vec()).unwrap(),
+    );
 
     let mint_farm_auth_token_script =
         compute_mint_farm_auth_token_validator(splash_policy, farm_factory_auth_policy);
@@ -378,6 +390,7 @@ pub fn create_dao_reference_input_utxos(
         wpoll_vote_order: wpoll_vote_order_script.hash(),
         redeem_ve_order: redeem_ve_order_script.hash(),
         harvest_order: harvest_order_script.hash(),
+        buffer_wallet: buffer_wallet_script.hash(),
     };
 
     let script_before =
@@ -385,7 +398,7 @@ pub fn create_dao_reference_input_utxos(
 
     let script_addr = script_address(script_before.hash(), network_id);
 
-    let make_output = |script| {
+    let make_output_v2 = |script| {
         TransactionOutputBuilder::new()
             .with_address(script_addr.clone())
             .with_reference_script(cml_chain::Script::new_plutus_v2(script))
@@ -398,56 +411,71 @@ pub fn create_dao_reference_input_utxos(
     };
 
     let mut tx_builder_0 = constant_tx_builder();
-    tx_builder_0.add_output(make_output(inflation_script)).unwrap();
+    tx_builder_0.add_output(make_output_v2(inflation_script)).unwrap();
     tx_builder_0
-        .add_output(make_output(voting_escrow_script))
+        .add_output(make_output_v2(voting_escrow_script))
         .unwrap();
-    tx_builder_0.add_output(make_output(farm_factory_script)).unwrap();
-    tx_builder_0.add_output(make_output(wp_factory_script)).unwrap();
-    tx_builder_0.add_output(make_output(ve_factory_script)).unwrap();
+    tx_builder_0
+        .add_output(make_output_v2(farm_factory_script))
+        .unwrap();
+    tx_builder_0
+        .add_output(make_output_v2(wp_factory_script))
+        .unwrap();
+    tx_builder_0
+        .add_output(make_output_v2(ve_factory_script))
+        .unwrap();
 
     let mut tx_builder_1 = constant_tx_builder();
-    tx_builder_1.add_output(make_output(gov_proxy_script)).unwrap();
-    tx_builder_1.add_output(make_output(perm_manager_script)).unwrap();
+    tx_builder_1.add_output(make_output_v2(gov_proxy_script)).unwrap();
     tx_builder_1
-        .add_output(make_output(mint_wp_auth_token_script))
+        .add_output(make_output_v2(perm_manager_script))
         .unwrap();
     tx_builder_1
-        .add_output(make_output(mint_identifier_script))
+        .add_output(make_output_v2(mint_wp_auth_token_script))
         .unwrap();
     tx_builder_1
-        .add_output(make_output(wpoll_vote_order_script))
+        .add_output(make_output_v2(mint_identifier_script))
+        .unwrap();
+    tx_builder_1
+        .add_output(make_output_v2(wpoll_vote_order_script))
         .unwrap();
     let mut tx_builder_2 = constant_tx_builder();
     tx_builder_2
-        .add_output(make_output(mint_ve_composition_token_script))
+        .add_output(make_output_v2(mint_ve_composition_token_script))
         .unwrap();
     tx_builder_2
-        .add_output(make_output(mint_weighting_power_script))
+        .add_output(make_output_v2(mint_weighting_power_script))
         .unwrap();
     tx_builder_2
-        .add_output(make_output(mint_farm_auth_token_script))
+        .add_output(make_output_v2(mint_farm_auth_token_script))
         .unwrap();
     tx_builder_2
-        .add_output(make_output(make_ve_order_script))
+        .add_output(make_output_v2(make_ve_order_script))
         .unwrap();
     tx_builder_2
-        .add_output(make_output(extend_ve_order_script))
+        .add_output(make_output_v2(extend_ve_order_script))
         .unwrap();
     tx_builder_2
-        .add_output(make_output(harvest_order_script))
+        .add_output(make_output_v2(harvest_order_script))
         .unwrap();
 
-    let redeem_ve_builder = TransactionOutputBuilder::new()
-        .with_address(script_address(redeem_ve_order_script.hash(), network_id))
-        .with_reference_script(cml_chain::Script::new_plutus_v3(redeem_ve_order_script))
-        .next()
-        .unwrap()
-        .with_asset_and_min_required_coin(MultiAsset::default(), COINS_PER_UTXO_BYTE)
-        .unwrap()
-        .build()
-        .unwrap();
+    let make_output_v3 = |script: PlutusV3Script| {
+        TransactionOutputBuilder::new()
+            .with_address(script_address(script.hash(), network_id))
+            .with_reference_script(cml_chain::Script::new_plutus_v3(script))
+            .next()
+            .unwrap()
+            .with_asset_and_min_required_coin(MultiAsset::default(), COINS_PER_UTXO_BYTE)
+            .unwrap()
+            .build()
+            .unwrap()
+    };
+
+    let redeem_ve_builder = make_output_v3(redeem_ve_order_script);
     tx_builder_2.add_output(redeem_ve_builder).unwrap();
+
+    let buffer_wallet_output = make_output_v3(buffer_wallet_script);
+    tx_builder_2.add_output(buffer_wallet_output).unwrap();
 
     (
         tx_builder_0,
@@ -490,6 +518,25 @@ fn compute_mint_ve_composition_token_script(ve_factory_auth_policy: PolicyId) ->
     )
 }
 
+fn compute_buffer_wallet_script(
+    buffer_wallet_auth_policy: PolicyId,
+    buffer_wallet_auth_token_name: AssetName,
+    reward_token_policy: PolicyId,
+    reward_token_name: AssetName,
+) -> PlutusV3Script {
+    let params_pd = uplc::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
+            buffer_wallet_auth_policy.to_raw_bytes().to_vec(),
+        )),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
+            buffer_wallet_auth_token_name.to_raw_bytes().to_vec(),
+        )),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(reward_token_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(reward_token_name.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v3(params_pd, &DaoScriptData::global().buffer_wallet.script_bytes)
+}
+
 pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address {
     EnterpriseAddress::new(u8::from(network_id), StakeCredential::new_script(script_hash)).to_address()
 }
@@ -515,11 +562,13 @@ pub struct ReferenceInputScriptHashes {
     pub extend_ve_order: ScriptHash,
     pub redeem_ve_order: ScriptHash,
     pub harvest_order: ScriptHash,
+    pub buffer_wallet: ScriptHash,
 }
 
 #[derive(Deserialize)]
 pub struct DaoDeploymentParameters {
     /// Posix timestamp when first emission occurs.
     pub zeroth_epoch_start_offset: u64,
-    pub authorized_executors: Vec<Ed25519KeyHash>,
+    pub dao_authorized_executors: Vec<Ed25519KeyHash>,
+    pub buffer_wallet_authorized_executors: Vec<Ed25519KeyHash>,
 }

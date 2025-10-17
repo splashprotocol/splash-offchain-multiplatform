@@ -11,7 +11,7 @@ use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
 use splash_dao_offchain::protocol_config::{
-    BufferWalletScript, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
@@ -43,6 +43,12 @@ impl Has<PermManagerAuthPolicy> for RuntimeContext {
 impl Has<WPFactoryAuthPolicy> for RuntimeContext {
     fn select<U: IsEqual<WPFactoryAuthPolicy>>(&self) -> WPFactoryAuthPolicy {
         WPFactoryAuthPolicy(self.dao_tokens.wp_factory_auth.policy_id)
+    }
+}
+
+impl Has<BufferWalletAuthPolicy> for RuntimeContext {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.dao_tokens.buffer_wallet.policy_id)
     }
 }
 
@@ -130,9 +136,11 @@ impl Has<MinLovelacePerHarvest> for RuntimeContext {
     }
 }
 
-impl Has<BufferWalletScript> for RuntimeContext {
-    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
-        BufferWalletScript(self.dao_deployment.buffer_wallet.clone())
+impl Has<DeployedScriptInfo<{ BufferWallet as u8 }>> for RuntimeContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ BufferWallet as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ BufferWallet as u8 }> {
+        (&self.dao_deployment.buffer_wallet.clone()).into()
     }
 }
 

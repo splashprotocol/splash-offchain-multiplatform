@@ -61,13 +61,13 @@ pub struct EDaoMSigAuthPolicy(pub PolicyId);
 pub struct PermManagerAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct BufferWalletAuthPolicy(pub PolicyId);
+
+#[derive(Debug, Clone)]
 pub struct GTAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct GTBuiltPolicy(pub IssuedAsset);
-
-#[derive(Debug, Clone)]
-pub struct BufferWalletScript(pub NativeScript);
 
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
@@ -82,6 +82,7 @@ impl NotOutputRefNorSlotNumber for SplashPolicy {}
 impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
 impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
+impl NotOutputRefNorSlotNumber for BufferWalletAuthPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
@@ -146,6 +147,12 @@ impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
 impl Has<PermManagerAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.tokens.perm_auth.policy_id)
+    }
+}
+
+impl Has<BufferWalletAuthPolicy> for ProtocolConfig {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.tokens.buffer_wallet.policy_id)
     }
 }
 
@@ -325,10 +332,14 @@ has_deployed_script_info!(RedeemVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| 
     .redeem_ve_order)
     .into());
 
-impl Has<BufferWalletScript> for ProtocolConfig {
-    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
-        BufferWalletScript(self.deployed_validators.buffer_wallet.clone())
-    }
-}
+has_deployed_validator!(BufferWallet, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .buffer_wallet
+    .clone());
+
+has_deployed_script_info!(BufferWallet, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .buffer_wallet)
+    .into());
 
 pub const TX_FEE_CORRECTION: u64 = 1000;

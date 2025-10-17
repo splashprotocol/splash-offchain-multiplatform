@@ -8,11 +8,11 @@ use petgraph::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::entity_index::UnconfirmedHarvestTxIndex;
+use crate::entity_index::UnconfirmedRewardTxIndex;
 
-/// This store mantains a directed graph where nodes represent validated harvest TXs that can be
-/// cosigned by the verifier. An edge from a node M to N indicates that the TX N has spent the
-/// `buffer_wallet` output of M. None of these TXs have been confirmed on-chain, and so a
+/// This store mantains a directed graph where nodes represent validated harvest or gauge buffering
+/// TXs that can be cosigned by the verifier. An edge from a node M to N indicates that the TX N has
+/// spent the `buffer_wallet` output of M. None of these TXs have been confirmed on-chain, and so a
 /// path of nodes from a source (no incoming edges) to a sink (no outgoing edges) represents a
 /// single TX-chain.
 ///
@@ -26,7 +26,7 @@ use crate::entity_index::UnconfirmedHarvestTxIndex;
 /// from a confirmed TX. The graph must be notified of changes to this through the use of
 /// `confirm_tx()` and `rollback()` methods.
 #[derive(Serialize, Deserialize)]
-pub struct ChainedHarvestTxGraph {
+pub struct ChainedRewardTxGraph {
     gr: StableDiGraph<NodeData, ()>,
     /// Contains all users who have already confirmed to have harvested in the current epoch.
     last_confirmed_user_harvests: HashSet<Ed25519KeyHash>,
@@ -34,7 +34,7 @@ pub struct ChainedHarvestTxGraph {
     last_confirmed_buffer_wallet_tx_hash: TransactionHash,
 }
 
-impl UnconfirmedHarvestTxIndex for ChainedHarvestTxGraph {
+impl UnconfirmedRewardTxIndex for ChainedRewardTxGraph {
     /// Attempt to add a new TX to the store. If the TX spends a valid `buffer_wallet` input and
     /// does not perform double-harvesting, it will be added and `true` is returned.
     ///
@@ -186,7 +186,7 @@ impl UnconfirmedHarvestTxIndex for ChainedHarvestTxGraph {
     }
 }
 
-impl ChainedHarvestTxGraph {
+impl ChainedRewardTxGraph {
     pub fn new() -> Self {
         Self {
             gr: StableDiGraph::new(),
@@ -253,13 +253,13 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use spectrum_offchain::tx_hash::CanonicalHash;
 
-    use crate::entity_index::{chained_tx_graph::ChainedHarvestTxGraph, UnconfirmedHarvestTxIndex};
+    use crate::entity_index::{chained_tx_graph::ChainedRewardTxGraph, UnconfirmedRewardTxIndex};
 
     #[test]
     fn test_full_tx_chain_confirmation() {
         let last_confirmed_user_harvests: HashSet<_> = (0_u8..10).map(gen_key_hash).collect();
         let tx_hashes: Vec<_> = (0_u8..20).map(gen_tx_hash).collect();
-        let mut gr = ChainedHarvestTxGraph::new();
+        let mut gr = ChainedRewardTxGraph::new();
         gr.confirm_tx(tx_hashes[0], &last_confirmed_user_harvests);
         assert_eq!(gr.last_confirmed_user_harvests.len(), 10);
         let key_hash = gen_key_hash(10);
@@ -324,7 +324,7 @@ mod tests {
         // 3. Confirm T_4, which leads to removal of T_5 (and so no more nodes in the unconfirmed graph)
         let last_confirmed_user_harvests: HashSet<_> = (0_u8..10).map(gen_key_hash).collect();
         let tx_hashes: Vec<_> = (0_u8..20).map(gen_tx_hash).collect();
-        let mut gr = ChainedHarvestTxGraph::new();
+        let mut gr = ChainedRewardTxGraph::new();
         gr.confirm_tx(tx_hashes[0], &last_confirmed_user_harvests);
 
         assert!(gr.try_add_tx(

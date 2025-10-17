@@ -3,24 +3,27 @@ use crate::constants::{
     GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
 };
+use crate::context::RewardTxTtl;
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithSpendDetails};
 use crate::engine::resolved_tx::{
     CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx,
 };
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
-use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, HarvestOrderSpend};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, HarvestOrderSpend, HarvestOrderStatus, Mod};
 use crate::entity_index::{BufferWalletIndex, GaugeIndex};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
+use cml_chain::builders::tx_builder::{
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionUnspentOutput,
+};
 use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
 use cml_chain::certs::Credential;
-use cml_chain::transaction::{Transaction, TransactionInput};
+use cml_chain::transaction::{DatumOption, Transaction, TransactionInput};
 use cml_chain::{RequiredSigners, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use log::{error, warn};
@@ -34,8 +37,10 @@ use serde::Serialize;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::IntoPlutusData;
+use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData};
+use spectrum_cardano_lib::time::posix_to_slot;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::event::Predicted;
@@ -45,15 +50,19 @@ use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator::*};
+use splash_dao_offchain::deployment::{DaoScriptData, ProtocolValidator};
 use splash_dao_offchain::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use splash_dao_offchain::entities::onchain::smart_farm::{self, FarmId};
 use splash_dao_offchain::funding::{AvailableFundingBoxes, FundingRepo};
-use splash_dao_offchain::protocol_config::{BufferWalletScript, OperatorCreds, SplashPolicy};
+use splash_dao_offchain::protocol_config::{OperatorCreds, SplashPolicy};
 use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint};
-use splash_dao_offchain::routines::{slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot};
+use splash_dao_offchain::routines::{
+    last_slot_of_epoch, slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot,
+};
 use splash_dao_offchain::GenesisEpochStartTime;
-use splash_yf_offchain::entities::buffer_wallet::{BufferWallet, BufferWalletWrap};
+use splash_yf_offchain::entities::buffer_wallet::{
+    BufferWallet, BufferWalletAction, BufferWalletConfig, BufferWalletWrap,
+};
 use splash_yf_offchain::entities::gauge::Gauge;
 use splash_yf_offchain::entities::harvest_order::{HarvestOrder, HarvestOrderAction};
 use splash_yf_offchain::events::EntityUpdated;
@@ -61,7 +70,7 @@ use splash_yf_offchain::Epoch;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Control<TaskId> {
@@ -69,6 +78,8 @@ pub enum Control<TaskId> {
     Drop(TaskId),
     /// Ready to accept at least one more task
     Next,
+    /// Retry after a short delay
+    Retry,
     /// Batch is full
     Stop,
 }
@@ -126,21 +137,30 @@ where
     OnChainIndex:
         BufferWalletIndex<OutputRef, FinalizedTxOut> + HarvestOrderIndex<OutputRef, FinalizedTxOut> + Send,
     Ctx: Send
-        + Has<BufferWalletScript>
-        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<Collateral>
         + Has<GenesisEpochStartTime>
-        + Has<NetworkId>,
+        + Has<NetworkId>
+        + Has<RewardTxTtl>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
-        let order = if let Some(order) = self
+        let (harvest_order, tx_out) = if let Some(order) = self
             .onchain_index
             .read_designated_harvest_order(task.order_id)
             .await
         {
-            order
+            match order {
+                Mod::Confirmed(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
+                    (harvest_order, tx_out)
+                }
+                Mod::Predicted(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
+                    (harvest_order, tx_out)
+                }
+                _ => return Control::Drop(task_id),
+            }
         } else {
             return Control::Drop(task_id);
         };
@@ -162,10 +182,6 @@ where
             error!("No buffer wallet found");
             return Control::Stop;
         };
-        let (req, tx_out) = match order {
-            crate::entity_index::Mod::Confirmed(Bundled(req, tx_out))
-            | crate::entity_index::Mod::Predicted(Bundled(req, tx_out)) => (req.0, tx_out),
-        };
 
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -175,14 +191,14 @@ where
         let current_epoch = Epoch::from(time_millis_to_epoch(now, genesis_start_time).0 as u64);
         let epoch_start = self
             .onchain_index
-            .last_epoch_harvested(req.account_key)
+            .last_epoch_harvested(harvest_order.account_key)
             .await
             .map(|e| e.next())
             .unwrap_or(Epoch::from(0));
 
         match self
             .position_index
-            .query_account_reward(&Credential::new_pub_key(req.account_key), epoch_start)
+            .query_account_reward(&Credential::new_pub_key(harvest_order.account_key), epoch_start)
             .await
         {
             Some(AccountReward {
@@ -191,18 +207,18 @@ where
             }) => {
                 if latest_epoch_inclusive.next() < current_epoch {
                     warn!("lp-indexer chain-index lags reward-bot");
-                    return Control::Stop;
+                    return Control::Retry;
                 }
                 let network_id = self.ctx.select::<NetworkId>();
                 let spend = HarvestOrderSpend {
                     amount,
                     epoch_start,
                     epoch_end: latest_epoch_inclusive,
-                    user: req.account_key,
-                    reward_address: req.reward_receiver.to_address(network_id),
+                    user: harvest_order.account_key,
+                    reward_address: harvest_order.reward_receiver.to_address(network_id),
                 };
-                let order_id = req.id;
-                let order_bundle = Bundled(req, tx_out);
+                let order_id = harvest_order.id;
+                let order_bundle = Bundled(harvest_order, tx_out);
                 let order = OrderWithSpendDetails { order_bundle, spend };
                 if batch.can_accept(amount) {
                     batch.add_order(order);
@@ -217,8 +233,8 @@ where
             None => {
                 warn!(
                     "Account {} not found, dropping request {}",
-                    hex::encode(req.account_key.to_raw_bytes()),
-                    req.id
+                    hex::encode(harvest_order.account_key.to_raw_bytes()),
+                    harvest_order.id
                 );
                 return Control::Drop(task_id);
             }
@@ -236,13 +252,12 @@ where
         Error,
     > {
         if let Some(batch) = self.batch.take() {
-            let harvest_order_deployed_validator =
-                self.ctx.select::<DeployedValidator<{ HarvestOrder as u8 }>>();
+            let harvest_order_deployed_validator = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>>();
             let harvest_order_ref_script_output = harvest_order_deployed_validator.reference_utxo;
 
             let num_payouts = batch.orders.len() as u64;
-
-            let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
 
             let mut accounts = vec![];
 
@@ -301,12 +316,17 @@ where
 
             let Bundled(buffer_wallet_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
 
+            let buffer_wallet_script_hash = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>()
+                .hash;
+            let buffer_wallet_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(buffer_wallet_script_hash),
+                BufferWalletAction::Admin.into_pd(),
+            );
             let buffer_wallet_input =
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
-                    .native_script(
-                        buffer_wallet_script.clone(),
-                        NativeScriptWitnessInfo::num_signatures(2),
-                    )
+                    .plutus_script_inline_datum(buffer_wallet_witness, RequiredSigners::from(vec![]))
                     .unwrap();
             sorted_input_data.push(InputData {
                 input: buffer_wallet_input,
@@ -315,6 +335,7 @@ where
             });
 
             sorted_input_data.sort_by_key(|InputData { input, .. }| input.input.clone());
+            predicted_harvest_order_spends.sort_by_key(|(id, _)| *id);
 
             let blueprint_sorted_inputs: Vec<_> = sorted_input_data
                 .iter()
@@ -324,6 +345,27 @@ where
             // Outputs
 
             let mut bw_out = bw_tx_out;
+            let mut bw_datum =
+                BufferWalletConfig::try_from_pd(bw_out.datum().unwrap().into_pd().unwrap()).unwrap();
+
+            // Compute the new merkle tree root hash digest
+            let mut last_confirmed_merkle_tree = batch.input_merkle_tree;
+
+            let new_merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap();
+            assert_eq!(
+                new_merkle_tree_root_hash_digest.to_vec(),
+                bw_datum.merkle_tree_root_hash_digest
+            );
+
+            let mut merkle_leaves = predicted_harvest_order_spends
+                .iter()
+                .map(|(_, spend)| spend.hash())
+                .collect::<Vec<_>>();
+
+            last_confirmed_merkle_tree.append(&mut merkle_leaves);
+            last_confirmed_merkle_tree.commit();
+
+            bw_datum.merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap().into();
 
             let splash_asset_name = AssetName::from_utf8(SPLASH_NAME.into());
             let splash_policy = self.ctx.select::<SplashPolicy>().0;
@@ -334,7 +376,14 @@ where
                 .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
                 .is_ok());
 
-            let buffer_wallet_output = SingleOutputBuilderResult::new(bw_out.clone());
+            let buffer_wallet_output = TransactionOutputBuilder::new()
+                .with_address(bw_out.address().clone())
+                .with_data(DatumOption::new_datum(bw_datum.into_pd()))
+                .next()
+                .unwrap()
+                .with_value(bw_out.value().clone())
+                .build()
+                .unwrap();
 
             let mut outputs = vec![buffer_wallet_output];
 
@@ -388,6 +437,9 @@ where
             tx_builder
                 .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
                 .unwrap();
+
+            set_tx_ttl(&mut tx_builder, &self.ctx);
+
             let inputs = tx_builder
                 .get_inputs()
                 .clone()
@@ -432,7 +484,7 @@ where
             let output = HarvestFlowEntityUpdates {
                 predicted_buffer_wallet_update,
                 predicted_harvest_order_spends,
-                predicted_merkle_tree: batch.input_merkle_tree, // TODO: DEX-935
+                predicted_merkle_tree: last_confirmed_merkle_tree,
                 resolved_tx,
             };
 
@@ -465,12 +517,15 @@ impl<Ctx, OnChainIndex, FundingIndex>
 where
     Ctx: Send
         + Clone
-        + Has<BufferWalletScript>
         + Has<Collateral>
         + Has<OperatorCreds>
-        + Has<DeployedValidator<{ SmartFarm as u8 }>>
-        + Has<DeployedValidator<{ PermManager as u8 }>>
-        + Has<SplashPolicy>,
+        + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::PermManager as u8 }>>
+        + Has<SplashPolicy>
+        + Has<RewardTxTtl>
+        + Has<GenesisEpochStartTime>
+        + Has<NetworkId>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
         + BufferWalletIndex<OutputRef, FinalizedTxOut>
@@ -516,17 +571,23 @@ where
             Gauge,
         }
         if let Some(batch) = self.batch.take() {
-            let buffer_wallet_script = self.ctx.select::<BufferWalletScript>().0;
             let Bundled(bw_tx_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
+            let buffer_wallet_script_hash = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>()
+                .hash;
+            let buffer_wallet_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(buffer_wallet_script_hash),
+                BufferWalletAction::Deposit.into_pd(),
+            );
             let buffer_wallet_input =
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
-                    .native_script(
-                        buffer_wallet_script.clone(),
-                        NativeScriptWitnessInfo::num_signatures(2),
-                    )
+                    .plutus_script_inline_datum(buffer_wallet_witness, RequiredSigners::from(vec![]))
                     .unwrap();
 
-            let smart_farm_deployed_validator = self.ctx.select::<DeployedValidator<{ SmartFarm as u8 }>>();
+            let smart_farm_deployed_validator = self
+                .ctx
+                .select::<DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>>();
 
             let smart_farm_ref_input = smart_farm_deployed_validator.reference_utxo;
 
@@ -717,6 +778,9 @@ where
             tx_builder
                 .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
                 .unwrap();
+
+            set_tx_ttl(&mut tx_builder, &self.ctx);
+
             let inputs = tx_builder
                 .get_inputs()
                 .clone()
@@ -804,6 +868,23 @@ where
             panic!("No gauge buffering batch exists (didn't call .feed())")
         }
     }
+}
+
+/// Set TX TTL to be within the current epoch and under the configured reward TX TTL.
+fn set_tx_ttl<Ctx>(tx_builder: &mut TransactionBuilder, ctx: &Ctx)
+where
+    Ctx: Has<RewardTxTtl> + Has<GenesisEpochStartTime> + Has<NetworkId>,
+{
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let network_id = ctx.select::<NetworkId>();
+    let now_slot = posix_to_slot(now, network_id);
+    let genesis_start_time = ctx.select::<GenesisEpochStartTime>();
+    let current_epoch = slot_to_epoch(now_slot, genesis_start_time, network_id);
+    let last_slot_of_epoch = last_slot_of_epoch(current_epoch, genesis_start_time, network_id);
+    let reward_tx_ttl = ctx.select::<RewardTxTtl>();
+    let ttl = last_slot_of_epoch.min(now_slot + reward_tx_ttl.0);
+    tx_builder.set_validity_start_interval(now_slot);
+    tx_builder.set_ttl(ttl);
 }
 
 fn make_splash_value(splash_asset_class: AssetClass, amount: u64) -> Value {
@@ -952,8 +1033,8 @@ where
     >,
     Ctx: Send
         + Clone
-        + Has<BufferWalletScript>
-        + Has<DeployedValidator<{ HarvestOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<NetworkId>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Task<GaugeId, StateId>) -> Control<TaskId> {

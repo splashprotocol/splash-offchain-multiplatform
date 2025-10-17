@@ -10,8 +10,9 @@ use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator
 use splash_dao_offchain::deployment::{
     ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens, ProtocolValidator::*,
 };
-use splash_dao_offchain::protocol_config::BufferWalletScript;
-use splash_dao_offchain::protocol_config::{OperatorCreds, PermManagerAuthPolicy, SplashPolicy};
+use splash_dao_offchain::protocol_config::{
+    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+};
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
 use std::ops::Index;
@@ -26,6 +27,7 @@ pub struct VerifierRuntimeContext {
     pub network_id: NetworkId,
     pub genesis_epoch_start_time: GenesisEpochStartTime,
     pub authorized_executors: AuthorizedExecutors,
+    pub reward_tx_ttl: RewardTxTtl,
 }
 
 has_deployed_validator!(
@@ -59,9 +61,20 @@ has_deployed_script_info!(
     |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.perm_manager).into()
 );
 
-impl Has<BufferWalletScript> for VerifierRuntimeContext {
-    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
-        todo!() // TODO: fix DEX-935
+has_deployed_validator!(
+    BufferWallet,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| ctx.dao_deployment.buffer_wallet.clone()
+);
+has_deployed_script_info!(
+    BufferWallet,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.buffer_wallet).into()
+);
+
+impl Has<BufferWalletAuthPolicy> for VerifierRuntimeContext {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.dao_tokens.buffer_wallet.policy_id)
     }
 }
 
@@ -110,6 +123,16 @@ impl Has<OperatorCreds> for VerifierRuntimeContext {
             Credential::new_pub_key(dummy_key_hash),
         ));
         OperatorCreds(dummy_key_hash, dummy_address)
+    }
+}
+
+/// TX TTL for both harvest and gauge buffering TXs (specified in # slots).
+#[derive(Clone, Copy)]
+pub struct RewardTxTtl(pub u64);
+
+impl Has<RewardTxTtl> for VerifierRuntimeContext {
+    fn select<U: IsEqual<RewardTxTtl>>(&self) -> RewardTxTtl {
+        self.reward_tx_ttl
     }
 }
 
@@ -164,10 +187,20 @@ has_deployed_script_info!(
     RewardBotRuntimeContext,
     |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.perm_manager).into()
 );
+has_deployed_validator!(
+    BufferWallet,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| ctx.verifier_runtime_context.dao_deployment.buffer_wallet.clone()
+);
+has_deployed_script_info!(
+    BufferWallet,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.buffer_wallet).into()
+);
 
-impl Has<BufferWalletScript> for RewardBotRuntimeContext {
-    fn select<U: IsEqual<BufferWalletScript>>(&self) -> BufferWalletScript {
-        todo!() // TODO: fix DEX-935
+impl Has<BufferWalletAuthPolicy> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.verifier_runtime_context.dao_tokens.buffer_wallet.policy_id)
     }
 }
 
@@ -204,5 +237,11 @@ impl Has<GenesisEpochStartTime> for RewardBotRuntimeContext {
 impl Has<AuthorizedExecutors> for RewardBotRuntimeContext {
     fn select<U: IsEqual<AuthorizedExecutors>>(&self) -> AuthorizedExecutors {
         self.verifier_runtime_context.authorized_executors.clone()
+    }
+}
+
+impl Has<RewardTxTtl> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<RewardTxTtl>>(&self) -> RewardTxTtl {
+        self.verifier_runtime_context.reward_tx_ttl
     }
 }
