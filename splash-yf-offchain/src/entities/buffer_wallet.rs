@@ -22,7 +22,7 @@ use splash_dao_offchain::{
     protocol_config::{BufferWalletScript, SplashPolicy},
 };
 
-use crate::events::EntityUpdated;
+use crate::{entities::BufferWalletSplashBalanceChange, events::EntityUpdated};
 
 #[derive(
     Copy,
@@ -78,30 +78,49 @@ where
     }
 }
 
+pub struct BufferWalletUpdate<StateId, Bearer> {
+    pub update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
+    pub balance_change: BufferWalletSplashBalanceChange,
+}
+
 #[derive(Debug, Clone)]
 pub struct BufferWalletAuthToken(ScriptHash);
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>
-    for EntityUpdated<BufferWallet<OutputRef>, OutputRef, FinalizedTxOut>
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for BufferWalletUpdate<OutputRef, FinalizedTxOut>
 where
     Cx: Has<BufferWalletScript> + Has<SplashPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        let created = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+        let (created, output_balance) = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
             let output_ref = OutputRef::new(repr.hash, ix as u64);
-            try_extract_buffer_wallet(output, output_ref, ctx)
-                .map(|buffer_wallet| (buffer_wallet, FinalizedTxOut(output.clone(), output_ref)))
+            try_extract_buffer_wallet(output, output_ref, ctx).map(|buffer_wallet| {
+                let balance = buffer_wallet.balance;
+                (
+                    (buffer_wallet, FinalizedTxOut(output.clone(), output_ref)),
+                    balance,
+                )
+            })
         })?;
         let consumed = repr.inputs.iter().find_map(|(tx_input, output)| {
             if let Some(TimedOutput { output, .. }) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
-                if try_extract_buffer_wallet(output, output_ref, ctx).is_some() {
-                    return Some(output_ref);
+                if let Some(buffer_wallet) = try_extract_buffer_wallet(output, output_ref, ctx) {
+                    return Some((output_ref, buffer_wallet.balance));
                 }
             }
             None
         });
-        Some(EntityUpdated { consumed, created })
+        let balance_change = if let Some((_, input_balance)) = consumed {
+            BufferWalletSplashBalanceChange::from_diff(input_balance, created.0.balance)
+        } else {
+            BufferWalletSplashBalanceChange::from_diff(0, output_balance)
+        };
+        let consumed = consumed.map(|(consumed, _)| consumed);
+        let update = EntityUpdated { consumed, created };
+        Some(BufferWalletUpdate {
+            update,
+            balance_change,
+        })
     }
 }
 

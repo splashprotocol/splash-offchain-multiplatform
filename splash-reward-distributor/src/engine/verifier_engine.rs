@@ -16,7 +16,7 @@ use tokio_stream::StreamExt;
 
 use crate::engine::{
     resolved_tx::PartiallySignedCardanoTx,
-    verifier::{AuthorizedExecutors, LocalVerifier, VerifierHandleLedgerEvent},
+    verifier::{AuthorizedExecutors, LocalVerifier, TxCosignRequest, VerifierHandleLedgerEvent},
 };
 
 pub struct VerifierEngine<U, R, Verifier, Ctx> {
@@ -48,12 +48,9 @@ where
                 TransactionHandle,
             ),
         > + Unpin,
-    R: Stream<Item = (PartiallySignedCardanoTx, oneshot::Sender<Option<Transaction>>)> + Unpin,
-    Verifier: VerifierHandleLedgerEvent
-        + LocalVerifier<PartiallySignedCardanoTx, Transaction, Ctx>
-        + Unpin
-        + Send
-        + 'static,
+    R: Stream<Item = (TxCosignRequest, oneshot::Sender<Option<Transaction>>)> + Unpin,
+    Verifier:
+        VerifierHandleLedgerEvent + LocalVerifier<TxCosignRequest, Transaction, Ctx> + Unpin + Send + 'static,
     Ctx: Has<MinLovelacePerHarvest>
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<NetworkId>
@@ -90,6 +87,7 @@ async fn process_ledger_event<GaugeId, StateId, Bearer, Verifier>(
         BlockEvents::RollForward {
             events, block_slot, ..
         } => {
+            verifier.confirm_block_slot(block_slot);
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {
@@ -109,6 +107,7 @@ async fn process_ledger_event<GaugeId, StateId, Bearer, Verifier>(
         BlockEvents::RollBackward {
             events, block_slot, ..
         } => {
+            verifier.rollback_block_slot(block_slot);
             for event in events {
                 match event {
                     OnChainEvent::BotHarvestingAction { payouts, tx_hash, .. } => {

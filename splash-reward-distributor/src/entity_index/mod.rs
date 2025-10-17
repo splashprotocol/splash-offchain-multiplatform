@@ -41,7 +41,9 @@ use splash_yf_offchain::entities::buffer_wallet::{
     try_extract_buffer_wallet, BufferWallet, BufferWalletId, BufferWalletWrap,
 };
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
-use splash_yf_offchain::entities::gauge::{try_extract_gauge, Gauge, UpdatedGauges};
+use splash_yf_offchain::entities::gauge::{
+    try_extract_gauge, Gauge, GaugeDeposits, GaugeWithdrawals, UpdatedGauges,
+};
 use splash_yf_offchain::entities::harvest_order::{try_extract_harvest_order, HarvestOrder};
 use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
@@ -302,7 +304,7 @@ where
                             .await;
                     }
                     OnChainEvent::BotGaugeBufferingAction {
-                        drained_gauges,
+                        drained_gauges: GaugeWithdrawals(drained_gauges),
                         buffer_wallet_update,
                         ..
                     } => {
@@ -319,15 +321,15 @@ where
                             .await;
 
                         // Index drained gauges
-                        for gauge_update in drained_gauges {
+                        for (gauge_update, _) in drained_gauges {
                             let prev_state_id = gauge_update.consumed;
                             let (gauge, bearer) = gauge_update.created.clone();
                             let bundled = Bundled(gauge, bearer);
                             indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
                     }
-                    OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
-                        for gauge_update in updated_gauges {
+                    OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => {
+                        for (gauge_update, _) in updated_gauges {
                             let prev_state_id = gauge_update.consumed;
                             let (entity, bearer) = gauge_update.created.clone();
                             let bundled = Bundled(entity, bearer);
@@ -394,7 +396,7 @@ where
                             .await;
                         assert_eq!(buffer_wallet_update.consumed, prev_state_id);
 
-                        for gauge_update in drained_gauges {
+                        for (gauge_update, _) in &drained_gauges.0 {
                             let gauge_id = gauge_update.created.0.id;
                             let prev_state_id = indexer
                                 .remove_gauge(gauge_id, gauge_update.created.0.state_id)
@@ -402,8 +404,8 @@ where
                             assert_eq!(gauge_update.consumed, prev_state_id);
                         }
                     }
-                    OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => {
-                        for gauge_update in updated_gauges {
+                    OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => {
+                        for (gauge_update, _) in updated_gauges {
                             let prev_state_id = indexer
                                 .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)
                                 .await;

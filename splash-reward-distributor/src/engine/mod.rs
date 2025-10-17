@@ -1,6 +1,5 @@
 mod batch;
 pub mod executor;
-mod proposed_harvest_tx;
 pub mod queue;
 pub mod resolved_tx;
 mod task;
@@ -16,7 +15,7 @@ use futures::channel::mpsc::Receiver;
 use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use splash_dao_offchain::routines::Slot;
-use splash_yf_offchain::entities::gauge::UpdatedGauges;
+use splash_yf_offchain::entities::gauge::GaugeDeposits;
 use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
@@ -161,18 +160,19 @@ where
                     ..
                 } => Some(
                     drained_gauges
+                        .0
                         .into_iter()
-                        .map(|gauge_update| {
+                        .map(|(gauge_update, _)| {
                             let task_id = gauge_update.created.0.id.into();
                             QueueCmd::Done(task_id, tx_hash)
                         })
                         .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
                         .collect(),
                 ),
-                OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
+                OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => Some(
                     updated_gauges
                         .into_iter()
-                        .filter_map(|gauge_update| {
+                        .filter_map(|(gauge_update, _)| {
                             if gauge_update.created.0.balance >= conf.buffering_threshold {
                                 let gauge_id = gauge_update.created.0.id;
                                 return Some(QueueCmd::Schedule(
@@ -226,8 +226,9 @@ where
 
                 OnChainEvent::BotGaugeBufferingAction { drained_gauges, .. } => Some(
                     drained_gauges
+                        .0
                         .into_iter()
-                        .map(|gauge_update| {
+                        .map(|(gauge_update, _)| {
                             let gauge_id = gauge_update.created.0.id;
                             QueueCmd::Schedule(
                                 gauge_id.into(),
@@ -238,10 +239,10 @@ where
                         .collect(),
                 ),
 
-                OnChainEvent::UpdatedGauges(UpdatedGauges(updated_gauges)) => Some(
+                OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => Some(
                     updated_gauges
                         .into_iter()
-                        .filter_map(|gauge_update| {
+                        .filter_map(|(gauge_update, _)| {
                             if gauge_update.created.0.balance >= conf.buffering_threshold {
                                 let task_id = gauge_update.created.0.id.into();
                                 return Some(QueueCmd::Cancel(task_id));
