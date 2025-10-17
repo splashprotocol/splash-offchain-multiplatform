@@ -4,7 +4,7 @@ use spectrum_offchain::domain::Has;
 use std::cmp::Ordering;
 use type_equalities::IsEqual;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FinalizedTxOut(pub TransactionOutput, pub OutputRef);
 
 impl Has<OutputRef> for FinalizedTxOut {
