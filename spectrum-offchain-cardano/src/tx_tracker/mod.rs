@@ -26,6 +26,12 @@ impl<TxHash, Tx> NoopTxTracker<TxHash, Tx> {
     }
 }
 
+impl<TxHash, Tx> Clone for NoopTxTracker<TxHash, Tx> {
+    fn clone(&self) -> Self {
+        Self(PhantomData)
+    }
+}
+
 #[async_trait]
 impl<TxHash: Send, Tx: Send> TxTracker<TxHash, Tx> for NoopTxTracker<TxHash, Tx> {
     async fn track(&mut self, _: TxHash, _: Tx) {}
