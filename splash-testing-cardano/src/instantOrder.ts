@@ -23,8 +23,8 @@ import {Uint64BE} from 'int64-buffer';
 import {getUtxoWithToken} from "./balance/balancePool.ts";
 import {encoder} from "js-encoding-utils";
 
-const tokenAPolicy = `77cb34f72da105bd0cab41c2a10e2fa2fe97a181e6771a62d0c9673e`;
-const tokenABase16 = `74657374546f6b656e`;
+const tokenAPolicy = `6d2c544e2d72c3f24f98256657dab3dc599d5a3d9f2027a478004642`;
+const tokenABase16 = `7171717171`;
 
 export type HexString = string;
 
@@ -71,7 +71,7 @@ function buildInstantOrderDatum(lucid: LucidEvolution, conf: InstantOrderConf, b
 
 async function createInstantOrder(lucid: LucidEvolution, validator: BuiltValidator, conf: InstantOrderConf): Promise<TxSignBuilder> {
     const orderAddress = credentialToAddress(
-        "Preprod",
+        "Mainnet",
         { hash: validator.hash, type: 'Script' },
     );
 
@@ -130,19 +130,19 @@ async function main() {
             name: tokenABase16,
         },
         output: {
-            policy: "52d9152be374affb87589ac68ca48965e521bf55d2bc015ca6f2ad0d",
+            policy: "769176e4dff7f4821512e7895ed4d64a4b5b7963d2d0464280f1bff5",
             name: "746f6b656e",
         },
-        tradableInput: 18041743908n,
+        tradableInput: 1_000_000n,
         costPerExStep: 600_000n,
         basePrice: {
             num: 0n,
             denom: 1n,
         },
-        fee: 500000n,
+        fee: 1500000n,
         redeemerAddr: myAddr,
         cancellationPkh: getAddressDetails(myAddr).paymentCredential!.hash,
-        permittedExecutors: "15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d509",
+        permittedExecutors: "edbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e4776",
         redeemerAddress: myAddr,
         cancellationAfter: 0n,
         beacon: ""

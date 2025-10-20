@@ -15,8 +15,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
     ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1,
     RoyaltyPoolV1Deposit, RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest,
-    RoyaltyPoolV2, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, RoyaltyPoolV2RoyaltyWithdrawRequest,
-    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolV2, RoyaltyPoolV2DAOV1Request, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem,
+    RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::handler_context::{
@@ -375,6 +375,14 @@ impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>> for Han
         &self,
     ) -> DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }> {
         self.scripts.royalty_pool_dao_request.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }> {
+        self.scripts.royalty_pool_v2_dao_request.clone()
     }
 }
 

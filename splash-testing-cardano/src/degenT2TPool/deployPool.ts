@@ -9,14 +9,14 @@ import {NftDegenNftValidatorDegen, PoolT2tValidatePoolT2t} from "../../plutus.ts
 import {sha256} from "hash-wasm";
 
 //const nftTNBase16 = `6e6674`;
-const tokenAPolicy = `77cb34f72da105bd0cab41c2a10e2fa2fe97a181e6771a62d0c9673e`;
-const tokenABase16 = `74657374546f6b656e`;
+const tokenAPolicy = `6d2c544e2d72c3f24f98256657dab3dc599d5a3d9f2027a478004642`;
+const tokenABase16 = `7171717171`;
 const tokenDegenTNBase16 = `746f6b656e`;
 const aNum = 133079166694n;
 const bNum = 3750000n;
-const batcherPk = "15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d509";
+const batcherPk = "edbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e4776";
 export const adminWitness = "78dab68b25456933968fd3f6566a2294f5254000d969d954b61366a6"
-export const factoryWitness = "afc37fed8f5e6ba6e6212eb165ab0ad616b63e0873889338bbb38c23"
+export const factoryWitness = "b5521bda4f874a011f460ded0591a3eed23a08796cc162142e6060e6"
 export const feeWithdrawerWitness = "e95b2d9d1cc16f8fd76b5b0743e796b48ae6f448f2e00e96a2214b07"
 const tokenAEmission = 1_000_000_000_000_000n;
 const degenTokenEmission = 1_000_000_000n;
@@ -137,7 +137,7 @@ async function main() {
     console.log(`address: ${await lucid.wallet().address()}`);
 
     const poolAddress = credentialToAddress(
-        "Preprod",
+        "Mainnet",
         { hash: conf.validators!.degenT2TPool.hash, type: 'Script' },
         { hash: "b2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b07", type: 'Script' },
       );

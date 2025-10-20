@@ -1,5 +1,6 @@
 use crate::constants::{FEE_DEN, MAX_LQ_CAP, POOL_OUT_IDX_IN};
 use crate::data::cfmm_pool::AMMOps;
+use crate::data::dao_request::DAOV1RequestVersion::V1;
 use crate::data::dao_request::{DAOContext, DaoAction, DaoRequestDataToSign, OnChainDAOActionRequest};
 use crate::data::operation_output::DaoActionResult::{RequestorOutput, TreasuryWithdraw};
 use crate::data::operation_output::OperationResultOutputs::SingleOutput;
@@ -16,7 +17,7 @@ use crate::deployment::ProtocolValidator::{
     RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw,
     RoyaltyPoolRoyaltyWithdrawLedgerFixed, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1,
     RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO,
-    RoyaltyPoolV2RoyaltyWithdrawRequest,
+    RoyaltyPoolV2DAOV1Request, RoyaltyPoolV2RoyaltyWithdrawRequest,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::{
@@ -458,7 +459,7 @@ impl Display for RoyaltyPool {
         match self.ver {
             RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => {
                 f.write_str(&*format!(
-                    "RoyaltyPool(id: {}, ver: V1, static_price: {}, rx: {}, ry: {},  tx: {}, ty: {}, royalty_x: {}, royalty_y: {})",
+                    "RoyaltyPool(id: {}, ver: V1, static_price: {}, rx: {}, ry: {},  tx: {}, ty: {}, royalty_x: {}, royalty_y: {}, nonce: {})",
                     self.id,
                     self.static_price(),
                     self.reserves_x,
@@ -467,11 +468,12 @@ impl Display for RoyaltyPool {
                     self.treasury_y,
                     self.first_royalty_x,
                     self.first_royalty_y,
+                    self.nonce
                 ))
             }
             RoyaltyPoolVer::V2 => {
                 f.write_str(&*format!(
-                    "RoyaltyPool(id: {}, ver: V2, static_price: {}, rx: {}, ry: {},  tx: {}, ty: {}, first_royalty_x: {}, first_royalty_y: {}, second_royalty_x: {}, second_royalty_y: {})",
+                    "RoyaltyPool(id: {}, ver: V2, static_price: {}, rx: {}, ry: {},  tx: {}, ty: {}, first_royalty_x: {}, first_royalty_y: {}, second_royalty_x: {}, second_royalty_y: {}, nonce: {})",
                     self.id,
                     self.static_price(),
                     self.reserves_x,
@@ -482,6 +484,7 @@ impl Display for RoyaltyPool {
                     self.first_royalty_y,
                     self.second_royalty_x,
                     self.second_royalty_y,
+                    self.nonce
                 ))
             }
         }
@@ -628,6 +631,7 @@ where
     Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
         + Has<DAOContext>
@@ -641,7 +645,6 @@ where
         ctx: Ctx,
     ) -> Result<(Self, OperationResultBlueprint<DaoActionResult>), ApplyOrderError<OnChainDAOActionRequest>>
     {
-        let validator = dao_request.get_validator(&ctx);
         let dao_validator = if self.ver == RoyaltyPoolVer::V1 {
             ctx.select::<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>()
                 .erased()
@@ -650,10 +653,18 @@ where
                 .erased()
         };
 
-        let pool_validator_hash = if self.ver == RoyaltyPoolVer::V2 {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>().hash
+        let validator = if dao_request.order.version == V1 {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>()
+                .erased()
         } else {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>()
+                .erased()
+        };
+
+        let pool_validator_hash = if self.ver == RoyaltyPoolVer::V2 {
             ctx.select::<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>().hash
+        } else {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>().hash
         };
         let dao_ctx: DAOContext = ctx.get();
 

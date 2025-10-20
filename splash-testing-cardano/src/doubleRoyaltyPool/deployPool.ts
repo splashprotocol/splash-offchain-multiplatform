@@ -14,16 +14,16 @@ import {Data, Datum, Lucid, MintingPolicy, Unit} from "@lucid-evolution/lucid";
 import {credentialToAddress} from "@lucid-evolution/utils";
 import {encoder} from 'npm:js-encoding-utils'
 
-export const TokenB   = "636e74546f6b656e746f6b656e"
-export const TokenBCS = "f357c6f00f0496fcd01851a7a8d909a1d9d1c9d7ba9bc021ac3bc3fe"
+export const TokenB   = "77777777"
+export const TokenBCS = "404fdd1ab7375f518f299eb49306c31dfa18bc80911663efd9249aef"
 
 const lqFee = 95000n
-const treasuryFee = 10000n
-const firstRoyaltyFee = 10000n
-const secondRoyaltyFee = 50000n
+const treasuryFee = 1000n
+const firstRoyaltyFee = 1000n
+const secondRoyaltyFee = 1000n
 
 const startLovelaceValue = 500000000
-const startTokenB        = 500000000
+const startTokenB        = 5000000
 
 // do not touch
 const lqEmission = 9223372036854775807n;
@@ -119,8 +119,9 @@ async function main() {
     console.log(`address: ${await lucid.wallet().address()}`);
 
     const poolAddress = credentialToAddress(
-        "Preprod",
+        "Mainnet",
         { hash: conf.validators!.doubleRoyaltyPool.hash, type: 'Script' },
+        { hash: "b2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b07", type: 'Script' },
     );
 
     const nftMintingPolicy: MintingPolicy =
@@ -180,7 +181,7 @@ async function main() {
         secondRoyaltyX: 0n,
         secondRoyaltyY: 0n,
         DAOPolicy: [{
-            Inline: [{ ScriptCredential: [conf.validators!.royaltyDAOV1Pool.hash] }]
+            Inline: [{ ScriptCredential: [conf.validators!.doubleRoyaltyDAOV1Pool.hash] }]
         }],
         // treasuryAddress - is contract
         treasuryAddress: conf.validators.royaltyPool.hash,

@@ -13,6 +13,7 @@ import {generateConfigJson} from "./config.ts";
 import {setupWallet} from "./wallet.ts";
 import {
     AdminT2tValidateAdmin,
+    DoubleRoyaltyPoolDaoV1RequestValidate,
     DoubleRoyaltyPoolDaoV1Validate,
     DoubleRoyaltyPoolDepositValidatePool,
     DoubleRoyaltyPoolPoolValidatePool,
@@ -84,6 +85,8 @@ export class Deployment {
         const doubleRoyaltyRedeemHash = validatorToScriptHash(doubleRoyaltyRedeem);
         const doubleRoyaltyDAOV1Pool = new DoubleRoyaltyPoolDaoV1Validate();
         const doubleRoyaltyDAOV1PoolHash = validatorToScriptHash(doubleRoyaltyDAOV1Pool);
+        const doubleRoyaltyDAOV1ActionOrder = new DoubleRoyaltyPoolDaoV1RequestValidate();
+        const doubleRoyaltyDAOV1ActionOrderHash = validatorToScriptHash(doubleRoyaltyDAOV1ActionOrder);
 
         let admins = [
             "0bb1d2db22f9b641f0afe8d8a398279cb778d8f86167500f7e63ebbdc35b4d69",
@@ -98,7 +101,7 @@ export class Deployment {
         // - b527cc6c83645ff7a3118c15cde03e17b1a29a2203d2c35c408f4bea
         // Mainnet
         // - 43163508e66b0163c569e4b537d40616ec701662453eb2631d59bab8
-        let chakraPubKeyHash = "b527cc6c83645ff7a3118c15cde03e17b1a29a2203d2c35c408f4bea"
+        let chakraPubKeyHash = "43163508e66b0163c569e4b537d40616ec701662453eb2631d59bab8"
 
         let testKeyHash = "92afc9fcd474b74b36bf10aa60af2a3a2c6790ea4b764f42293f05bc"
 
@@ -203,6 +206,10 @@ export class Deployment {
             doubleRoyaltyWithdrawPool: {
                 script: doubleRoyaltyPoolWithdraw,
                 hash: doubleRoyaltyPoolWithdrawHash
+            },
+            doubleRoyaltyDAOV1Request: {
+                script: doubleRoyaltyDAOV1ActionOrder,
+                hash: doubleRoyaltyDAOV1ActionOrderHash
             }
         }
     }
@@ -249,7 +256,7 @@ export class Deployment {
             //     lockScript,
             //     {kind: "inline", value: "00"},
             //     undefined,
-            //     builtValidators.doubleRoyaltyWithdrawPool.script,
+            //     builtValidators.degenT2TFeeWithdraw.script,
             // )
             // .pay.ToAddressWithData(
             //     lockScript,
@@ -275,7 +282,7 @@ export class Deployment {
             //     undefined,
             //     builtValidators.doubleRoyaltyWithdrawPool.script,
             // )
-            //.registerStake(doubleRoyaltyWithdraw)
+            // .registerStake(degenFeeWithdrawAddress)
             .registerStake(degenFactoryAddr)
             .complete();
 
