@@ -57,7 +57,7 @@ where
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-                TransactionHandle,
+                Option<TransactionHandle>,
             ),
         > + Unpin,
     R: Stream<Item = (TxCosignRequest, oneshot::Sender<Option<Transaction>>)> + Unpin,
@@ -75,7 +75,7 @@ where
         enum T<GaugeId, StateId, Bearer> {
             Ledger(
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-                TransactionHandle,
+                Option<TransactionHandle>,
             ),
             Cosign(TxCosignRequest, oneshot::Sender<Option<Transaction>>),
         }
@@ -138,7 +138,7 @@ where
 async fn process_ledger_event<GaugeId, StateId, Bearer, Verifier>(
     event: (
         BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-        TransactionHandle,
+        Option<TransactionHandle>,
     ),
     verifier: &mut Verifier,
 ) where
@@ -187,5 +187,7 @@ async fn process_ledger_event<GaugeId, StateId, Bearer, Verifier>(
             }
         }
     }
-    tx.commit();
+    if let Some(tx) = tx {
+        tx.commit();
+    }
 }

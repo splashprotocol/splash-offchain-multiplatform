@@ -11,6 +11,7 @@ use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::FutureExt;
 use futures::{Stream, StreamExt};
+use log::info;
 use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
@@ -41,7 +42,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     U: Stream<
         Item = (
             BlockEvents<Either<BabbageTransaction, Transaction>>,
-            TransactionHandle,
+            Option<TransactionHandle>,
         ),
     >,
     Log: EventLog + Accounts,

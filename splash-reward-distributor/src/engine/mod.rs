@@ -79,7 +79,7 @@ where
     U: Stream<
             Item = (
                 BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-                TransactionHandle,
+                Option<TransactionHandle>,
             ),
         > + Unpin,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone + Unpin + Send + 'static,
@@ -145,7 +145,7 @@ where
 async fn process_events<GaugeId, StateId, Bearer, Q>(
     queue: Q,
     events: BlockEvents<OnChainEvent<GaugeId, StateId, Bearer>>,
-    tx: TransactionHandle,
+    tx: Option<TransactionHandle>,
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
@@ -288,7 +288,9 @@ where
             .collect(),
     };
     queue.clone().batch_execute(commands).await;
-    tx.commit();
+    if let Some(tx) = tx {
+        tx.commit();
+    }
     ControlFlow::Continue(())
 }
 

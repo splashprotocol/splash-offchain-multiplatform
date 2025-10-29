@@ -505,15 +505,17 @@ where
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), mint_action.into_pd());
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(name.clone(), -1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-        tx_builder.add_mint(wp_auth_minting_policy).unwrap();
+
+        let mut sorted_mints = vec![];
 
         // Burn weighting_power tokens -------------------------------------------------------------
 
         let dsd = DaoScriptData::global();
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
+
+        sorted_mints.push((
+            wp_auth_minting_policy,
             dsd.mint_wp_auth_token.burn_ex_units.clone(),
-        );
+        ));
 
         let mint_weighting_power_policy = weighting_power_deployed_validator.hash;
 
@@ -537,16 +539,26 @@ where
             let mint_weighting_power_builder_result =
                 SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
                     .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-            tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
 
             change_output_creator.burn_token(crate::create_change_output::Token {
                 policy_id: mint_weighting_power_policy,
                 asset_name: mint_weighting_power_token_name,
                 quantity: weighting_power,
             });
-            tx_builder.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
+
+            sorted_mints.push((
+                mint_weighting_power_builder_result,
                 dsd.mint_weighting_power.burn_ex_units.clone(),
+            ));
+        }
+
+        sorted_mints.sort_by(|(t0, _), (t1, _)| t0.policy_id.cmp(&t1.policy_id));
+
+        for (ix, (mint, ex_units)) in sorted_mints.into_iter().enumerate() {
+            tx_builder.add_mint(mint).unwrap();
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Mint, ix as u64),
+                ex_units.clone(),
             );
         }
 
@@ -565,7 +577,8 @@ where
             DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone(),
         );
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + ELIMINATE_WPOLL_FEE_DELTA;
+        let original_min_fee = tx_builder.min_fee(true).unwrap();
+        let estimated_tx_fee = original_min_fee + ELIMINATE_WPOLL_FEE_DELTA;
         let change_output =
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();

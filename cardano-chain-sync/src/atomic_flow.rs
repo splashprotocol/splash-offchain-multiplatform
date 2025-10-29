@@ -77,13 +77,13 @@ pub fn atomic_block_flow<Upstream, Cache>(
         Upstream,
         UnboundedSender<(
             BlockEvents<Either<BabbageTransaction, Transaction>>,
-            TransactionHandle,
+            Option<TransactionHandle>,
         )>,
         Cache,
     >,
     UnboundedReceiver<(
         BlockEvents<Either<BabbageTransaction, Transaction>>,
-        TransactionHandle,
+        Option<TransactionHandle>,
     )>,
 ) {
     let (snd, recv) = mpsc::unbounded();
@@ -106,12 +106,12 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
         }
     }
 
-    pub async fn run(self)
+    pub async fn run(self, replay_from: Option<Point>)
     where
         Upstream: Stream<Item = ChainUpgrade<MultiEraBlock>> + Unpin + Send,
         Downstream: Sink<(
                 BlockEvents<Either<BabbageTransaction, Transaction>>,
-                TransactionHandle,
+                Option<TransactionHandle>,
             )> + Unpin
             + Send,
         Downstream::Error: Debug,
@@ -122,6 +122,42 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
             mut downstream,
             cache,
         } = self;
+
+        let raw_replayed_blocks = match replay_from {
+            None => futures::stream::empty().boxed(),
+            Some(replay_from_point) => {
+                let cache = cache.lock().await;
+                cache.replay(replay_from_point).boxed()
+            }
+        };
+        let mut replayed_blocks = raw_replayed_blocks
+            .map(|LinkedBlock(raw_blk, _)| {
+                MultiEraBlock::from_cbor_bytes(&raw_blk)
+                    .ok()
+                    .map(|blk| ChainUpgrade::RollForward {
+                        blk,
+                        blk_bytes: raw_blk,
+                        replayed: true,
+                    })
+            })
+            .filter_map(|result| async { result })
+            .boxed();
+        while let Some(ChainUpgrade::RollForward { blk, blk_bytes, .. }) = replayed_blocks.next().await {
+            let hdr = blk.header();
+            info!(
+                "Replaying Block {}",
+                hash_block_header_canonical_multi_era(&hdr).to_hex()
+            );
+            let applied_txs = BlockEvents::RollForward {
+                events: unpack_valid_transactions_multi_era(blk)
+                    .into_iter()
+                    .map(|(tx, _, _, _)| tx)
+                    .collect(),
+                block_num: hdr.block_number(),
+                block_slot: hdr.slot(),
+            };
+            downstream.send((applied_txs, None)).await.unwrap();
+        }
         let mut upstream = upstream.fuse();
         loop {
             let upgrade = upstream.select_next_some().await;
@@ -141,10 +177,10 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                         block_slot: hdr.slot(),
                     };
                     let (snd, recv) = oneshot::channel();
-                    downstream.send((applied_txs, snd.into())).await.unwrap();
-                    trace!("Transaction started");
+                    downstream.send((applied_txs, Some(snd.into()))).await.unwrap();
+                    // trace!("Transaction started");
                     recv.await.unwrap();
-                    trace!("Transaction completed");
+                    // trace!("Transaction completed");
                     cache_block(cache.clone(), &hdr, blk_bytes).await;
                 }
                 ChainUpgrade::RollBackward(point) => {
@@ -171,7 +207,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                         block_slot,
                                     };
                                     let (snd, recv) = oneshot::channel();
-                                    downstream.send((unapplied_txs, snd.into())).await.unwrap();
+                                    downstream.send((unapplied_txs, Some(snd.into()))).await.unwrap();
                                     recv.await.unwrap();
                                     cache.delete(tip).await;
                                     cache.set_tip(prev_point).await;

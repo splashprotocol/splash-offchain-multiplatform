@@ -3,7 +3,6 @@ use cml_core::Slot;
 pub mod entities;
 pub mod events;
 pub mod settings;
-pub mod ve_config;
 
 #[derive(
     Copy,

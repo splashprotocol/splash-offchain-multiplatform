@@ -2,14 +2,12 @@ use cml_chain::certs::Credential;
 use cml_core::serialization::{Deserialize, Serialize};
 use cml_core::Slot;
 use rocksdb::{
-    ColumnFamily, DBCommon, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
-    SingleThreaded, SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
+    ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
+    SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
-use splash_yf_offchain::ve_config::VeConfig;
 use splash_yf_offchain::Epoch;
-use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
@@ -23,11 +21,11 @@ pub mod mature_events;
 pub struct PositionDB {
     pub db: Arc<TransactionDB>,
     pub confirmation_delay_slots: u64,
-    pub ve_config: VeConfig,
+    pub epoch_start: Slot,
 }
 
 impl PositionDB {
-    pub fn new<P: AsRef<Path>>(db_path: P, confirmation_delay_slots: u64, ve_config: VeConfig) -> Self {
+    pub fn new<P: AsRef<Path>>(db_path: P, confirmation_delay_slots: u64, epoch_start: Slot) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
@@ -35,7 +33,7 @@ impl PositionDB {
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, COLUMN_FAMILIES).unwrap()),
             confirmation_delay_slots,
-            ve_config,
+            epoch_start,
         }
     }
 }

@@ -264,7 +264,7 @@ pub struct DeploymentProgress {
     pub minted_deployment_tokens: Option<ProtocolTokens>,
     pub deployed_validators: Option<DeployedValidators>,
     pub genesis_epoch_start_time: Option<u64>,
-    pub num_initial_farms: u32,
+    pub initial_farms: Vec<IssuedAsset>,
 }
 
 pub async fn write_deployment_to_disk(deployment_config: &DeploymentProgress, deployment_json_path: &str) {
@@ -274,6 +274,7 @@ pub async fn write_deployment_to_disk(deployment_config: &DeploymentProgress, de
         .unwrap();
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct CompleteDeployment {
     pub lq_tokens: ExternallyMintedToken,
     pub splash_tokens: ExternallyMintedToken,
@@ -282,7 +283,7 @@ pub struct CompleteDeployment {
     pub deployed_validators: DeployedValidators,
     pub genesis_epoch_start_time: u64,
     pub network_id: NetworkId,
-    pub num_initial_farms: u32,
+    pub initial_farms: Vec<IssuedAsset>,
 }
 
 impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
@@ -359,7 +360,7 @@ impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
                 minted_deployment_tokens: Some(minted_deployment_tokens),
                 deployed_validators: Some(deployed_validators),
                 genesis_epoch_start_time: Some(genesis_epoch_start_time),
-                num_initial_farms,
+                initial_farms,
             } => Ok(Self {
                 lq_tokens,
                 splash_tokens,
@@ -368,7 +369,7 @@ impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
                 deployed_validators,
                 genesis_epoch_start_time,
                 network_id,
-                num_initial_farms,
+                initial_farms,
             }),
             _ => Err(()),
         }

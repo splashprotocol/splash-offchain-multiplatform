@@ -2,18 +2,18 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        92125980,
-        "b4b4d40e4525269602470c0da8ffe7cddbcd0a1c898261ce19ca1e7121d80eae"
+        104996733,
+        "0b543a945f6cc046a8b303d9df6e49cb1d6c336dcbd8aebc4dc4bda85ac476d8"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        92125980,
-        "b4b4d40e4525269602470c0da8ffe7cddbcd0a1c898261ce19ca1e7121d80eae"
+        104996733,
+        "0b543a945f6cc046a8b303d9df6e49cb1d6c336dcbd8aebc4dc4bda85ac476d8"
       ]
     },
     "disableRollbacksUntil": 74410411,
-    "dbPath": "state"
+    "dbPath": "state/dao-bot"
   },
   "node": {
     "path": "/Users/tling/node-external/node.socket",

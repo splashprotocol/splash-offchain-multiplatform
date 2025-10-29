@@ -8,8 +8,10 @@ use crate::position_db::{
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
 use cml_core::Slot;
+use log::trace;
 use rocksdb::{IteratorMode, ReadOptions};
 use spectrum_offchain_cardano::data::PoolId;
+use splash_dao_offchain::constants::time::EPOCH_LEN;
 use splash_yf_offchain::Epoch;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -25,12 +27,14 @@ impl MatureEvents for PositionDB {
     async fn try_process_mature_events(&self) -> bool {
         let db = self.db.clone();
         let confirmation_delay_slots = self.confirmation_delay_slots;
-        let ve_config = self.ve_config;
+        let slots_in_epoch = EPOCH_LEN / 1000;
+        let epoch_start = self.epoch_start;
         spawn_blocking(move || {
             let cfs = ColumnFamilies::new(&db);
             let tx = db.transaction();
             if let Some(max_slot) = get_current_slot(&tx, cfs.kv) {
                 {
+                    trace!("current slot: {}", max_slot);
                     let mut iter_events =
                         tx.iterator_cf_opt(cfs.events, ReadOptions::default(), IteratorMode::Start);
                     let mut next_mature_slot = None;
@@ -38,6 +42,7 @@ impl MatureEvents for PositionDB {
                     let mut export_events = vec![];
                     while let Some(Ok((event_key, value))) = iter_events.next() {
                         let (event_slot, _) = from_event_key(event_key.clone().to_vec()).unwrap();
+                        trace!("event slot: {}", event_slot);
                         if let Some(next_mature_slot) = next_mature_slot {
                             // We're processing events by one block (slot) at a time
                             if next_mature_slot != event_slot {
@@ -45,6 +50,12 @@ impl MatureEvents for PositionDB {
                             }
                         } else {
                             if max_slot - event_slot <= confirmation_delay_slots {
+                                trace!(
+                                    "max slot: {} - event slot: {} <= confirmation delay slots: {}",
+                                    max_slot,
+                                    event_slot,
+                                    confirmation_delay_slots
+                                );
                                 return false;
                             }
                             next_mature_slot = Some(event_slot);
@@ -54,66 +65,67 @@ impl MatureEvents for PositionDB {
                         tx.delete_cf(cfs.events, event_key).unwrap();
                     }
                     let events_by_pool = aggregate_events(events);
-                    let current_slot = next_mature_slot.unwrap();
-                    let current_epoch = Epoch::unsafe_from_slot(
-                        current_slot,
-                        ve_config.slots_in_epoch,
-                        ve_config.epoch_start,
-                    );
-                    for (pool_id, pool_events) in events_by_pool {
-                        let pool_key = pool_key(pool_id);
-                        let pool_lp_supply = pool_events.lp_supply.unwrap();
-                        for GaugeWeighted {
-                            pool_id,
-                            weight,
-                            epoch,
-                        } in pool_events.gauge_events
-                        {
-                            assert_eq!(current_epoch, epoch);
-                            tx.put_cf(
-                                cfs.gauge_weights,
-                                gauge_key(pool_id, epoch),
-                                rmp_serde::to_vec(&weight).unwrap(),
-                            )
-                            .unwrap();
-                        }
-                        let iter_positions = get_range_iterator(&db, cfs.account_positions, pool_key)
-                            .filter_map(|e| match e {
-                                Ok((key, value)) => {
-                                    let (_, account_cred, position_epoch) = parse_position_key(key.to_vec())?;
-                                    let current_position =
-                                        rmp_serde::from_slice::<AccountPosition>(&value).ok()?;
-                                    Some((account_cred, position_epoch.into(), current_position))
-                                }
-                                Err(_) => None,
-                            });
-                        // We only store positions related to active gauges;
-                        if current_epoch >= Epoch::FIRST {
-                            let positions_for_update = prepare_positions_for_update(
-                                pool_events.account_frames,
-                                iter_positions,
-                                current_slot,
-                                pool_lp_supply,
-                                ve_config.slots_in_epoch,
-                                ve_config.epoch_start,
-                            );
-                            for ((cred, epoch), position) in positions_for_update {
-                                let position_key = position_key(pool_id, &cred, epoch);
-                                let position_value = rmp_serde::to_vec_named(&position).unwrap();
-                                tx.put_cf(cfs.account_positions, position_key, position_value)
-                                    .unwrap();
-                                let account_pools_index = account_to_pools_index(&cred, pool_id);
-                                tx.put_cf(cfs.account_pools, account_pools_index, vec![]).unwrap();
-                                export_events.push(ExportAccountPositionEvent {
-                                    account_cred: cred,
-                                    pool_id,
-                                    epoch,
-                                    update: position,
+                    if let Some(current_slot) = next_mature_slot {
+                        let current_epoch =
+                            Epoch::unsafe_from_slot(current_slot, slots_in_epoch, epoch_start);
+                        for (pool_id, pool_events) in events_by_pool {
+                            let pool_key = pool_key(pool_id);
+                            let pool_lp_supply = pool_events.lp_supply.unwrap_or(0);
+                            for GaugeWeighted {
+                                pool_id,
+                                weight,
+                                epoch,
+                            } in pool_events.gauge_events
+                            {
+                                assert_eq!(current_epoch, epoch);
+                                tx.put_cf(
+                                    cfs.gauge_weights,
+                                    gauge_key(pool_id, epoch),
+                                    rmp_serde::to_vec(&weight).unwrap(),
+                                )
+                                .unwrap();
+                            }
+                            let iter_positions = get_range_iterator(&db, cfs.account_positions, pool_key)
+                                .filter_map(|e| match e {
+                                    Ok((key, value)) => {
+                                        let (_, account_cred, position_epoch) =
+                                            parse_position_key(key.to_vec())?;
+                                        let current_position =
+                                            rmp_serde::from_slice::<AccountPosition>(&value).ok()?;
+                                        Some((account_cred, position_epoch.into(), current_position))
+                                    }
+                                    Err(_) => None,
                                 });
+                            // We only store positions related to active gauges;
+                            if current_epoch >= Epoch::FIRST {
+                                let positions_for_update = prepare_positions_for_update(
+                                    pool_events.account_frames,
+                                    iter_positions,
+                                    current_slot,
+                                    pool_lp_supply,
+                                    slots_in_epoch,
+                                    epoch_start,
+                                );
+                                for ((cred, epoch), position) in positions_for_update {
+                                    let position_key = position_key(pool_id, &cred, epoch);
+                                    let position_value = rmp_serde::to_vec_named(&position).unwrap();
+                                    tx.put_cf(cfs.account_positions, position_key, position_value)
+                                        .unwrap();
+                                    let account_pools_index = account_to_pools_index(&cred, pool_id);
+                                    tx.put_cf(cfs.account_pools, account_pools_index, vec![]).unwrap();
+                                    export_events.push(ExportAccountPositionEvent {
+                                        account_cred: cred,
+                                        pool_id,
+                                        epoch,
+                                        update: position,
+                                    });
+                                }
                             }
                         }
+                        export_feed::batch_append(&tx, export_events, cfs.account_feed_export);
+                    } else {
+                        return false;
                     }
-                    export_feed::batch_append(&tx, export_events, cfs.account_feed_export);
                 }
                 tx.commit().unwrap();
                 return true;
@@ -324,21 +336,13 @@ mod tests {
     use cml_crypto::Ed25519KeyHash;
     use spectrum_offchain_cardano::data::PoolId;
     use splash_testing::db_path::DBPath;
-    use splash_yf_offchain::ve_config::VeConfig;
     use splash_yf_offchain::Epoch;
     use std::collections::HashMap;
 
     #[tokio::test]
     async fn process_export_mature_events() {
         let db_path = DBPath::new("_test_read_max_key");
-        let db = PositionDB::new(
-            &db_path,
-            5,
-            VeConfig {
-                epoch_start: 0,
-                slots_in_epoch: 100,
-            },
-        );
+        let db = PositionDB::new(&db_path, 5, 0);
 
         let pid = PoolId::random();
         let account = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));

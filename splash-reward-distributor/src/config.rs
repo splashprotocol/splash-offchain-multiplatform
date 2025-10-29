@@ -7,7 +7,8 @@ use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-use splash_yf_offchain::{settings::MinLovelacePerHarvest, ve_config::VeConfig};
+use splash_dao_offchain::deployment::CompleteDeployment as DaoDeployment;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +32,6 @@ pub struct AppConfig {
     pub lp_indexer_url: String,
     pub max_number_merkle_tree_snapshots: u8,
     pub splash_policy_id_hex: String,
-    pub ve_config: VeConfig,
     pub authorized_executors: Vec<PublicKey>,
     pub operator_sk: String,
     pub reward_tx_ttl_in_slots: u64,
