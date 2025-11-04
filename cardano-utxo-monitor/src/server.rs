@@ -5,12 +5,12 @@ use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use async_primitives::beacon::Beacon;
 use cml_chain::address::Address;
+use cml_chain::certs::Credential;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
-use cml_chain::certs::Credential;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]

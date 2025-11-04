@@ -50,9 +50,7 @@ impl<In: UtxoIndex + Sync> UtxoIndex for Tracing<In> {
             display_vec(&outputs.iter().map(|(i, _)| *i).collect()),
             display_option(&confirmed_at),
         );
-        self.component
-            .apply(tx_hash, inputs, outputs, confirmed_at)
-            .await;
+        self.component.apply(tx_hash, inputs, outputs, confirmed_at).await;
     }
 
     async fn unapply(
@@ -183,11 +181,7 @@ fn settled_at_key(settled_at: Option<Slot>) -> Vec<u8> {
     settled_at.unwrap_or(u64::MAX).to_be_bytes().to_vec()
 }
 
-fn credential_to_utxo_all_key(
-    credential: &Credential,
-    settled_at: Option<Slot>,
-    rf: OutputRef,
-) -> Vec<u8> {
+fn credential_to_utxo_all_key(credential: &Credential, settled_at: Option<Slot>, rf: OutputRef) -> Vec<u8> {
     let mut key = credential_key_prefix(credential);
     key.extend(settled_at_key(settled_at));
     key.extend(utxo_key(rf));
@@ -342,24 +336,17 @@ fn update_unspent_txo(
     let credentials = address_credentials(txo.address());
     let mut spent = false;
 
-    if let Some((existing_out, existing_settled_at, existing_spent)) =
-        get_utxo_by_ref(tx, cols.txo_cf, oref)
+    if let Some((existing_out, existing_settled_at, existing_spent)) = get_utxo_by_ref(tx, cols.txo_cf, oref)
     {
         trace!(
             "Updating txo {} from confirmation, preserving spent: {}",
-            oref, existing_spent
+            oref,
+            existing_spent
         );
         let existing_credentials = address_credentials(existing_out.address());
         for (kind, credential) in &existing_credentials {
             let (events_cf, unspent_cf) = cols.index_cfs(*kind);
-            delete_indexes(
-                tx,
-                events_cf,
-                unspent_cf,
-                credential,
-                existing_settled_at,
-                oref,
-            );
+            delete_indexes(tx, events_cf, unspent_cf, credential, existing_settled_at, oref);
         }
         tx.delete_cf(cols.txo_cf, utxo_key(oref)).unwrap();
         spent = existing_spent;
@@ -367,15 +354,7 @@ fn update_unspent_txo(
 
     for (kind, credential) in &credentials {
         let (events_cf, unspent_cf) = cols.index_cfs(*kind);
-        write_secondary_indexes(
-            tx,
-            events_cf,
-            unspent_cf,
-            credential,
-            oref,
-            settled_at,
-            spent,
-        );
+        write_secondary_indexes(tx, events_cf, unspent_cf, credential, oref, settled_at, spent);
     }
     write_txo(tx, cols.txo_cf, oref, txo, settled_at, spent);
 }
@@ -388,21 +367,12 @@ fn update_txo_by_ref(
     spent: bool,
 ) {
     if let Some((out, settled_at, already_spent)) = get_utxo_by_ref(tx, cols.txo_cf, oref) {
-        trace!(
-            "Updating txo {}, spent: {} => {}",
-            oref,
-            already_spent,
-            spent
-        );
+        trace!("Updating txo {}, spent: {} => {}", oref, already_spent, spent);
         let credentials = address_credentials(out.address());
         for (kind, credential) in &credentials {
             let (events_cf, unspent_cf) = cols.index_cfs(*kind);
             delete_indexes(tx, events_cf, unspent_cf, credential, settled_at, oref);
-            let (index_slot, index_spent) = if spent {
-                (slot, true)
-            } else {
-                (settled_at, false)
-            };
+            let (index_slot, index_spent) = if spent { (slot, true) } else { (settled_at, false) };
             write_secondary_indexes(
                 tx,
                 events_cf,
@@ -429,7 +399,7 @@ fn delete_indexes(
         events_cf,
         credential_to_utxo_all_key(credential, settled_at, oref),
     )
-        .unwrap();
+    .unwrap();
     tx.delete_cf(unspent_cf, credential_to_utxo_unspent_key(credential, oref))
         .unwrap();
 }
@@ -468,8 +438,8 @@ impl UtxoIndex for RocksDB {
             }
             tx.commit().unwrap();
         })
-            .await
-            .unwrap()
+        .await
+        .unwrap()
     }
 
     async fn unapply(
@@ -491,8 +461,8 @@ impl UtxoIndex for RocksDB {
             }
             tx.commit().unwrap();
         })
-            .await
-            .unwrap()
+        .await
+        .unwrap()
     }
 }
 
@@ -519,17 +489,13 @@ impl UtxoResolver for RocksDB {
                     let (events_cf, unspent_cf) = cols.index_cfs(kind);
                     let prefix = credential_key_prefix(&credential);
                     let prefix_len = prefix.len();
-                    let (num_key_bytes_to_drop, index_cf, lower_bound) =
-                        match query_variant {
-                            TxoQuery::All(least_slot) => (
-                                prefix_len + 8,
-                                events_cf,
-                                Some(settled_at_key(least_slot)),
-                            ),
-                            TxoQuery::Unspent => (prefix_len, unspent_cf, None),
-                        };
-                    let mut txo_iter =
-                        get_range_iterator(&snap, index_cf, prefix.clone(), lower_bound);
+                    let (num_key_bytes_to_drop, index_cf, lower_bound) = match query_variant {
+                        TxoQuery::All(least_slot) => {
+                            (prefix_len + 8, events_cf, Some(settled_at_key(least_slot)))
+                        }
+                        TxoQuery::Unspent => (prefix_len, unspent_cf, None),
+                    };
+                    let mut txo_iter = get_range_iterator(&snap, index_cf, prefix.clone(), lower_bound);
                     let mut txo_set = vec![];
                     let mut matched = 0usize;
                     while let Some(Ok((index, _))) = txo_iter.next() {
@@ -568,8 +534,8 @@ impl UtxoResolver for RocksDB {
                 (None, _) => Vec::new(),
             }
         })
-            .await
-            .unwrap()
+        .await
+        .unwrap()
     }
 }
 
@@ -588,11 +554,7 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
 ) -> DBIteratorWithThreadMode<'b, TransactionDB> {
     let mut readopts = ReadOptions::default();
     let from = if let Some(lower_bound) = lower_bound {
-        prefix
-            .clone()
-            .into_iter()
-            .chain(lower_bound)
-            .collect::<Vec<_>>()
+        prefix.clone().into_iter().chain(lower_bound).collect::<Vec<_>>()
     } else {
         prefix.clone()
     };
@@ -602,10 +564,7 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
 
 #[cfg(test)]
 mod tests {
-    use crate::index::{
-        CredentialKind, RocksDB, Txo, TxoQuery,
-        UtxoIndex, UtxoResolver,
-    };
+    use crate::index::{CredentialKind, RocksDB, Txo, TxoQuery, UtxoIndex, UtxoResolver};
     use cml_chain::certs::Credential;
     use cml_chain::transaction::Transaction;
     use cml_chain::{Deserialize, Slot};
@@ -627,11 +586,8 @@ mod tests {
             CredentialKind::Payment,
             TxoQuery::All(Some(0)),
         )
-            .await;
-        println!(
-            "{:?}",
-            txos.iter().map(|x| (x.oref, x.spent)).collect::<Vec<_>>()
-        );
+        .await;
+        println!("{:?}", txos.iter().map(|x| (x.oref, x.spent)).collect::<Vec<_>>());
         assert!(txos
             .iter()
             .find(|e| e.oref == must_consume_utxo)
@@ -650,11 +606,8 @@ mod tests {
             CredentialKind::Payment,
             TxoQuery::All(Some(0)),
         )
-            .await;
-        println!(
-            "{:?}",
-            txos.iter().map(|x| (x.oref, x.spent)).collect::<Vec<_>>()
-        );
+        .await;
+        println!("{:?}", txos.iter().map(|x| (x.oref, x.spent)).collect::<Vec<_>>());
         assert!(txos
             .iter()
             .find(|e| e.oref == must_consume_utxo)
@@ -676,13 +629,8 @@ mod tests {
             .into_iter()
             .map(|i| i.into())
             .collect();
-        let produce_outputs_for_db: Vec<_> = produce_tx
-            .body
-            .outputs
-            .to_vec()
-            .into_iter()
-            .enumerate()
-            .collect();
+        let produce_outputs_for_db: Vec<_> =
+            produce_tx.body.outputs.to_vec().into_iter().enumerate().collect();
         db.apply(produce_hash, produce_inputs, produce_outputs_for_db, None)
             .await;
 
@@ -695,18 +643,12 @@ mod tests {
             .into_iter()
             .map(|i| i.into())
             .collect();
-        let consume_outputs_for_db: Vec<_> = consume_tx
-            .body
-            .outputs
-            .to_vec()
-            .into_iter()
-            .enumerate()
-            .collect();
+        let consume_outputs_for_db: Vec<_> =
+            consume_tx.body.outputs.to_vec().into_iter().enumerate().collect();
         db.apply(consume_hash, consume_inputs, consume_outputs_for_db, None)
             .await;
 
-        let produce_tx_confirmed =
-            Transaction::from_cbor_bytes(&*hex::decode(TX_PRODUCE).unwrap()).unwrap();
+        let produce_tx_confirmed = Transaction::from_cbor_bytes(&*hex::decode(TX_PRODUCE).unwrap()).unwrap();
         let produce_inputs_confirmed: Vec<_> = produce_tx_confirmed
             .body
             .inputs
@@ -727,11 +669,10 @@ mod tests {
             produce_outputs_confirmed,
             Some(1),
         )
-            .await;
+        .await;
 
         let credential = Credential::new_pub_key(
-            Ed25519KeyHash::from_hex("bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2")
-                .unwrap(),
+            Ed25519KeyHash::from_hex("bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2").unwrap(),
         );
         let target_oref = OutputRef::from_string_unsafe(
             "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0",
@@ -773,7 +714,7 @@ mod tests {
             CredentialKind::Payment,
             TxoQuery::Unspent,
         )
-            .await;
+        .await;
         assert!(txos.iter().find(|e| e.oref == must_consume_utxo).is_none())
     }
 
@@ -784,13 +725,7 @@ mod tests {
         let tx_bytes = hex::decode(TX_PRODUCE).unwrap();
         let tx = Transaction::from_cbor_bytes(&tx_bytes).unwrap();
         let hash = tx.canonical_hash();
-        let inputs: Vec<_> = tx
-            .body
-            .inputs
-            .clone()
-            .into_iter()
-            .map(|i| i.into())
-            .collect();
+        let inputs: Vec<_> = tx.body.inputs.clone().into_iter().map(|i| i.into()).collect();
         let outputs_vec = tx.body.outputs.to_vec();
         let outputs_for_db: Vec<_> = outputs_vec.clone().into_iter().enumerate().collect();
         db.apply(hash, inputs, outputs_for_db, Some(1)).await;
@@ -856,7 +791,7 @@ mod tests {
             CredentialKind::Payment,
             TxoQuery::All(Some(0)),
         )
-            .await;
+        .await;
         let lb_slot = 4;
         let tail_txos = test_utxo_resolving(
             vec![
@@ -869,7 +804,7 @@ mod tests {
             CredentialKind::Payment,
             TxoQuery::All(Some(lb_slot)),
         )
-            .await;
+        .await;
         assert_eq!(
             tail_txos
                 .iter()
@@ -901,7 +836,7 @@ mod tests {
                 tx.body.outputs.to_vec().into_iter().enumerate().collect(),
                 settled_at,
             )
-                .await;
+            .await;
         }
         db.get_utxos(Some((credential, kind)), q, 0, 100).await
     }

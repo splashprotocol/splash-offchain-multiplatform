@@ -2,7 +2,6 @@ use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
 use crate::fifo::Fifo;
-use crate::seq::with_sequencing;
 use crate::snek_handler_context::{SnekHandlerContext, SnekHandlerContextProto};
 use crate::snek_protocol_deployment::{
     SnekDeployedValidators, SnekProtocolDeployment, SnekProtocolScriptHashes,
@@ -295,8 +294,10 @@ async fn main() {
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
 
-    let upstream_p1 = adapt_events(select_partition(pair_upd_recv_p1, config.partitioning.clone())
-        .buffered_within(config.event_feed_buffering_duration));
+    let upstream_p1 = adapt_events(
+        select_partition(pair_upd_recv_p1, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
+    );
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -312,8 +313,10 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p2 = adapt_events(select_partition(pair_upd_recv_p2, config.partitioning.clone())
-        .buffered_within(config.event_feed_buffering_duration));
+    let upstream_p2 = adapt_events(
+        select_partition(pair_upd_recv_p2, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
+    );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -329,8 +332,10 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p3 = adapt_events(select_partition(pair_upd_recv_p3, config.partitioning.clone())
-        .buffered_within(config.event_feed_buffering_duration));
+    let upstream_p3 = adapt_events(
+        select_partition(pair_upd_recv_p3, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
+    );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -346,8 +351,10 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p4 = adapt_events(select_partition(pair_upd_recv_p4, config.partitioning.clone())
-        .buffered_within(config.event_feed_buffering_duration));
+    let upstream_p4 = adapt_events(
+        select_partition(pair_upd_recv_p4, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
+    );
     let execution_stream_p4 = execution_part_stream(
         state_index,
         multi_book,

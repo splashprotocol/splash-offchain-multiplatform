@@ -1047,7 +1047,10 @@ impl<
 
                         return None;
                     }
-                    Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
@@ -1133,7 +1136,10 @@ impl<
                         self.weighting_poll.write_predicted(next_wpoll).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                     }
-                    Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
                         // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
                         // from the UTxO set then it's possible that another bot has made a TX
@@ -1230,7 +1236,10 @@ impl<
                         self.ve_factory.write_predicted(next_ve_factory).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                     }
-                    Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
                         // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
                         // from the UTxO set then it's possible that another bot has made a TX
@@ -1334,7 +1343,10 @@ impl<
                             .write_predicted(Traced::new(Predicted(next_ve), ve_prev_state_id))
                             .await;
                     }
-                    Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
                         // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
                         // from the UTxO set then it's possible that another bot has made a TX
@@ -1450,7 +1462,10 @@ impl<
                         self.funding_box.put_predicted(fb).await;
                     }
                 }
-                Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                    error: ApplyTxError(node_errors),
+                    ..
+                })) => {
                     if node_errors.iter().any(|err| {
                         matches!(
                             err,
@@ -1558,7 +1573,10 @@ impl<
                         }
                         return None;
                     }
-                    Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
@@ -1644,7 +1662,10 @@ impl<
                         self.ve_factory.write_predicted(next_ve_factory).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                     }
-                    Err(TxRejection(TxValidationError::ShelleyTxValidationError { error: ApplyTxError(node_errors), .. })) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
