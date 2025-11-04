@@ -295,14 +295,8 @@ async fn main() {
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
 
-    let upstream_p1 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p1,
-        select_partition(pair_upd_recv_p1, config.partitioning.clone())
-            .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    let upstream_p1 = adapt_events(select_partition(pair_upd_recv_p1, config.partitioning.clone())
+        .buffered_within(config.event_feed_buffering_duration));
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -318,14 +312,8 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p2 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p2,
-        select_partition(pair_upd_recv_p2, config.partitioning.clone())
-            .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    let upstream_p2 = adapt_events(select_partition(pair_upd_recv_p2, config.partitioning.clone())
+        .buffered_within(config.event_feed_buffering_duration));
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -341,14 +329,8 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p3 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p3,
-        select_partition(pair_upd_recv_p3, config.partitioning.clone())
-            .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    let upstream_p3 = adapt_events(select_partition(pair_upd_recv_p3, config.partitioning.clone())
+        .buffered_within(config.event_feed_buffering_duration));
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -364,14 +346,8 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p4 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p4,
-        select_partition(pair_upd_recv_p4, config.partitioning.clone())
-            .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    let upstream_p4 = adapt_events(select_partition(pair_upd_recv_p4, config.partitioning.clone())
+        .buffered_within(config.event_feed_buffering_duration));
     let execution_stream_p4 = execution_part_stream(
         state_index,
         multi_book,

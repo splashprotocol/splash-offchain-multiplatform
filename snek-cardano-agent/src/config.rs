@@ -38,7 +38,6 @@ pub struct AppConfig {
     pub event_feed_buffering_duration: Duration,
     pub partitioning: Partitioning,
     pub adhoc_fee: AdhocFeeConfig,
-    pub sequencing: SequencingConfig,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
 }
