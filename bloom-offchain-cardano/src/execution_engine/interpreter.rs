@@ -216,7 +216,7 @@ where
         } else {
             let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
             let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
-            execute_recipe(funding, false, ctx, corrected_recipe, 0)
+            execute_recipe(funding, false, ctx, corrected_recipe, accumulated_residue)
         }
     } else {
         (tx_builder, effects, funding_io, ctx)
