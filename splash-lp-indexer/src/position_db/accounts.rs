@@ -78,9 +78,11 @@ impl Accounts for PositionDB {
                                 .get_cf(cfs.gauge_weights, gauge_key)
                                 .unwrap()
                                 .and_then(|v| rmp_serde::from_slice::<GaugeWeight>(&v).ok())?;
-                            println!(
+                            trace!(
                                 "position_epoch: {}, max_epoch: {}, current_epoch: {}",
-                                position_epoch, max_epoch, current_epoch
+                                position_epoch,
+                                max_epoch,
+                                current_epoch
                             );
                             if position_epoch > max_epoch
                                 && position_epoch < current_epoch
