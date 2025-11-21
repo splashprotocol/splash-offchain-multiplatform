@@ -190,6 +190,8 @@ pub(crate) const ACCOUNT_FEED_EXPORT_CF: &str = "account_feed_export";
 
 pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
 
+/// To track the last slot that was exported to the Kafka instance. We need this because Kafka does
+/// not perform deduplication.
 pub(crate) const LAST_EXPORTED_SLOT_KEY: [u8; 4] = [1u8; 4];
 
 pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {

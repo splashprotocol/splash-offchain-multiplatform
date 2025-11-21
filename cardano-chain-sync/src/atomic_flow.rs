@@ -174,9 +174,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                     };
                     let (snd, recv) = oneshot::channel();
                     downstream.send((applied_txs, Some(snd.into()))).await.unwrap();
-                    // trace!("Transaction started");
                     recv.await.unwrap();
-                    // trace!("Transaction completed");
                     cache_block(cache.clone(), &hdr, blk_bytes).await;
                 }
                 ChainUpgrade::RollBackward(point) => {

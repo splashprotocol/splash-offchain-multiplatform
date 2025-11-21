@@ -228,53 +228,53 @@ fn sync_account_positions(
 
     let mut new_account_positions: HashMap<Credential, AccountPosition> = HashMap::new();
 
-    let final_lp_supply = position_events_in_block
+    if let Some(final_lp_supply) = position_events_in_block
         .last()
-        .unwrap()
-        .resulting_pool_lp_supply();
+        .map(|event| event.resulting_pool_lp_supply())
+    {
+        let converter = DefaultEpochSlotConversion::new(slots_in_epoch, epoch_start);
 
-    let converter = DefaultEpochSlotConversion::new(slots_in_epoch, epoch_start);
-
-    // Apply all position events
-    for position_event in position_events_in_block {
-        let account_cred = position_event.account();
-        if account_positions_in_current_epoch.contains_key(&account_cred) {
-            account_positions_in_current_epoch
-                .get_mut(&account_cred)
-                .unwrap()
-                .update_from_user_event(current_slot, position_event, &converter);
-        } else if new_account_positions.contains_key(&account_cred) {
-            new_account_positions
-                .get_mut(&account_cred)
-                .unwrap()
-                .update_from_user_event(current_slot, position_event, &converter);
-        } else {
-            let mut position = AccountPosition::new(current_slot, (0, pool_lp_supply));
-            position.update_from_user_event(current_slot, position_event, &converter);
-            new_account_positions.insert(account_cred.clone(), position);
+        // Apply all position events
+        for position_event in position_events_in_block {
+            let account_cred = position_event.account();
+            if account_positions_in_current_epoch.contains_key(&account_cred) {
+                account_positions_in_current_epoch
+                    .get_mut(&account_cred)
+                    .unwrap()
+                    .update_from_user_event(current_slot, position_event, &converter);
+            } else if new_account_positions.contains_key(&account_cred) {
+                new_account_positions
+                    .get_mut(&account_cred)
+                    .unwrap()
+                    .update_from_user_event(current_slot, position_event, &converter);
+            } else {
+                let mut position = AccountPosition::new(current_slot, (0, pool_lp_supply));
+                position.update_from_user_event(current_slot, position_event, &converter);
+                new_account_positions.insert(account_cred.clone(), position);
+            }
         }
-    }
 
-    for (account_cred, position) in account_positions_in_current_epoch {
-        info!(
-            "Update existing account position: {:?}, {:?}",
-            account_cred, position
-        );
-        positions_for_update.insert((account_cred, current_epoch), position);
-    }
+        for (account_cred, position) in account_positions_in_current_epoch {
+            info!(
+                "Update existing account position: {:?}, {:?}",
+                account_cred, position
+            );
+            positions_for_update.insert((account_cred, current_epoch), position);
+        }
 
-    for (account_cred, position) in new_account_positions {
-        info!("New account position: {:?}, {:?}", account_cred, position);
-        positions_for_update.insert((account_cred, current_epoch), position);
-    }
+        for (account_cred, position) in new_account_positions {
+            info!("New account position: {:?}, {:?}", account_cred, position);
+            positions_for_update.insert((account_cred, current_epoch), position);
+        }
 
-    // In this final step, update the resulting pool LP supply for every `AccountPosition` in the
-    // current epoch. Note that this is crucial even for APs that directly had events applied to it,
-    // because the pool LP supply specified in the events might not be the final LP quantity after
-    // the entire block has been processed.
-    for ((_, epoch), position) in positions_for_update.iter_mut() {
-        if *epoch == current_epoch {
-            position.update_from_external_pool_changes(current_slot, final_lp_supply, &converter);
+        // In this final step, update the resulting pool LP supply for every `AccountPosition` in the
+        // current epoch. Note that this is crucial even for APs that directly had events applied to it,
+        // because the pool LP supply specified in the events might not be the final LP quantity after
+        // the entire block has been processed.
+        for ((_, epoch), position) in positions_for_update.iter_mut() {
+            if *epoch == current_epoch {
+                position.update_from_external_pool_changes(current_slot, final_lp_supply, &converter);
+            }
         }
     }
 

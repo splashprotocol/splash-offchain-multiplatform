@@ -82,10 +82,10 @@ impl Accounts for PositionDB {
                                 "position_epoch: {}, max_epoch: {}, current_epoch: {}",
                                 position_epoch, max_epoch, current_epoch
                             );
-                            if
-                            //position_epoch > max_epoch
-                            // &&
-                            position_epoch < current_epoch && gauge_weight.non_zero() {
+                            if position_epoch > max_epoch
+                                && position_epoch < current_epoch
+                                && gauge_weight.non_zero()
+                            {
                                 if position_epoch > max_epoch {
                                     max_epoch = position_epoch;
                                 }
