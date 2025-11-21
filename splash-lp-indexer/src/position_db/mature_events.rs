@@ -36,7 +36,6 @@ impl MatureEvents for PositionDB {
             let tx = db.transaction();
             if let Some(max_slot) = get_current_slot(&tx, cfs.kv) {
                 {
-                    trace!("max slot: {}", max_slot);
                     let mut iter_events =
                         tx.iterator_cf_opt(cfs.events, ReadOptions::default(), IteratorMode::Start);
                     let mut next_mature_slot = None;
@@ -86,10 +85,6 @@ impl MatureEvents for PositionDB {
                             let pool_key = pool_key(pool_id);
                             let old_lp_supply = get_pool_lp_supply(&tx, cfs.pool_lq, pool_id);
                             if let Some(pool_lp_supply) = pool_events.lp_supply.or(old_lp_supply) {
-                                println!(
-                                    "YYY: pool_events.lp_supply: {:?}, old_lp_supply: {:?}",
-                                    pool_events.lp_supply, old_lp_supply
-                                );
                                 let latest_account_positions =
                                     get_latest_account_positions(&db, cfs.account_positions, pool_key);
                                 if current_slot >= epoch_start {
@@ -111,7 +106,7 @@ impl MatureEvents for PositionDB {
                                     }
                                     // We only store positions related to active gauges;
                                     if current_epoch >= Epoch::FIRST {
-                                        let positions_for_update = prepare_positions_for_update(
+                                        let positions_for_update = sync_account_positions(
                                             pool_events.account_frames,
                                             latest_account_positions,
                                             current_slot,
@@ -119,7 +114,6 @@ impl MatureEvents for PositionDB {
                                             slots_in_epoch,
                                             epoch_start,
                                         );
-                                        info!("positions for update: {:?}", positions_for_update);
                                         for ((cred, epoch), position) in positions_for_update {
                                             let position_key = position_key(pool_id, &cred, epoch);
                                             let position_value = rmp_serde::to_vec_named(&position).unwrap();
@@ -163,8 +157,8 @@ impl MatureEvents for PositionDB {
     }
 }
 
-fn prepare_positions_for_update(
-    position_events: Vec<PositionEvent>,
+fn sync_account_positions(
+    position_events_in_block: Vec<PositionEvent>,
     latest_account_positions: HashMap<Credential, (Epoch, AccountPosition)>,
     current_slot: Slot,
     pool_lp_supply: u64,
@@ -172,34 +166,37 @@ fn prepare_positions_for_update(
     epoch_start: Slot,
 ) -> HashMap<(Credential, Epoch), AccountPosition> {
     let current_epoch = Epoch::unsafe_from_slot(current_slot, slots_in_epoch, epoch_start);
-    info!("prepare positions for update. current epoch: {:?}", current_epoch);
+    trace!("prepare positions for update. current epoch: {:?}", current_epoch);
     let mut positions_for_update: HashMap<(Credential, Epoch), AccountPosition> = HashMap::new();
 
     let mut account_positions_in_current_epoch = HashMap::new();
 
-    if let Some(Some((last_epoch, last_slot))) =
+    if let Some(Some((last_epoch, first_slot, last_slot))) =
         latest_account_positions
             .iter()
             .last()
             .map(|(_, (position_epoch, position))| {
                 position
                     .get_current_share()
-                    .map(|interval| (*position_epoch, interval.end))
+                    .map(|interval| (*position_epoch, interval.start, interval.end))
             })
     {
-        // All active positions in the pool should have the same endpoints in terms of slot and epoch.
+        // Invariant: All active positions in the pool must have the same `ShareInterval` endpoints
+        // (slot values).
         assert!(latest_account_positions
             .iter()
-            .all(|(_, (position_epoch, position))| position
-                .get_current_share()
-                .map(|interval| (*position_epoch, interval.end))
-                == Some((last_epoch, last_slot))));
+            .all(
+                |(_, (position_epoch, position))| position.get_current_share().map(|interval| (
+                    *position_epoch,
+                    interval.start,
+                    interval.end
+                )) == Some((last_epoch, first_slot, last_slot))
+            ));
 
         // Extend existing positions to the current slot, creating adjacent positions for epochs in
         // between if necessary.
         for (account_cred, (position_epoch, current_position)) in latest_account_positions.iter() {
             let adjacent_epochs = position_epoch.adjacent_epochs(current_epoch);
-            println!("adjacent_epochs: {:?}", adjacent_epochs);
             let mut current_position = current_position.clone();
 
             if *position_epoch == current_epoch {
@@ -231,12 +228,15 @@ fn prepare_positions_for_update(
 
     let mut new_account_positions: HashMap<Credential, AccountPosition> = HashMap::new();
 
-    let final_lp_supply = position_events.last().unwrap().lp_supply();
+    let final_lp_supply = position_events_in_block
+        .last()
+        .unwrap()
+        .resulting_pool_lp_supply();
 
     let converter = DefaultEpochSlotConversion::new(slots_in_epoch, epoch_start);
 
     // Apply all position events
-    for position_event in position_events {
+    for position_event in position_events_in_block {
         let account_cred = position_event.account();
         if account_positions_in_current_epoch.contains_key(&account_cred) {
             account_positions_in_current_epoch
@@ -268,6 +268,10 @@ fn prepare_positions_for_update(
         positions_for_update.insert((account_cred, current_epoch), position);
     }
 
+    // In this final step, update the resulting pool LP supply for every `AccountPosition` in the
+    // current epoch. Note that this is crucial even for APs that directly had events applied to it,
+    // because the pool LP supply specified in the events might not be the final LP quantity after
+    // the entire block has been processed.
     for ((_, epoch), position) in positions_for_update.iter_mut() {
         if *epoch == current_epoch {
             position.update_from_external_pool_changes(current_slot, final_lp_supply, &converter);
@@ -353,7 +357,7 @@ impl EventsByPool {
     fn apply_event(&mut self, event: OnChainEvent) -> Option<u64> {
         match event {
             OnChainEvent::Account(account_event) => {
-                let lp_supply = Some(account_event.lp_supply());
+                let lp_supply = Some(account_event.resulting_pool_lp_supply());
                 self.account_frames.push(account_event);
                 self.lp_supply = lp_supply;
                 lp_supply
@@ -377,7 +381,7 @@ mod tests {
     use crate::onchain::GaugeWeight;
     use crate::position_db::event_log::EventLog;
     use crate::position_db::export_feed::ExportEventFeed;
-    use crate::position_db::mature_events::{prepare_positions_for_update, MatureEvents};
+    use crate::position_db::mature_events::{sync_account_positions, MatureEvents};
     use crate::position_db::PositionDB;
     use cml_chain::certs::Credential;
     use cml_core::Slot;
@@ -492,7 +496,7 @@ mod tests {
         let mut acc0_balance = mint0;
         let acc0_deposit_slot = current_slot;
         let deposit0 = make_deposit(&acc0, mint0, &mut pool_lp_supply);
-        let m = prepare_positions_for_update(
+        let m = sync_account_positions(
             vec![deposit0.clone()],
             HashMap::default(),
             current_slot,
@@ -515,7 +519,7 @@ mod tests {
         current_slot += 100;
         let acc1_deposit_slot = current_slot;
         let deposit1 = make_deposit(&acc1, mint1, &mut pool_lp_supply);
-        let m = prepare_positions_for_update(
+        let m = sync_account_positions(
             vec![deposit1],
             HashMap::from([(acc0.clone(), (Epoch::from(0), position))]),
             current_slot,
@@ -529,7 +533,11 @@ mod tests {
         let acc1_position = m.get(&(acc1.clone(), Epoch::from(0))).unwrap().clone();
 
         let mut expected_acc0_epoch_0 = vec![
-            ShareInterval::new(acc0_deposit_slot, current_slot, (mint0, deposit0.lp_supply())),
+            ShareInterval::new(
+                acc0_deposit_slot,
+                current_slot,
+                (mint0, deposit0.resulting_pool_lp_supply()),
+            ),
             ShareInterval::new(current_slot, current_slot, (mint0, pool_lp_supply)),
         ];
         assert_eq!(acc0_position.share_intervals, expected_acc0_epoch_0);
@@ -548,9 +556,9 @@ mod tests {
         acc1_balance += 20_000;
         let redeem0 = make_redeem(&acc0, 10_000, &mut pool_lp_supply);
         let deposit1 = make_deposit(&acc1, 20_000, &mut pool_lp_supply);
-        let deposit1_lp_supply = deposit1.lp_supply();
+        let deposit1_lp_supply = deposit1.resulting_pool_lp_supply();
 
-        let m = prepare_positions_for_update(
+        let m = sync_account_positions(
             vec![redeem0, deposit1],
             HashMap::from([
                 (acc0.clone(), (Epoch::from(0), acc0_position)),
@@ -607,7 +615,7 @@ mod tests {
         let deposit_acc2 = make_deposit(&acc2, 200_000, &mut pool_lp_supply);
         let deposit_acc0 = make_deposit(&acc0, 100_000, &mut pool_lp_supply);
         let redeem_acc1 = make_redeem(&acc1, acc1_balance, &mut pool_lp_supply);
-        let m = prepare_positions_for_update(
+        let m = sync_account_positions(
             vec![deposit_acc2, deposit_acc0, redeem_acc1],
             HashMap::from([
                 (acc0.clone(), (Epoch::from(1), acc0_position_epoch_1)),

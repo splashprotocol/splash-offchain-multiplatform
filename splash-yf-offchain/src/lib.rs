@@ -41,6 +41,7 @@ impl Epoch {
         self.first_slot(slots_in_epoch, epoch_start) + slots_in_epoch - 1
     }
 
+    /// Returns all epochs adjacent to `self` up to and including `current_epoch`.
     pub fn adjacent_epochs(&self, current_epoch: Self) -> Vec<Self> {
         if self == &current_epoch {
             vec![]

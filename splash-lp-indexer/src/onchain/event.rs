@@ -118,7 +118,8 @@ impl PositionEvent {
             PositionEvent::Redeem(r) => r.account.clone(),
         }
     }
-    pub fn lp_supply(&self) -> u64 {
+    /// Total LP supply of the pool after the event has been applied.
+    pub fn resulting_pool_lp_supply(&self) -> u64 {
         match self {
             PositionEvent::Deposit(d) => d.lp_supply,
             PositionEvent::Redeem(r) => r.lp_supply,
@@ -228,7 +229,9 @@ where
 pub struct Deposit {
     pub pool_id: PoolId,
     pub account: Credential,
+    /// Amount of LP minted by the deposit.
     pub lp_mint: u64,
+    /// Total LP supply of the pool after the deposit.
     pub lp_supply: u64,
 }
 
@@ -267,7 +270,9 @@ fn find_lp_recv(
 pub struct Redeem {
     pub pool_id: PoolId,
     pub account: Credential,
+    /// Amount of LP burned by the redeem.
     pub lp_burned: u64,
+    /// Total LP supply of the pool after the redeem.
     pub lp_supply: u64,
 }
 

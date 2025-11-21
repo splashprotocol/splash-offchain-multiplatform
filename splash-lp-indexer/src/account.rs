@@ -5,6 +5,27 @@ use serde::{Deserialize, Serialize};
 use splash_yf_offchain::Epoch;
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+/// Represents a user's share of a liquidity pool over a single epoch.
+/// The position is a step function of the form:
+/// ```text
+///         ^                             * endpoint included
+///         |             *----O          O endpoint excluded
+///  share  |        *----O
+///         |   *----O
+///         +----------------------->
+///         0   10   20   30   40 (slot #)
+/// ```
+/// In the above graph, we have a single epoch from slot 0 to slot 40. The user's first
+/// deposit occurs at slot 10. Subsequent events on the pool occur at slot 20 and slot 30,
+/// such that the user's share of the pool increases each time.
+///
+/// Note that for a given liquidity pool, its total LP supply is partitioned by all
+/// `AccountPosition`s (APs) in the pool. In addition, any change (deposit or redeem) to one AP
+/// results in a change all other APs in the pool. This means that all the APs in the pool have
+/// jumps in their pool-share profile at the same slots (i.e. same positions along the x-axis).
+///
+/// Finally, note the use of right-open intervals. This allows for simplified calculations free of
+/// `+- 1` values.
 pub struct AccountPosition {
     pub share_intervals: Vec<ShareInterval>,
 }
@@ -20,6 +41,8 @@ impl AccountPosition {
         self.share_intervals.is_empty() || self.share_intervals.last().unwrap().share.0 == 0
     }
 
+    /// Computes time-weighted average share of the liquidity pool in basis points over the entire epoch.
+    /// (see: https://en.wikipedia.org/wiki/Time-weighted_average_price)
     pub fn weighted_average_share_bps(&self) -> u64 {
         if self.share_intervals.is_empty() {
             return 0;
@@ -50,7 +73,7 @@ impl AccountPosition {
     {
         if let Some(current_position) = self.share_intervals.last().map(|interval| interval.share.0) {
             if current_position > 0 {
-                self.add_new_share(current_slot, (current_position, new_pool_lp_supply), converter);
+                self.add_new_share_interval(current_slot, (current_position, new_pool_lp_supply), converter);
             }
         }
     }
@@ -60,35 +83,39 @@ impl AccountPosition {
     where
         E: EpochSlotConversion,
     {
-        if let Some((personal_position_lq, total_lq)) =
-            self.get_current_share().map(|interval| interval.share)
-        {
+        if let Some((personal_position_lq, _)) = self.get_current_share().map(|interval| interval.share) {
             match event {
                 PositionEvent::Deposit(deposit) => {
                     let new_position_lq = personal_position_lq.checked_add(deposit.lp_mint).unwrap();
-                    if total_lq.checked_add(deposit.lp_mint).unwrap() == deposit.lp_supply {
-                        info!("DDD: deposit.lp_supply == total_lq + deposit.lp_mint");
-                    } else if total_lq == deposit.lp_supply {
-                        info!("EEE: deposit.lp_supply == total_lq");
-                    }
-                    self.add_new_share(current_slot, (new_position_lq, deposit.lp_supply), converter);
+                    self.add_new_share_interval(
+                        current_slot,
+                        (new_position_lq, deposit.lp_supply),
+                        converter,
+                    );
                 }
                 PositionEvent::Redeem(redeem) => {
                     let new_position_lq = personal_position_lq.checked_sub(redeem.lp_burned).unwrap();
-                    // assert_eq!(total_lq, redeem.lp_supply);
-                    self.add_new_share(current_slot, (new_position_lq, redeem.lp_supply), converter);
+                    self.add_new_share_interval(current_slot, (new_position_lq, redeem.lp_supply), converter);
                 }
             }
         } else {
             match event {
                 PositionEvent::Deposit(deposit) => {
-                    self.add_new_share(current_slot, (deposit.lp_mint, deposit.lp_supply), converter);
+                    self.add_new_share_interval(
+                        current_slot,
+                        (deposit.lp_mint, deposit.lp_supply),
+                        converter,
+                    );
                 }
                 PositionEvent::Redeem(_) => {
                     unreachable!("Cannot redeem from an empty position");
                 }
             }
         }
+    }
+
+    pub fn extend_current_share_to(&mut self, current_slot: Slot) {
+        self.share_intervals.last_mut().unwrap().extend_to(current_slot);
     }
 
     pub fn get_current_share(&self) -> Option<ShareInterval> {
@@ -113,7 +140,10 @@ impl AccountPosition {
         }
     }
 
-    fn add_new_share<E>(&mut self, current_slot: Slot, share: (u64, u64), converter: &E)
+    /// Add a new share interval to the account position at `current_slot` (representing the present
+    /// time). It's important to note that the new interval added is of zero-width, i.e. `start ==
+    /// end`.
+    fn add_new_share_interval<E>(&mut self, current_slot: Slot, share: (u64, u64), converter: &E)
     where
         E: EpochSlotConversion,
     {
@@ -126,20 +156,18 @@ impl AccountPosition {
                 last_interval.extend_to(converter.last_slot(last_interval_epoch));
             }
         }
-        // Clear out all intervals with empty weight
+        // Clear out all prior intervals with empty weight i.e intervals with zero width.
         self.share_intervals
             .retain(|interval| interval.start < interval.end);
 
         self.share_intervals
             .push(ShareInterval::new(current_slot, current_slot, share));
     }
-
-    pub fn extend_current_share_to(&mut self, current_slot: Slot) {
-        self.share_intervals.last_mut().unwrap().extend_to(current_slot);
-    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+/// Represents a continuous interval of time where the share of a liquidity pool is constant. Note
+/// that these intervals are right-open, i.e. of the form [start, end)
 pub struct ShareInterval {
     pub start: Slot,
     pub end: Slot,
@@ -151,14 +179,13 @@ impl ShareInterval {
         Self { start, end, share }
     }
 
-    fn is_empty(&self) -> bool {
-        self.start >= self.end
-    }
-
+    /// Extend the right endpoint of the interval to the given slot.
     pub fn extend_to(&mut self, current_slot: Slot) {
         self.end = current_slot;
     }
 
+    /// Calculates the number of basis points of the share of the liquidity pool, weighted by the
+    /// span of time. Note: `self.end` is not included in the calculation (right-open interval).
     pub fn share_bps(&self) -> u64 {
         let res = (self.end - self.start) * (self.share.0 * 10_000 / self.share.1);
         info!(
@@ -169,6 +196,7 @@ impl ShareInterval {
     }
 }
 
+/// Convert between epochs and slots.
 pub trait EpochSlotConversion {
     fn to_epoch(&self, slot: Slot) -> Epoch;
     fn first_slot(&self, epoch: Epoch) -> Slot;
@@ -202,6 +230,7 @@ impl EpochSlotConversion for DefaultEpochSlotConversion {
         epoch.last_slot(self.slots_in_epoch, self.epoch_start)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use crate::account::{AccountPosition, DefaultEpochSlotConversion};
