@@ -155,11 +155,7 @@ mod tests {
     fn gen_operator_creds() {
         let network = NetworkInfo::preprod().network_id();
 
-        // let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
-        let phrase = "sustain neither coin armor turkey vendor box bonus pistol lion ketchup pill unaware find olympic business concert romance travel story peasant pelican random pattern";
-        let entropy = Mnemonic::from_str(phrase).unwrap().to_entropy();
-        let seed = from_bip39_entropy(&entropy, b"");
-        let operator_prv_bip32 = Bip32PrivateKey::from_bech32(seed.to_bech32_str().as_str()).unwrap();
+        let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
 
         let operator_pk_main = operator_prv_bip32.to_public();
 

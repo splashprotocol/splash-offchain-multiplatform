@@ -21,11 +21,17 @@ pub mod mature_events;
 pub struct PositionDB {
     pub db: Arc<TransactionDB>,
     pub confirmation_delay_slots: u64,
+    pub num_slots_in_epoch: u64,
     pub epoch_start: Slot,
 }
 
 impl PositionDB {
-    pub fn new<P: AsRef<Path>>(db_path: P, confirmation_delay_slots: u64, epoch_start: Slot) -> Self {
+    pub fn new<P: AsRef<Path>>(
+        db_path: P,
+        confirmation_delay_slots: u64,
+        num_slots_in_epoch: u64,
+        epoch_start: Slot,
+    ) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
@@ -33,6 +39,7 @@ impl PositionDB {
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, COLUMN_FAMILIES).unwrap()),
             confirmation_delay_slots,
+            num_slots_in_epoch,
             epoch_start,
         }
     }
@@ -183,10 +190,43 @@ pub(crate) const ACCOUNT_FEED_EXPORT_CF: &str = "account_feed_export";
 
 pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
 
+pub(crate) const LAST_EXPORTED_SLOT_KEY: [u8; 4] = [1u8; 4];
+
 pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
     db.get_cf(cf, CURRENT_SLOT_KEY)
         .unwrap()
         .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
+}
+
+pub(crate) fn get_last_exported_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
+    tx.get_cf(cf, LAST_EXPORTED_SLOT_KEY)
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
+}
+
+pub(crate) fn set_last_exported_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
+    tx.put_cf(cf, LAST_EXPORTED_SLOT_KEY, rmp_serde::to_vec(&slot).unwrap())
+        .unwrap();
+}
+
+pub(crate) fn get_pool_lp_supply(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    pool_id: PoolId,
+) -> Option<u64> {
+    tx.get_cf(cf, pool_key(pool_id))
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
+}
+
+pub(crate) fn set_pool_lp_supply(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    pool_id: PoolId,
+    lp_supply: u64,
+) {
+    tx.put_cf(cf, pool_key(pool_id), rmp_serde::to_vec(&lp_supply).unwrap())
+        .unwrap();
 }
 
 pub(crate) const COLUMN_FAMILIES: [&str; 7] = [

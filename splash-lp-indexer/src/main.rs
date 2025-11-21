@@ -18,6 +18,7 @@ use spectrum_offchain_cardano::deployment::{
 };
 use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
 use spectrum_streaming::run_stream;
+use splash_dao_offchain::constants::time::EPOCH_LEN;
 use splash_dao_offchain::deployment::{
     CompleteDeployment as DaoDeployment, DeploymentProgress as DaoDeploymentProgress,
     ProtocolDeployment as DaoProtocolDeployment,
@@ -94,6 +95,7 @@ async fn main() {
     let position_db = PositionDB::new(
         config.accounts_db_path,
         config.confirmation_delay_slots,
+        EPOCH_LEN / 1000,
         epoch_start,
     );
     let filter = HashSet::from([

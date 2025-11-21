@@ -144,10 +144,6 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
             .boxed();
         while let Some(ChainUpgrade::RollForward { blk, blk_bytes, .. }) = replayed_blocks.next().await {
             let hdr = blk.header();
-            info!(
-                "Replaying Block {}",
-                hash_block_header_canonical_multi_era(&hdr).to_hex()
-            );
             let applied_txs = BlockEvents::RollForward {
                 events: unpack_valid_transactions_multi_era(blk)
                     .into_iter()

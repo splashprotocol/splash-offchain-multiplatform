@@ -28,11 +28,13 @@ where
         BlockEvents::RollForward {
             events, block_slot, ..
         } => {
-            trace!(
-                "log_event: roll_forward slot: {}, events: {:?}",
-                block_slot,
-                events
-            );
+            if !events.is_empty() {
+                trace!(
+                    "log_event: roll_forward slot: {}, events: {:?}",
+                    block_slot,
+                    events
+                );
+            }
             log.batch_append(block_slot, events).await
         }
         BlockEvents::RollBackward {

@@ -27,7 +27,7 @@
   "utxoIndexDbPath": "index/utxo",
   "accountsDbPath": "index/accounts",
   "gaugesDbPath": "index/gauges",
-  "confirmationDelaySlots": 10,
+  "confirmationDelaySlots": 200,
   "bootstrapServers": "127.0.0.1:19094",
   "eventsExportTopic": "events_export",
   "harvestLimits": {

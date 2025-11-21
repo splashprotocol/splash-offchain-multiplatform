@@ -54,3 +54,6 @@ splash-testing = { version = "1.0.0", path = "../splash-testing" }
 default = []
 enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]
 enable_test_8_hour_epoch = ["splash-dao-offchain/test_8_hour_epoch"]
+
+[profile.release]
+overflow-checks = true

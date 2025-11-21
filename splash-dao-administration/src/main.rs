@@ -1718,9 +1718,9 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         quantity: BigInteger::from(10_000_000_u64),
     };
 
-    let required_tokens = vec![];
+    let required_tokens = vec![bp];
     send_assets(
-        23_750_000_000,
+        5_750_000_000,
         20_000_000,
         required_tokens,
         explorer,

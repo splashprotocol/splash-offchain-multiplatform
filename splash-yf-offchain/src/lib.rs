@@ -40,12 +40,14 @@ impl Epoch {
     pub fn last_slot(&self, slots_in_epoch: u64, epoch_start: Slot) -> Slot {
         self.first_slot(slots_in_epoch, epoch_start) + slots_in_epoch - 1
     }
-    pub fn adjacent_epochs(&self, slots_in_epoch: u64, epoch_start: Slot) -> Vec<Self> {
-        let last_slot = self.last_slot(slots_in_epoch, epoch_start);
-        let mut result = Vec::new();
-        for slot in self.first_slot(slots_in_epoch, epoch_start)..=last_slot {
-            result.push(Self::unsafe_from_slot(slot, slots_in_epoch, epoch_start));
+
+    pub fn adjacent_epochs(&self, current_epoch: Self) -> Vec<Self> {
+        if self == &current_epoch {
+            vec![]
+        } else {
+            (self.next().unwrap()..=current_epoch.unwrap())
+                .map(Self::from)
+                .collect()
         }
-        result
     }
 }

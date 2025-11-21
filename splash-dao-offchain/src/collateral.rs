@@ -106,7 +106,6 @@ where
         let ac = spectrum_cardano_lib::AssetClass::Token(spectrum_cardano_lib::Token(policy_id, asset_name));
         output_value.add_unsafe(ac, quantity.as_u64().unwrap());
     }
-    output_value.coin = 5_000_000;
     let output_result = TransactionOutputBuilder::new()
         .with_address(destination_addr.clone())
         .next()

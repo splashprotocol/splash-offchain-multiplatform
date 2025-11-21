@@ -99,7 +99,7 @@ impl OnChainEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display, Clone)]
 pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -224,7 +224,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Deposit {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -263,7 +263,7 @@ fn find_lp_recv(
     })
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Redeem {
     pub pool_id: PoolId,
     pub account: Credential,
