@@ -13,6 +13,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::display::{display_option, display_vec};
 use spectrum_offchain::tracing::Tracing;
+use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -99,6 +100,15 @@ pub trait UtxoResolver {
 pub enum TxoQuery {
     All(Option<Slot>),
     Unspent,
+}
+
+impl Display for TxoQuery {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TxoQuery::All(slt) => write!(f, "TxoQuery::All({})", display_option(slt)),
+            TxoQuery::Unspent => write!(f, "TxoQuery::Unspent"),
+        }
+    }
 }
 
 #[derive(Clone)]
