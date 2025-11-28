@@ -12,6 +12,8 @@ use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::onchain::event::SuspendedPools;
+
 pub mod accounts;
 pub mod event_log;
 pub mod export_feed;
@@ -179,6 +181,12 @@ pub(crate) const ACCOUNT_POOLS_CF: &str = "account_pools";
 // key: [pool_id:epoch], value: [gauge_weight]
 pub(crate) const GAUGE_WEIGHTS_CF: &str = "gauges";
 
+// Suspended pools
+// key: [SUSPENDED_POOLS_PREFIX:slot], value: [suspended_pools]
+// key: [PREV_SUSPENDED_POOLS_SLOT_KEY:slot], value: [prev_suspended_pools_slot]
+// key: [CURRENT_SUSPENDED_POOLS_SLOT_KEY], value: [current_suspended_pools_slot]
+pub(crate) const SUSPENDED_POOLS_CF: &str = "suspended_pools";
+
 // LQ supply by pool
 // key: [pool_id], value: [lq_supply]
 pub(crate) const POOL_LQ_CF: &str = "pools";
@@ -193,6 +201,16 @@ pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
 /// To track the last slot that was exported to the Kafka instance. We need this because Kafka does
 /// not perform deduplication.
 pub(crate) const LAST_EXPORTED_SLOT_KEY: [u8; 4] = [1u8; 4];
+
+/// To track the current slot of the suspended pools. If mapped to 0_u64, the suspended pools
+/// is not initialized.
+pub(crate) const CURRENT_SUSPENDED_POOLS_SLOT_KEY: [u8; 4] = [1u8; 4];
+
+/// Prefix for the suspended pools key.
+pub(crate) const SUSPENDED_POOLS_PREFIX: [u8; 4] = [2u8; 4];
+
+/// To track the previous slot of the suspended pools.
+pub(crate) const PREV_SUSPENDED_POOLS_SLOT_KEY: [u8; 4] = [3u8; 4];
 
 pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
     db.get_cf(cf, CURRENT_SLOT_KEY)
@@ -231,7 +249,124 @@ pub(crate) fn set_pool_lp_supply(
         .unwrap();
 }
 
-pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
+pub(crate) fn get_current_suspended_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<SuspendedPools> {
+    let current_slot = get_current_suspended_pools_slot(tx, cf)?;
+    tx.get_cf(cf, suspended_pools_key(current_slot))
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<SuspendedPools>(&raw).unwrap())
+}
+
+pub(crate) fn set_suspended_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    suspended_pools: &SuspendedPools,
+    slot: Slot,
+) {
+    let prev_slot = get_current_suspended_pools_slot(tx, cf);
+    set_prev_suspended_pools_slot(tx, cf, slot, prev_slot);
+
+    set_current_suspended_pools_slot(tx, cf, slot);
+
+    tx.put_cf(
+        cf,
+        suspended_pools_key(slot),
+        rmp_serde::to_vec_named(suspended_pools).unwrap(),
+    )
+    .unwrap();
+}
+
+pub(crate) fn rollback_suspended_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    suspended_pools: &SuspendedPools,
+    slot: Slot,
+) {
+    let current_slot = get_current_suspended_pools_slot(tx, cf).unwrap();
+    assert_eq!(current_slot, slot);
+    let curr_suspended_pools = get_current_suspended_pools(tx, cf).unwrap();
+    assert_eq!(curr_suspended_pools, *suspended_pools);
+
+    tx.delete_cf(cf, suspended_pools_key(current_slot)).unwrap();
+
+    let prev_slot = get_prev_suspended_pools_slot(tx, cf, current_slot);
+    if let Some(prev_slot) = prev_slot {
+        set_current_suspended_pools_slot(tx, cf, prev_slot);
+    }
+}
+
+fn get_current_suspended_pools_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
+    tx.get_cf(cf, CURRENT_SUSPENDED_POOLS_SLOT_KEY)
+        .unwrap()
+        .and_then(|raw| {
+            let slot_bytes: [u8; 8] = raw.as_slice().try_into().ok()?;
+            let slot = u64::from_be_bytes(slot_bytes);
+            if slot > 0 {
+                Some(slot)
+            } else {
+                None
+            }
+        })
+}
+
+fn set_current_suspended_pools_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
+    let old_slot = get_current_suspended_pools_slot(tx, cf);
+    let mut prev_slot_key = PREV_SUSPENDED_POOLS_SLOT_KEY.to_vec();
+    prev_slot_key.extend(slot.to_be_bytes());
+    if let Some(old_slot) = old_slot {
+        tx.put_cf(cf, &prev_slot_key, old_slot.to_be_bytes()).unwrap();
+    }
+    tx.put_cf(
+        cf,
+        CURRENT_SUSPENDED_POOLS_SLOT_KEY,
+        rmp_serde::to_vec(&slot).unwrap(),
+    )
+    .unwrap();
+}
+
+fn get_prev_suspended_pools_slot(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    slot: Slot,
+) -> Option<Slot> {
+    let mut prev_slot_key = PREV_SUSPENDED_POOLS_SLOT_KEY.to_vec();
+    prev_slot_key.extend(slot.to_be_bytes());
+    tx.get_cf(cf, &prev_slot_key).unwrap().and_then(|raw| {
+        let slot_bytes: [u8; 8] = raw.as_slice().try_into().ok()?;
+        let slot = u64::from_be_bytes(slot_bytes);
+        if slot > 0 {
+            Some(slot)
+        } else {
+            None
+        }
+    })
+}
+
+fn set_prev_suspended_pools_slot(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    slot: Slot,
+    prev_slot: Option<Slot>,
+) {
+    let prev_slot_bytes = if let Some(prev_slot) = prev_slot {
+        prev_slot.to_be_bytes()
+    } else {
+        0_u64.to_be_bytes()
+    };
+    let mut slot_key = PREV_SUSPENDED_POOLS_SLOT_KEY.to_vec();
+    slot_key.extend(slot.to_be_bytes());
+    tx.put_cf(cf, &slot_key, prev_slot_bytes).unwrap();
+}
+
+fn suspended_pools_key(slot: Slot) -> Vec<u8> {
+    let mut key = SUSPENDED_POOLS_PREFIX.to_vec();
+    key.extend(slot.to_be_bytes());
+    key
+}
+
+pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
     EVENTS_CF,
     ACCOUNT_POSITIONS_CF,
     ACCOUNT_POOLS_CF,
@@ -239,6 +374,7 @@ pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
     GAUGE_WEIGHTS_CF,
     POOL_LQ_CF,
     KV_CF,
+    SUSPENDED_POOLS_CF,
 ];
 
 pub(crate) struct ColumnFamilies<'a> {
@@ -247,6 +383,7 @@ pub(crate) struct ColumnFamilies<'a> {
     pub account_pools: &'a ColumnFamily,
     pub account_feed_export: &'a ColumnFamily,
     pub gauge_weights: &'a ColumnFamily,
+    pub suspended_pools: &'a ColumnFamily,
     pub pool_lq: &'a ColumnFamily,
     pub kv: &'a ColumnFamily,
 }
@@ -259,6 +396,7 @@ impl<'a> ColumnFamilies<'a> {
             account_pools: db.cf_handle(ACCOUNT_POOLS_CF).unwrap(),
             account_feed_export: db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap(),
             gauge_weights: db.cf_handle(GAUGE_WEIGHTS_CF).unwrap(),
+            suspended_pools: db.cf_handle(SUSPENDED_POOLS_CF).unwrap(),
             pool_lq: db.cf_handle(POOL_LQ_CF).unwrap(),
             kv: db.cf_handle(KV_CF).unwrap(),
         }

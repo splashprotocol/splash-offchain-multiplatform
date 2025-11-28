@@ -289,22 +289,24 @@ fn aggregate_events(
     let mut aggregated_events: HashMap<PoolId, EventsByPool> = HashMap::new();
     for event in events {
         let event_pid = event.pool_id();
-        match aggregated_events.entry(event_pid) {
-            Entry::Vacant(entry) => {
-                let mut new_frame = EventsByPool::new();
-                let lp_supply = new_frame.apply_event(event);
-                if let Some(lp_supply) = lp_supply {
-                    set_pool_lp_supply(tx, cfs.pool_lq, event_pid, lp_supply);
+        if let Some(event_pid) = event_pid {
+            match aggregated_events.entry(event_pid) {
+                Entry::Vacant(entry) => {
+                    let mut new_frame = EventsByPool::new();
+                    let lp_supply = new_frame.apply_event(event);
+                    if let Some(lp_supply) = lp_supply {
+                        set_pool_lp_supply(tx, cfs.pool_lq, event_pid, lp_supply);
+                    }
+                    entry.insert(new_frame);
                 }
-                entry.insert(new_frame);
-            }
-            Entry::Occupied(mut entry) => {
-                let lp_supply = entry.get_mut().apply_event(event);
-                if let Some(lp_supply) = lp_supply {
-                    set_pool_lp_supply(tx, cfs.pool_lq, event_pid, lp_supply);
+                Entry::Occupied(mut entry) => {
+                    let lp_supply = entry.get_mut().apply_event(event);
+                    if let Some(lp_supply) = lp_supply {
+                        set_pool_lp_supply(tx, cfs.pool_lq, event_pid, lp_supply);
+                    }
                 }
-            }
-        };
+            };
+        }
     }
     aggregated_events
 }
@@ -370,6 +372,7 @@ impl EventsByPool {
                 self.lp_supply.replace(pool_created.supply_lq);
                 Some(pool_created.supply_lq)
             }
+            OnChainEvent::PermManagerUpdate(_) => None,
         }
     }
 }
@@ -382,11 +385,12 @@ mod tests {
     use crate::position_db::event_log::EventLog;
     use crate::position_db::export_feed::ExportEventFeed;
     use crate::position_db::mature_events::{sync_account_positions, MatureEvents};
-    use crate::position_db::PositionDB;
+    use crate::position_db::{set_suspended_pools, ColumnFamilies, PositionDB};
     use cml_chain::certs::Credential;
     use cml_core::Slot;
     use cml_crypto::Ed25519KeyHash;
     use spectrum_offchain_cardano::data::PoolId;
+    use splash_dao_offchain::entities::onchain::permission_manager::{PermManager, PermManagerDatum};
     use splash_testing::db_path::DBPath;
     use splash_yf_offchain::Epoch;
     use std::collections::HashMap;
@@ -709,5 +713,19 @@ mod tests {
             (200_000, pool_lp_supply),
         )];
         assert_eq!(acc2_position_epoch_5.share_intervals, expected_acc2_epoch_5);
+    }
+
+    #[test]
+    fn test_perm_manager() {
+        let db = PositionDB::new(&DBPath::new("test_perm_manager"), 1000, 1000, 1000);
+        let datum = PermManagerDatum {
+            authorized_executors: vec![],
+            suspended_farms: vec![],
+        };
+        let perm_manager = PermManager { datum };
+        //let cf = ColumnFamilies::new(&db.db);
+        //set_perm_manager(&tx, cf.perm_manager, perm_manager, 1000);
+        //.dbt perm_manager = db.get_perm_manager(1000);
+        //assert_eq!(perm_manager, Some(perm_manager));
     }
 }

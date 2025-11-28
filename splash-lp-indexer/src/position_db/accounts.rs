@@ -1,9 +1,10 @@
 use crate::account::AccountPosition;
+use crate::onchain::event::SuspendedPools;
 use crate::onchain::GaugeWeight;
 use crate::position_db::{
     account_positions_key, account_to_pools_index_prefix, gauge_key, get_current_slot,
-    get_range_iterator_over_snapshot, parse_account_to_pools_index, parse_position_key, position_key,
-    ColumnFamilies, PositionDB, CURRENT_SLOT_KEY,
+    get_current_suspended_pools, get_range_iterator_over_snapshot, parse_account_to_pools_index,
+    parse_position_key, position_key, ColumnFamilies, PositionDB, CURRENT_SLOT_KEY,
 };
 use cml_chain::certs::Credential;
 use log::trace;
@@ -58,9 +59,17 @@ impl Accounts for PositionDB {
                 num_slots_in_epoch,
                 epoch_start,
             );
+            let SuspendedPools(suspended_pools) = {
+                let tx = db.transaction();
+                get_current_suspended_pools(&tx, cfs.suspended_pools)?
+            };
             let mut max_epoch = Epoch::from(0);
             let account_positions: u64 = account_pools
                 .map(|pid| {
+                    if suspended_pools.contains(&pid) {
+                        return 0;
+                    }
+
                     let positions_range_key = account_positions_key(pid, &cred);
                     let start_from_key = position_key(pid, &cred, from_epoch_inclusive);
                     let pool_positions: u64 = get_range_iterator_over_snapshot(

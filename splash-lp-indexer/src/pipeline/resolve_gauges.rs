@@ -1,4 +1,4 @@
-use crate::onchain::event::{GaugeWeighted, OnChainEvent, StatelessOnChainEvent};
+use crate::onchain::event::{GaugeWeighted, OnChainEvent, StatelessOnChainEvent, SuspendedPools};
 use crate::onchain::GaugeWeight;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
@@ -54,6 +54,17 @@ async fn resolve_gauges<I: VoteEscrowIndex>(
             }
             StatelessOnChainEvent::Position(e) => translated_events.push(OnChainEvent::Account(e)),
             StatelessOnChainEvent::Pool(e) => translated_events.push(OnChainEvent::Pool(e)),
+            StatelessOnChainEvent::PermManager(perm_manager_update) => {
+                let mut suspended_pools = vec![];
+                for farm_id in perm_manager_update.suspended_farms {
+                    if let Some(pool_id) = index.get_gauge_binding(farm_id).await {
+                        if !suspended_pools.contains(&pool_id) {
+                            suspended_pools.push(pool_id);
+                        }
+                    }
+                }
+                translated_events.push(OnChainEvent::PermManagerUpdate(SuspendedPools(suspended_pools)))
+            }
         }
     }
     translated_events
