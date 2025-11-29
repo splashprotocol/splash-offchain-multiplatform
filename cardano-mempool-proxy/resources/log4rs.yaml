@@ -19,14 +19,33 @@ appenders:
         base: 1
         count: 50
         pattern: "logs/smp.{}.log"
+  requests_file:
+    kind: rolling_file
+    path: "logs/requests.log"
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S)} {h({l}):5.5} {({T}):4.10} — {m}{n}"
+    policy:
+      # Identifies which policy is to be used. If no kind is specified, it will
+      # default to "compound".
+      kind: compound
+      # The remainder of the configuration is passed along to the policy's
+      # deserializer, and will vary based on the kind of policy.
+      trigger:
+        kind: size
+        limit: 200mb
+      roller:
+        kind: fixed_window
+        base: 1
+        count: 50
+        pattern: "logs/requests.{}.log"
+
 root:
   level: debug
   appenders:
     - file
 
 loggers:
-  agent_main:
-    level: debug
+  cardano_mempool_proxy::server:
+    level: trace
     appenders:
-      - file
-    additive: false
+      - requests_file
