@@ -1,4 +1,6 @@
-use crate::onchain::event::{GaugeWeighted, OnChainEvent, StatelessOnChainEvent, SuspendedPools};
+use crate::onchain::event::{
+    ActivePools, GaugeWeighted, OnChainEvent, StatelessOnChainEvent, SuspendedPools,
+};
 use crate::onchain::GaugeWeight;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
@@ -42,14 +44,30 @@ async fn resolve_gauges<I: VoteEscrowIndex>(
                     .await;
             }
             StatelessOnChainEvent::WeightingPoll(weighting_poll_completed) => {
-                for (gauge, weight) in weighting_poll_completed.distribution {
-                    if let Some(pool_id) = index.get_gauge_binding(gauge).await {
-                        translated_events.push(OnChainEvent::Gauge(GaugeWeighted {
-                            pool_id,
-                            weight: GaugeWeight(weight, weighting_poll_completed.total_poll_weight),
-                            epoch: weighting_poll_completed.epoch,
-                        }))
+                if let Some(total_poll_weight) = weighting_poll_completed.total_poll_weight {
+                    for (gauge, weight) in weighting_poll_completed.distribution {
+                        if let Some(pool_id) = index.get_gauge_binding(gauge).await {
+                            translated_events.push(OnChainEvent::Gauge(GaugeWeighted {
+                                pool_id,
+                                weight: GaugeWeight(weight, total_poll_weight),
+                                epoch: weighting_poll_completed.epoch,
+                            }))
+                        }
                     }
+                } else {
+                    // Newly-created weighting poll with no votes cast yet. Extract active pools for the epoch.
+                    let mut active_pools = vec![];
+                    for (gauge, _) in weighting_poll_completed.distribution {
+                        if let Some(pool_id) = index.get_gauge_binding(gauge).await {
+                            if !active_pools.contains(&pool_id) {
+                                active_pools.push(pool_id);
+                            }
+                        }
+                    }
+                    translated_events.push(OnChainEvent::NewWeightingPoll(ActivePools(
+                        weighting_poll_completed.epoch,
+                        active_pools,
+                    )));
                 }
             }
             StatelessOnChainEvent::Position(e) => translated_events.push(OnChainEvent::Account(e)),

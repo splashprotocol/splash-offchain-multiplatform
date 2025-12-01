@@ -42,7 +42,7 @@ pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     Gauge(GaugeCreated),
     Pool(PoolCreated),
-    WeightingPoll(WeightingPollCompleted),
+    WeightingPoll(WeightingPollOutput),
     PermManager(PermManagerUpdate),
 }
 
@@ -53,6 +53,7 @@ pub enum OnChainEvent {
     Gauge(GaugeWeighted),
     Pool(PoolCreated),
     PermManagerUpdate(SuspendedPools),
+    NewWeightingPoll(ActivePools),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for StatelessOnChainEvent
@@ -88,7 +89,7 @@ where
             .or_else(|| GaugeCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Gauge))
             .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Pool))
             .or_else(|| {
-                WeightingPollCompleted::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
+                WeightingPollOutput::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
             })
             .or_else(|| PermManagerUpdate::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PermManager))
     }
@@ -101,6 +102,7 @@ impl OnChainEvent {
             OnChainEvent::Gauge(fe) => Some(fe.pool_id),
             OnChainEvent::Pool(fe) => Some(fe.pool_id),
             OnChainEvent::PermManagerUpdate(_) => None,
+            OnChainEvent::NewWeightingPoll(_) => None,
         }
     }
 }
@@ -459,15 +461,17 @@ pub struct GaugeWeighted {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("WeightingPollCompleted (distribution = {}, total_poll_weight = {}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
-pub struct WeightingPollCompleted {
+#[display("WeightingPollOutput (distribution = {}, total_poll_weight = {:?}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
+pub struct WeightingPollOutput {
+    /// Note that farms in the distribution are guarateed to be active by the WP Factory.
     pub distribution: Vec<(FarmId, u64)>,
-    /// Total number of voting tokens used in the poll.
-    pub total_poll_weight: u64,
+    /// Total number of voting tokens used in the poll. Note: this field is None if no votes have
+    /// been cast yet, which is the case for newly-created weighting polls.
+    pub total_poll_weight: Option<u64>,
     pub epoch: Epoch,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollCompleted
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollOutput
 where
     Cx: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
@@ -486,17 +490,17 @@ where
                 network_id: ctx.select::<NetworkId>(),
             };
 
-            WeightingPollSnapshot::try_from_ledger(output, &ctx).and_then(|wp_snapshot| {
+            WeightingPollSnapshot::try_from_ledger(output, &ctx).map(|wp_snapshot| {
                 let wp = wp_snapshot.get();
 
                 // Note: if this field in `WeightingPoll` is None then it means voting hasn't
                 // occurred.
-                let total_poll_weight = wp.weighting_power?;
-                Some(Self {
+                let total_poll_weight = wp.weighting_power;
+                Self {
                     distribution: wp.distribution.clone(),
                     epoch: Epoch::from(wp.epoch as u64),
                     total_poll_weight,
-                })
+                }
             })
         })
     }
@@ -578,6 +582,19 @@ impl Has<NetworkId> for WPollCtx {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// List of active pools for an epoch as obtained by first extracting all active farms from
+/// `weighting_poll` distribution field, and then mapping each farm to its corresponding pool.
+pub struct ActivePools(pub Epoch, pub Vec<PoolId>);
+
+impl Display for ActivePools {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ActivePools({:?})", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// List of suspended pools obtained by first extracting all suspended farms from `perm_manager`,
+/// and then mapping each farm to its corresponding pool.
 pub struct SuspendedPools(pub Vec<PoolId>);
 
 impl Display for SuspendedPools {

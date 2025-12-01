@@ -165,36 +165,54 @@ pub(crate) fn parse_account_to_pools_index(key: Vec<u8>) -> Option<(Credential, 
 
 const TUPLE_PREFIX: u8 = 0x92;
 
-// Unconfirmed LP events
-// key: [slot:index], value: [event]
+/// Unconfirmed LP events.
+/// ```
+/// key: [slot:index], value: [event]
+/// ```
 pub(crate) const EVENTS_CF: &str = "events";
 
-// Accounts
-// key: [pool_id:credential:epoch], value: [account_position]
+/// Accounts.
+/// ```
+/// key: [pool_id:credential:epoch], value: [account_position]
+/// ```
 pub(crate) const ACCOUNT_POSITIONS_CF: &str = "account_positions";
 
-// Accounts to pools mapping
-// key: [credential:pool_id], value: []
+/// Accounts to pools mapping
+/// ```
+/// key: [credential:pool_id], value: []
+/// ```
 pub(crate) const ACCOUNT_POOLS_CF: &str = "account_pools";
 
-// Gauge weights
-// key: [pool_id:epoch], value: [gauge_weight]
+/// Gauge weights
+/// ```
+/// key: [pool_id:epoch], value: [gauge_weight]
+/// ```
 pub(crate) const GAUGE_WEIGHTS_CF: &str = "gauges";
 
-// Suspended pools
-// key: [SUSPENDED_POOLS_PREFIX:slot], value: [suspended_pools]
-// key: [PREV_SUSPENDED_POOLS_SLOT_KEY:slot], value: [prev_suspended_pools_slot]
-// key: [CURRENT_SUSPENDED_POOLS_SLOT_KEY], value: [current_suspended_pools_slot]
+/// Suspended pools
+/// ```
+/// key: [SUSPENDED_POOLS_PREFIX:slot], value: [suspended_pools]
+/// key: [PREV_SUSPENDED_POOLS_SLOT_KEY:slot], value: [prev_suspended_pools_slot]
+/// key: [CURRENT_SUSPENDED_POOLS_SLOT_KEY], value: [current_suspended_pools_slot]
+/// ```
 pub(crate) const SUSPENDED_POOLS_CF: &str = "suspended_pools";
 
-// LQ supply by pool
-// key: [pool_id], value: [lq_supply]
+/// LQ supply by pool
+/// ```
+/// key: [pool_id], value: [lq_supply]
+/// ```
 pub(crate) const POOL_LQ_CF: &str = "pools";
 
-// Key-value store for other stuff
+/// Key-value store for other stuff
 pub(crate) const KV_CF: &str = "aggregates";
 
 pub(crate) const ACCOUNT_FEED_EXPORT_CF: &str = "account_feed_export";
+
+/// Active pools
+/// ```
+/// key: [epoch], value: [Vec<PoolId>]
+/// ```
+pub(crate) const ACTIVE_POOLS_CF: &str = "active_pools";
 
 pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
 
@@ -360,13 +378,39 @@ fn set_prev_suspended_pools_slot(
     tx.put_cf(cf, &slot_key, prev_slot_bytes).unwrap();
 }
 
+fn get_active_pools(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, epoch: Epoch) -> Option<Vec<PoolId>> {
+    tx.get_cf(cf, epoch.unwrap().to_be_bytes())
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<Vec<PoolId>>(&raw).unwrap())
+}
+
+fn set_active_pools(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, epoch: Epoch, pools: &Vec<PoolId>) {
+    tx.put_cf(
+        cf,
+        epoch.unwrap().to_be_bytes(),
+        rmp_serde::to_vec(pools).unwrap(),
+    )
+    .unwrap();
+}
+
+fn rollback_active_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    epoch: Epoch,
+    pools: &Vec<PoolId>,
+) {
+    let curr_active_pools = get_active_pools(tx, cf, epoch).unwrap();
+    assert_eq!(curr_active_pools, *pools);
+    tx.delete_cf(cf, epoch.unwrap().to_be_bytes()).unwrap();
+}
+
 fn suspended_pools_key(slot: Slot) -> Vec<u8> {
     let mut key = SUSPENDED_POOLS_PREFIX.to_vec();
     key.extend(slot.to_be_bytes());
     key
 }
 
-pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
+pub(crate) const COLUMN_FAMILIES: [&str; 9] = [
     EVENTS_CF,
     ACCOUNT_POSITIONS_CF,
     ACCOUNT_POOLS_CF,
@@ -375,6 +419,7 @@ pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
     POOL_LQ_CF,
     KV_CF,
     SUSPENDED_POOLS_CF,
+    ACTIVE_POOLS_CF,
 ];
 
 pub(crate) struct ColumnFamilies<'a> {
@@ -384,6 +429,7 @@ pub(crate) struct ColumnFamilies<'a> {
     pub account_feed_export: &'a ColumnFamily,
     pub gauge_weights: &'a ColumnFamily,
     pub suspended_pools: &'a ColumnFamily,
+    pub active_pools: &'a ColumnFamily,
     pub pool_lq: &'a ColumnFamily,
     pub kv: &'a ColumnFamily,
 }
@@ -397,6 +443,7 @@ impl<'a> ColumnFamilies<'a> {
             account_feed_export: db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap(),
             gauge_weights: db.cf_handle(GAUGE_WEIGHTS_CF).unwrap(),
             suspended_pools: db.cf_handle(SUSPENDED_POOLS_CF).unwrap(),
+            active_pools: db.cf_handle(ACTIVE_POOLS_CF).unwrap(),
             pool_lq: db.cf_handle(POOL_LQ_CF).unwrap(),
             kv: db.cf_handle(KV_CF).unwrap(),
         }

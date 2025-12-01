@@ -373,6 +373,7 @@ impl EventsByPool {
                 Some(pool_created.supply_lq)
             }
             OnChainEvent::PermManagerUpdate(_) => None,
+            OnChainEvent::NewWeightingPoll(_) => None,
         }
     }
 }
