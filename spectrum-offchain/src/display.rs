@@ -1,5 +1,5 @@
-use std::collections::HashSet;
-use std::fmt::{Display, Formatter};
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter, Write};
 
 pub fn display_option<T>(opt: &Option<T>) -> DisplayOption<T> {
     DisplayOption(opt)
@@ -64,4 +64,23 @@ impl<'a, T: Display> Display for DisplaySet<'a, T> {
 
 pub fn display_set<T>(set: &HashSet<T>) -> DisplaySet<T> {
     DisplaySet(set)
+}
+
+pub struct DisplayMap<'a, T1, T2>(&'a HashMap<T1, T2>);
+
+impl<'a, T1: Display, T2: Display> Display for DisplayMap<'a, T1, T2> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("{")?;
+        for (k, v) in self.0 {
+            k.fmt(f)?;
+            f.write_str(" -> ")?;
+            v.fmt(f)?;
+            f.write_str(", ")?;
+        }
+        f.write_str("}")
+    }
+}
+
+pub fn display_map<T1, T2>(map: &HashMap<T1, T2>) -> DisplayMap<T1, T2> {
+    DisplayMap(map)
 }
