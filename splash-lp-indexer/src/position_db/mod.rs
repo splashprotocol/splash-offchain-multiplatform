@@ -12,6 +12,7 @@ use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::account::{AccountPosition, EpochSlotConversion};
 use crate::onchain::event::SuspendedPools;
 
 pub mod accounts;
@@ -214,11 +215,24 @@ pub(crate) const ACCOUNT_FEED_EXPORT_CF: &str = "account_feed_export";
 /// ```
 pub(crate) const ACTIVE_POOLS_CF: &str = "active_pools";
 
+/// Current slot of lp-indexer. Stored under `KV_CF`.
+/// ```
+/// key: [CURRENT_SLOT_KEY], value: [slot]
+/// ```
 pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
 
 /// To track the last slot that was exported to the Kafka instance. We need this because Kafka does
-/// not perform deduplication.
+/// not perform deduplication. Stored under `KV_CF`.
+/// ```
+/// key: [LAST_EXPORTED_SLOT_KEY], value: [slot]
+/// ```
 pub(crate) const LAST_EXPORTED_SLOT_KEY: [u8; 4] = [1u8; 4];
+
+/// To track the slot to rollback the account positions to. Stored under `KV_CF`.
+/// ```
+/// key: [ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY], value: [Option<slot>]
+/// ```
+pub(crate) const ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY: [u8; 4] = [2u8; 4];
 
 /// To track the current slot of the suspended pools. If mapped to 0_u64, the suspended pools
 /// is not initialized.
@@ -408,6 +422,62 @@ fn suspended_pools_key(slot: Slot) -> Vec<u8> {
     let mut key = SUSPENDED_POOLS_PREFIX.to_vec();
     key.extend(slot.to_be_bytes());
     key
+}
+
+fn get_account_positions_rollback_to_slot(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<Slot> {
+    tx.get_cf(cf, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY)
+        .unwrap()
+        .and_then(|raw| {
+            let slot_bytes: [u8; 8] = raw.as_slice().try_into().ok()?;
+            let slot = u64::from_be_bytes(slot_bytes);
+            Some(slot)
+        })
+}
+
+fn set_account_positions_rollback_to_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
+    tx.put_cf(cf, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY, slot.to_be_bytes())
+        .unwrap();
+}
+
+fn rollback_account_positions<E>(
+    tx: &Transaction<TransactionDB>,
+    cfs: &ColumnFamilies,
+    epoch_converter: E,
+    to_slot: Slot,
+) where
+    E: EpochSlotConversion + Send + Sync + 'static,
+{
+    let current_slot = get_current_slot(&tx, cfs.kv).unwrap();
+    let current_epoch = epoch_converter.to_epoch(current_slot);
+    let rollback_to_epoch = epoch_converter.to_epoch(to_slot);
+
+    let epoch_start = rollback_to_epoch.next().unwrap();
+    let epoch_end = current_epoch.unwrap();
+    // Delete all APs in the epoch range [epoch_start, epoch_end] and rollback any APs in
+    // `rollback_to_epoch` to the slot`to_slot`.
+    {
+        let mut iter_events =
+            tx.iterator_cf_opt(cfs.account_positions, ReadOptions::default(), IteratorMode::Start);
+        while let Some(Ok((position_key, value))) = iter_events.next() {
+            let (_, _, epoch) = parse_position_key(position_key.to_vec()).unwrap();
+            let epoch: u64 = epoch.into();
+            if epoch >= epoch_start && epoch <= epoch_end {
+                tx.delete_cf(cfs.account_positions, position_key).unwrap();
+            } else if epoch == rollback_to_epoch.unwrap() {
+                let mut position = rmp_serde::from_slice::<AccountPosition>(&value).ok().unwrap();
+                position.rollback_to(to_slot);
+                tx.put_cf(
+                    cfs.account_positions,
+                    position_key,
+                    rmp_serde::to_vec_named(&position).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+    }
 }
 
 pub(crate) const COLUMN_FAMILIES: [&str; 9] = [

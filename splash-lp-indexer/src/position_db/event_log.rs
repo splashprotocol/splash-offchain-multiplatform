@@ -1,7 +1,10 @@
+use crate::account::DefaultEpochSlotConversion;
 use crate::onchain::event::OnChainEvent;
 use crate::position_db::{
-    event_key, rollback_active_pools, rollback_suspended_pools, set_active_pools, set_suspended_pools,
-    ColumnFamilies, PositionDB, CURRENT_SLOT_KEY,
+    event_key, gauge_key, get_account_positions_rollback_to_slot, rollback_account_positions,
+    rollback_active_pools, rollback_suspended_pools, set_account_positions_rollback_to_slot,
+    set_active_pools, set_suspended_pools, ColumnFamilies, PositionDB,
+    ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY, CURRENT_SLOT_KEY,
 };
 use async_trait::async_trait;
 use cml_core::Slot;
@@ -17,9 +20,19 @@ pub trait EventLog {
 impl EventLog for PositionDB {
     async fn batch_append(&self, block_slot: Slot, events: Vec<OnChainEvent>) {
         let db = self.db.clone();
+        let epoch_start = self.epoch_start;
+        let num_slots_in_epoch = self.num_slots_in_epoch;
         spawn_blocking(move || {
             let cfs = ColumnFamilies::new(&db);
             let tx = db.transaction();
+
+            if let Some(rollback_to_slot) = get_account_positions_rollback_to_slot(&tx, cfs.kv) {
+                let epoch_converter = DefaultEpochSlotConversion::new(epoch_start, num_slots_in_epoch);
+                rollback_account_positions(&tx, &cfs, epoch_converter, rollback_to_slot);
+                tx.delete_cf(cfs.kv, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY)
+                    .unwrap();
+            }
+
             tx.put_cf(&cfs.kv, CURRENT_SLOT_KEY, rmp_serde::to_vec(&block_slot).unwrap())
                 .unwrap();
             for (n, event) in events.iter().enumerate() {
@@ -37,6 +50,7 @@ impl EventLog for PositionDB {
                     }
                 }
             }
+
             tx.commit().unwrap();
         })
         .await
@@ -57,11 +71,17 @@ impl EventLog for PositionDB {
                         rollback_active_pools(&tx, cfs.active_pools, active_pools.0, &active_pools.1);
                     }
                     _ => {
+                        if let OnChainEvent::Gauge(gauge) = event {
+                            tx.delete_cf(cfs.gauge_weights, gauge_key(gauge.pool_id, gauge.epoch))
+                                .unwrap();
+                        }
                         let key = event_key(block_slot, n);
                         tx.delete_cf(cfs.events, key).unwrap();
                     }
                 }
             }
+
+            set_account_positions_rollback_to_slot(&tx, cfs.kv, block_slot);
             tx.commit().unwrap();
         })
         .await

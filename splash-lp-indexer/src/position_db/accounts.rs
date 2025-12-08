@@ -57,20 +57,23 @@ impl Accounts for PositionDB {
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
                 .unwrap();
+            if current_slot < epoch_start {
+                return None;
+            }
             let current_epoch = Epoch::unsafe_from_slot(
                 current_slot - confirmation_delay_slots,
                 num_slots_in_epoch,
                 epoch_start,
             );
-            let SuspendedPools(suspended_pools) = {
+            let suspended_pools = {
                 let tx = db.transaction();
-                get_current_suspended_pools(&tx, cfs.suspended_pools)?
+                get_current_suspended_pools(&tx, cfs.suspended_pools)
             };
             let mut max_epoch = Epoch::from(0);
             let mut active_pools_by_epoch: HashMap<Epoch, Vec<PoolId>> = HashMap::new();
             let account_positions: u64 = account_pools
                 .map(|pid| {
-                    if suspended_pools.contains(&pid) {
+                    if suspended_pools.is_some() && suspended_pools.as_ref().unwrap().0.contains(&pid) {
                         return 0;
                     }
 
@@ -108,10 +111,11 @@ impl Accounts for PositionDB {
                                 .unwrap()
                                 .and_then(|v| rmp_serde::from_slice::<GaugeWeight>(&v).ok())?;
                             trace!(
-                                "position_epoch: {}, max_epoch: {}, current_epoch: {}",
+                                "position_epoch: {}, max_epoch: {}, current_epoch: {}, position: {:?}",
                                 position_epoch,
                                 max_epoch,
-                                current_epoch
+                                current_epoch,
+                                position
                             );
                             if position_epoch > max_epoch
                                 && position_epoch < current_epoch

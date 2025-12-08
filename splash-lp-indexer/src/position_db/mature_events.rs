@@ -166,7 +166,11 @@ fn sync_account_positions(
     epoch_start: Slot,
 ) -> HashMap<(Credential, Epoch), AccountPosition> {
     let current_epoch = Epoch::unsafe_from_slot(current_slot, slots_in_epoch, epoch_start);
-    trace!("prepare positions for update. current epoch: {:?}", current_epoch);
+    trace!(
+        "prepare positions for update. current epoch: {:?}, latest account positions: {:?}",
+        current_epoch,
+        latest_account_positions
+    );
     let mut positions_for_update: HashMap<(Credential, Epoch), AccountPosition> = HashMap::new();
 
     let mut account_positions_in_current_epoch = HashMap::new();
