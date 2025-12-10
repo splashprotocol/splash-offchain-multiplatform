@@ -77,13 +77,13 @@ pub fn atomic_block_flow<Upstream, Cache>(
         Upstream,
         UnboundedSender<(
             BlockEvents<Either<BabbageTransaction, Transaction>>,
-            Option<TransactionHandle>,
+            TransactionHandle,
         )>,
         Cache,
     >,
     UnboundedReceiver<(
         BlockEvents<Either<BabbageTransaction, Transaction>>,
-        Option<TransactionHandle>,
+        TransactionHandle,
     )>,
 ) {
     let (snd, recv) = mpsc::unbounded();
@@ -111,7 +111,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
         Upstream: Stream<Item = ChainUpgrade<MultiEraBlock>> + Unpin + Send,
         Downstream: Sink<(
                 BlockEvents<Either<BabbageTransaction, Transaction>>,
-                Option<TransactionHandle>,
+                TransactionHandle,
             )> + Unpin
             + Send,
         Downstream::Error: Debug,
@@ -152,7 +152,9 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                 block_num: hdr.block_number(),
                 block_slot: hdr.slot(),
             };
-            downstream.send((applied_txs, None)).await.unwrap();
+            let (snd, recv) = oneshot::channel();
+            downstream.send((applied_txs, snd.into())).await.unwrap();
+            recv.await.unwrap();
         }
         let mut upstream = upstream.fuse();
         loop {
@@ -173,7 +175,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                         block_slot: hdr.slot(),
                     };
                     let (snd, recv) = oneshot::channel();
-                    downstream.send((applied_txs, Some(snd.into()))).await.unwrap();
+                    downstream.send((applied_txs, snd.into())).await.unwrap();
                     recv.await.unwrap();
                     cache_block(cache.clone(), &hdr, blk_bytes).await;
                 }
@@ -201,7 +203,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                         block_slot,
                                     };
                                     let (snd, recv) = oneshot::channel();
-                                    downstream.send((unapplied_txs, Some(snd.into()))).await.unwrap();
+                                    downstream.send((unapplied_txs, snd.into())).await.unwrap();
                                     recv.await.unwrap();
                                     cache.delete(tip).await;
                                     cache.set_tip(prev_point).await;

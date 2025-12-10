@@ -7,15 +7,13 @@ use log::trace;
 
 pub async fn log_onchain_events<U, Log>(upstream: U, log: &Log)
 where
-    U: Stream<Item = (BlockEvents<OnChainEvent>, Option<TransactionHandle>)>,
+    U: Stream<Item = (BlockEvents<OnChainEvent>, TransactionHandle)>,
     Log: EventLog,
 {
     upstream
         .for_each(|(block, transaction_handle)| async move {
             log_event(block, log).await;
-            if let Some(transaction_handle) = transaction_handle {
-                transaction_handle.commit();
-            }
+            transaction_handle.commit();
         })
         .await
 }

@@ -42,13 +42,13 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
     U: Stream<
             Item = (
                 BlockEvents<Either<BabbageTransaction, Transaction>>,
-                Option<TransactionHandle>,
+                TransactionHandle,
             ),
         > + FusedStream
         + Unpin,
     S: Sink<(
             BlockEvents<OnChainEvent<FarmId, OutputRef, FinalizedTxOut>>,
-            Option<TransactionHandle>,
+            TransactionHandle,
         )> + Unpin
         + Clone,
     Tx: Sink<(TransactionHash, u64)> + Unpin + Clone,

@@ -42,7 +42,7 @@ pub async fn event_pipeline<U, Log, Cx, Utxos, Gauges>(
     U: Stream<
         Item = (
             BlockEvents<Either<BabbageTransaction, Transaction>>,
-            Option<TransactionHandle>,
+            TransactionHandle,
         ),
     >,
     Log: EventLog + Accounts,
