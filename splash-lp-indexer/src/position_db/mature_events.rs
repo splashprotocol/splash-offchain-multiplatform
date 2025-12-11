@@ -38,13 +38,13 @@ impl MatureEvents for PositionDB {
                 {
                     let mut iter_events =
                         tx.iterator_cf_opt(cfs.events, ReadOptions::default(), IteratorMode::Start);
-                    let mut next_mature_slot = None;
+                    let mut next_mature_event_slot = None;
                     let mut events = vec![];
                     let mut export_events = vec![];
                     while let Some(Ok((event_key, value))) = iter_events.next() {
                         let (event_slot, _) = from_event_key(event_key.clone().to_vec()).unwrap();
                         trace!("event slot: {}", event_slot);
-                        if let Some(next_mature_slot) = next_mature_slot {
+                        if let Some(next_mature_slot) = next_mature_event_slot {
                             // We're processing events by one block (slot) at a time
                             if next_mature_slot != event_slot {
                                 trace!(
@@ -68,7 +68,7 @@ impl MatureEvents for PositionDB {
                                 );
                                 return false;
                             }
-                            next_mature_slot = Some(event_slot);
+                            next_mature_event_slot = Some(event_slot);
                         };
                         let event = rmp_serde::from_slice::<OnChainEvent>(&value).unwrap();
                         trace!("deleting event at slot: {}: {:?}", event_slot, event);
@@ -77,9 +77,9 @@ impl MatureEvents for PositionDB {
                         }
                         tx.delete_cf(cfs.events, event_key).unwrap();
                     }
-                    if let Some(current_slot) = next_mature_slot {
+                    if let Some(current_event_slot) = next_mature_event_slot {
                         let last_exported_slot = get_last_exported_slot(&tx, cfs.kv).unwrap_or(0);
-                        let should_create_export_events = current_slot > last_exported_slot;
+                        let should_create_export_events = current_event_slot > last_exported_slot;
                         let events_by_pool = aggregate_events(events, &tx, &cfs);
                         for (pool_id, pool_events) in events_by_pool {
                             let pool_key = pool_key(pool_id);
@@ -87,9 +87,21 @@ impl MatureEvents for PositionDB {
                             if let Some(pool_lp_supply) = pool_events.lp_supply.or(old_lp_supply) {
                                 let latest_account_positions =
                                     get_latest_account_positions(&db, cfs.account_positions, pool_key);
-                                if current_slot >= epoch_start {
-                                    let current_epoch =
-                                        Epoch::unsafe_from_slot(current_slot, slots_in_epoch, epoch_start);
+                                if current_event_slot >= epoch_start {
+                                    let current_epoch = Epoch::unsafe_from_slot(
+                                        current_event_slot,
+                                        slots_in_epoch,
+                                        epoch_start,
+                                    );
+
+                                    // If the latest account position is more recent than
+                                    // `current_epoch`, do not modify it.
+                                    if let Some((latest_epoch, _)) = latest_account_positions.values().next()
+                                    {
+                                        if *latest_epoch > current_epoch {
+                                            return false;
+                                        }
+                                    }
                                     for GaugeWeighted {
                                         pool_id,
                                         weight,
@@ -109,7 +121,7 @@ impl MatureEvents for PositionDB {
                                         let positions_for_update = sync_account_positions(
                                             pool_events.account_frames,
                                             latest_account_positions,
-                                            current_slot,
+                                            current_event_slot,
                                             pool_lp_supply,
                                             slots_in_epoch,
                                             epoch_start,
@@ -140,11 +152,8 @@ impl MatureEvents for PositionDB {
                         }
                         if !export_events.is_empty() {
                             export_feed::batch_append(&tx, export_events, cfs.account_feed_export);
-                            set_last_exported_slot(&tx, cfs.kv, current_slot);
+                            set_last_exported_slot(&tx, cfs.kv, current_event_slot);
                         }
-                    } else {
-                        assert!(events.is_empty());
-                        return false;
                     }
                 }
                 tx.commit().unwrap();
@@ -166,11 +175,13 @@ fn sync_account_positions(
     epoch_start: Slot,
 ) -> HashMap<(Credential, Epoch), AccountPosition> {
     let current_epoch = Epoch::unsafe_from_slot(current_slot, slots_in_epoch, epoch_start);
-    trace!(
-        "prepare positions for update. current epoch: {:?}, latest account positions: {:?}",
-        current_epoch,
-        latest_account_positions
-    );
+    if !latest_account_positions.is_empty() {
+        trace!(
+            "prepare positions for update. current epoch: {:?}, latest account positions: {:?}",
+            current_epoch,
+            latest_account_positions
+        );
+    }
     let mut positions_for_update: HashMap<(Credential, Epoch), AccountPosition> = HashMap::new();
 
     let mut account_positions_in_current_epoch = HashMap::new();
@@ -210,6 +221,11 @@ fn sync_account_positions(
             } else {
                 current_position
                     .extend_current_share_to(position_epoch.last_slot(slots_in_epoch, epoch_start));
+                trace!(
+                    "extend current position {:?} to the last slot of the previous epoch: {:?}",
+                    current_position,
+                    position_epoch
+                );
                 positions_for_update
                     .insert((account_cred.clone(), *position_epoch), current_position.clone());
 
