@@ -2,17 +2,18 @@ use cml_chain::certs::Credential;
 use cml_core::serialization::{Deserialize, Serialize};
 use cml_core::Slot;
 use rocksdb::{
-    ColumnFamily, DBCommon, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
-    SingleThreaded, SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
+    ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
+    SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
-use splash_yf_offchain::ve_config::VeConfig;
 use splash_yf_offchain::Epoch;
-use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
+
+use crate::account::{AccountPosition, EpochSlotConversion};
+use crate::onchain::event::SuspendedPools;
 
 pub mod accounts;
 pub mod event_log;
@@ -23,11 +24,17 @@ pub mod mature_events;
 pub struct PositionDB {
     pub db: Arc<TransactionDB>,
     pub confirmation_delay_slots: u64,
-    pub ve_config: VeConfig,
+    pub num_slots_in_epoch: u64,
+    pub epoch_start: Slot,
 }
 
 impl PositionDB {
-    pub fn new<P: AsRef<Path>>(db_path: P, confirmation_delay_slots: u64, ve_config: VeConfig) -> Self {
+    pub fn new<P: AsRef<Path>>(
+        db_path: P,
+        confirmation_delay_slots: u64,
+        num_slots_in_epoch: u64,
+        epoch_start: Slot,
+    ) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
@@ -35,7 +42,8 @@ impl PositionDB {
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, COLUMN_FAMILIES).unwrap()),
             confirmation_delay_slots,
-            ve_config,
+            num_slots_in_epoch,
+            epoch_start,
         }
     }
 }
@@ -158,32 +166,83 @@ pub(crate) fn parse_account_to_pools_index(key: Vec<u8>) -> Option<(Credential, 
 
 const TUPLE_PREFIX: u8 = 0x92;
 
-// Unconfirmed LP events
-// key: [slot:index], value: [event]
+/// Unconfirmed LP events.
+/// ```
+/// key: [slot:index], value: [event]
+/// ```
 pub(crate) const EVENTS_CF: &str = "events";
 
-// Accounts
-// key: [pool_id:credential:epoch], value: [account_position]
+/// Accounts.
+/// ```
+/// key: [pool_id:credential:epoch], value: [account_position]
+/// ```
 pub(crate) const ACCOUNT_POSITIONS_CF: &str = "account_positions";
 
-// Accounts to pools mapping
-// key: [credential:pool_id], value: []
+/// Accounts to pools mapping
+/// ```
+/// key: [credential:pool_id], value: []
+/// ```
 pub(crate) const ACCOUNT_POOLS_CF: &str = "account_pools";
 
-// Gauge weights
-// key: [pool_id:epoch], value: [gauge_weight]
+/// Gauge weights
+/// ```
+/// key: [pool_id:epoch], value: [gauge_weight]
+/// ```
 pub(crate) const GAUGE_WEIGHTS_CF: &str = "gauges";
 
-// LQ supply by pool
-// key: [pool_id], value: [lq_supply]
+/// Suspended pools
+/// ```
+/// key: [SUSPENDED_POOLS_PREFIX:slot], value: [suspended_pools]
+/// key: [PREV_SUSPENDED_POOLS_SLOT_KEY:slot], value: [prev_suspended_pools_slot]
+/// key: [CURRENT_SUSPENDED_POOLS_SLOT_KEY], value: [current_suspended_pools_slot]
+/// ```
+pub(crate) const SUSPENDED_POOLS_CF: &str = "suspended_pools";
+
+/// LQ supply by pool
+/// ```
+/// key: [pool_id], value: [lq_supply]
+/// ```
 pub(crate) const POOL_LQ_CF: &str = "pools";
 
-// Key-value store for other stuff
+/// Key-value store for other stuff
 pub(crate) const KV_CF: &str = "aggregates";
 
 pub(crate) const ACCOUNT_FEED_EXPORT_CF: &str = "account_feed_export";
 
+/// Active pools
+/// ```
+/// key: [epoch], value: [Vec<PoolId>]
+/// ```
+pub(crate) const ACTIVE_POOLS_CF: &str = "active_pools";
+
+/// Current slot of lp-indexer. Stored under `KV_CF`.
+/// ```
+/// key: [CURRENT_SLOT_KEY], value: [slot]
+/// ```
 pub(crate) const CURRENT_SLOT_KEY: [u8; 4] = [0u8; 4];
+
+/// To track the last slot that was exported to the Kafka instance. We need this because Kafka does
+/// not perform deduplication. Stored under `KV_CF`.
+/// ```
+/// key: [LAST_EXPORTED_SLOT_KEY], value: [slot]
+/// ```
+pub(crate) const LAST_EXPORTED_SLOT_KEY: [u8; 4] = [1u8; 4];
+
+/// To track the slot to rollback the account positions to. Stored under `KV_CF`.
+/// ```
+/// key: [ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY], value: [Option<slot>]
+/// ```
+pub(crate) const ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY: [u8; 4] = [2u8; 4];
+
+/// To track the current slot of the suspended pools. If mapped to 0_u64, the suspended pools
+/// is not initialized.
+pub(crate) const CURRENT_SUSPENDED_POOLS_SLOT_KEY: [u8; 4] = [1u8; 4];
+
+/// Prefix for the suspended pools key.
+pub(crate) const SUSPENDED_POOLS_PREFIX: [u8; 4] = [2u8; 4];
+
+/// To track the previous slot of the suspended pools.
+pub(crate) const PREV_SUSPENDED_POOLS_SLOT_KEY: [u8; 4] = [3u8; 4];
 
 pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
     db.get_cf(cf, CURRENT_SLOT_KEY)
@@ -191,7 +250,242 @@ pub(crate) fn get_current_slot(db: &Transaction<TransactionDB>, cf: &ColumnFamil
         .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
 }
 
-pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
+pub(crate) fn get_last_exported_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
+    tx.get_cf(cf, LAST_EXPORTED_SLOT_KEY)
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
+}
+
+pub(crate) fn set_last_exported_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
+    tx.put_cf(cf, LAST_EXPORTED_SLOT_KEY, rmp_serde::to_vec(&slot).unwrap())
+        .unwrap();
+}
+
+pub(crate) fn get_pool_lp_supply(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    pool_id: PoolId,
+) -> Option<u64> {
+    tx.get_cf(cf, pool_key(pool_id))
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
+}
+
+pub(crate) fn set_pool_lp_supply(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    pool_id: PoolId,
+    lp_supply: u64,
+) {
+    tx.put_cf(cf, pool_key(pool_id), rmp_serde::to_vec(&lp_supply).unwrap())
+        .unwrap();
+}
+
+pub(crate) fn get_current_suspended_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<SuspendedPools> {
+    let current_slot = get_current_suspended_pools_slot(tx, cf)?;
+    tx.get_cf(cf, suspended_pools_key(current_slot))
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<SuspendedPools>(&raw).unwrap())
+}
+
+pub(crate) fn set_suspended_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    suspended_pools: &SuspendedPools,
+    slot: Slot,
+) {
+    let prev_slot = get_current_suspended_pools_slot(tx, cf);
+    set_prev_suspended_pools_slot(tx, cf, slot, prev_slot);
+
+    set_current_suspended_pools_slot(tx, cf, slot);
+
+    tx.put_cf(
+        cf,
+        suspended_pools_key(slot),
+        rmp_serde::to_vec_named(suspended_pools).unwrap(),
+    )
+    .unwrap();
+}
+
+pub(crate) fn rollback_suspended_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    suspended_pools: &SuspendedPools,
+    slot: Slot,
+) {
+    let current_slot = get_current_suspended_pools_slot(tx, cf).unwrap();
+    assert_eq!(current_slot, slot);
+    let curr_suspended_pools = get_current_suspended_pools(tx, cf).unwrap();
+    assert_eq!(curr_suspended_pools, *suspended_pools);
+
+    tx.delete_cf(cf, suspended_pools_key(current_slot)).unwrap();
+
+    let prev_slot = get_prev_suspended_pools_slot(tx, cf, current_slot);
+    if let Some(prev_slot) = prev_slot {
+        set_current_suspended_pools_slot(tx, cf, prev_slot);
+    }
+}
+
+fn get_current_suspended_pools_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -> Option<Slot> {
+    tx.get_cf(cf, CURRENT_SUSPENDED_POOLS_SLOT_KEY)
+        .unwrap()
+        .and_then(|raw| {
+            let slot_bytes: [u8; 8] = raw.as_slice().try_into().ok()?;
+            let slot = u64::from_be_bytes(slot_bytes);
+            if slot > 0 {
+                Some(slot)
+            } else {
+                None
+            }
+        })
+}
+
+fn set_current_suspended_pools_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
+    let old_slot = get_current_suspended_pools_slot(tx, cf);
+    let mut prev_slot_key = PREV_SUSPENDED_POOLS_SLOT_KEY.to_vec();
+    prev_slot_key.extend(slot.to_be_bytes());
+    if let Some(old_slot) = old_slot {
+        tx.put_cf(cf, &prev_slot_key, old_slot.to_be_bytes()).unwrap();
+    }
+    tx.put_cf(
+        cf,
+        CURRENT_SUSPENDED_POOLS_SLOT_KEY,
+        rmp_serde::to_vec(&slot).unwrap(),
+    )
+    .unwrap();
+}
+
+fn get_prev_suspended_pools_slot(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    slot: Slot,
+) -> Option<Slot> {
+    let mut prev_slot_key = PREV_SUSPENDED_POOLS_SLOT_KEY.to_vec();
+    prev_slot_key.extend(slot.to_be_bytes());
+    tx.get_cf(cf, &prev_slot_key).unwrap().and_then(|raw| {
+        let slot_bytes: [u8; 8] = raw.as_slice().try_into().ok()?;
+        let slot = u64::from_be_bytes(slot_bytes);
+        if slot > 0 {
+            Some(slot)
+        } else {
+            None
+        }
+    })
+}
+
+fn set_prev_suspended_pools_slot(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    slot: Slot,
+    prev_slot: Option<Slot>,
+) {
+    let prev_slot_bytes = if let Some(prev_slot) = prev_slot {
+        prev_slot.to_be_bytes()
+    } else {
+        0_u64.to_be_bytes()
+    };
+    let mut slot_key = PREV_SUSPENDED_POOLS_SLOT_KEY.to_vec();
+    slot_key.extend(slot.to_be_bytes());
+    tx.put_cf(cf, &slot_key, prev_slot_bytes).unwrap();
+}
+
+fn get_active_pools(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, epoch: Epoch) -> Option<Vec<PoolId>> {
+    tx.get_cf(cf, epoch.unwrap().to_be_bytes())
+        .unwrap()
+        .map(|raw| rmp_serde::from_slice::<Vec<PoolId>>(&raw).unwrap())
+}
+
+fn set_active_pools(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, epoch: Epoch, pools: &Vec<PoolId>) {
+    tx.put_cf(
+        cf,
+        epoch.unwrap().to_be_bytes(),
+        rmp_serde::to_vec(pools).unwrap(),
+    )
+    .unwrap();
+}
+
+fn rollback_active_pools(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+    epoch: Epoch,
+    pools: &Vec<PoolId>,
+) {
+    let curr_active_pools = get_active_pools(tx, cf, epoch).unwrap();
+    assert_eq!(curr_active_pools, *pools);
+    tx.delete_cf(cf, epoch.unwrap().to_be_bytes()).unwrap();
+}
+
+fn suspended_pools_key(slot: Slot) -> Vec<u8> {
+    let mut key = SUSPENDED_POOLS_PREFIX.to_vec();
+    key.extend(slot.to_be_bytes());
+    key
+}
+
+/// Get the slot number after last chain-rollback. Once a block is appended, we will use this slot
+/// number to first apply rollback on the `AccountPosition`s.
+fn get_account_positions_rollback_to_slot(
+    tx: &Transaction<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<Slot> {
+    tx.get_cf(cf, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY)
+        .unwrap()
+        .and_then(|raw| {
+            let slot_bytes: [u8; 8] = raw.as_slice().try_into().ok()?;
+            let slot = u64::from_be_bytes(slot_bytes);
+            Some(slot)
+        })
+}
+
+/// Store the slot number after last chain-rollback. It's possible to rollback a number of blocks
+/// but as far as `AccountPosition`s are concerned, we only need to rollback to the slot number of
+/// the last rollback.
+fn set_account_positions_rollback_to_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
+    tx.put_cf(cf, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY, slot.to_be_bytes())
+        .unwrap();
+}
+
+fn rollback_account_positions<E>(
+    tx: &Transaction<TransactionDB>,
+    cfs: &ColumnFamilies,
+    epoch_converter: E,
+    to_slot: Slot,
+) where
+    E: EpochSlotConversion + Send + Sync + 'static,
+{
+    let current_slot = get_current_slot(&tx, cfs.kv).unwrap();
+    let current_epoch = epoch_converter.to_epoch(current_slot);
+    let rollback_to_epoch = epoch_converter.to_epoch(to_slot);
+
+    let epoch_start = rollback_to_epoch.next().unwrap();
+    let epoch_end = current_epoch.unwrap();
+    // Delete all APs in the epoch range [epoch_start, epoch_end] and rollback any APs in
+    // `rollback_to_epoch` to the slot`to_slot`.
+    {
+        let mut iter_events =
+            tx.iterator_cf_opt(cfs.account_positions, ReadOptions::default(), IteratorMode::Start);
+        while let Some(Ok((position_key, value))) = iter_events.next() {
+            let (_, _, epoch) = parse_position_key(position_key.to_vec()).unwrap();
+            let epoch: u64 = epoch.into();
+            if epoch >= epoch_start && epoch <= epoch_end {
+                tx.delete_cf(cfs.account_positions, position_key).unwrap();
+            } else if epoch == rollback_to_epoch.unwrap() {
+                let mut position = rmp_serde::from_slice::<AccountPosition>(&value).ok().unwrap();
+                position.rollback_to(to_slot);
+                tx.put_cf(
+                    cfs.account_positions,
+                    position_key,
+                    rmp_serde::to_vec_named(&position).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+    }
+}
+
+pub(crate) const COLUMN_FAMILIES: [&str; 9] = [
     EVENTS_CF,
     ACCOUNT_POSITIONS_CF,
     ACCOUNT_POOLS_CF,
@@ -199,6 +493,8 @@ pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
     GAUGE_WEIGHTS_CF,
     POOL_LQ_CF,
     KV_CF,
+    SUSPENDED_POOLS_CF,
+    ACTIVE_POOLS_CF,
 ];
 
 pub(crate) struct ColumnFamilies<'a> {
@@ -207,6 +503,8 @@ pub(crate) struct ColumnFamilies<'a> {
     pub account_pools: &'a ColumnFamily,
     pub account_feed_export: &'a ColumnFamily,
     pub gauge_weights: &'a ColumnFamily,
+    pub suspended_pools: &'a ColumnFamily,
+    pub active_pools: &'a ColumnFamily,
     pub pool_lq: &'a ColumnFamily,
     pub kv: &'a ColumnFamily,
 }
@@ -219,6 +517,8 @@ impl<'a> ColumnFamilies<'a> {
             account_pools: db.cf_handle(ACCOUNT_POOLS_CF).unwrap(),
             account_feed_export: db.cf_handle(ACCOUNT_FEED_EXPORT_CF).unwrap(),
             gauge_weights: db.cf_handle(GAUGE_WEIGHTS_CF).unwrap(),
+            suspended_pools: db.cf_handle(SUSPENDED_POOLS_CF).unwrap(),
+            active_pools: db.cf_handle(ACTIVE_POOLS_CF).unwrap(),
             pool_lq: db.cf_handle(POOL_LQ_CF).unwrap(),
             kv: db.cf_handle(KV_CF).unwrap(),
         }

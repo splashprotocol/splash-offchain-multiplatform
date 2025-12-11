@@ -135,7 +135,7 @@ async fn main() {
             deploy(&mut op_inputs, config, existing_splash_policy_id).await;
         }
         Command::CreateFarm => {
-            create_initial_farms(&op_inputs).await;
+            create_initial_farms(&op_inputs, PoolId::random()).await;
         }
         Command::MakeVotingEscrow { assets_json_path } => {
             let s = std::fs::read_to_string(assets_json_path)
@@ -532,12 +532,13 @@ async fn deploy<'a>(
 
     op_inputs.deployment_progress = deployment_progress;
 
-    for ix in 0..deployment_config.num_initial_farms {
+    for (ix, farm) in deployment_config.initial_farms.iter().enumerate() {
         println!(
             "FARM {} -----------------------------------------------------------------------",
             ix
         );
-        create_initial_farms(op_inputs).await;
+        let pool_id = PoolId::from(Token(farm.policy_id, farm.asset_name.clone().into()));
+        create_initial_farms(op_inputs, pool_id).await;
     }
     deployment_config
 }
@@ -586,6 +587,7 @@ async fn create_dao_entities(
         minted_tokens.factory_auth.clone(),
         minted_tokens.inflation_auth.clone(),
         minted_tokens.wp_factory_auth.clone(),
+        minted_tokens.buffer_wallet.clone(),
         splash_built_policy,
     ];
     let utxos = collect_utxos(addr, 5_000_000, required_tokens.clone(), &collateral, explorer).await;
@@ -709,7 +711,7 @@ async fn create_dao_entities(
 
     // wp_factory ----------------------------------------------------------------------------------
 
-    let active_farms = (0..deployment_config.num_initial_farms)
+    let active_farms = (0..deployment_config.initial_farms.len() as u32)
         .map(|farm_id| {
             let name = spectrum_cardano_lib::AssetName::from(compute_farm_name(farm_id));
             FarmId(name)
@@ -804,7 +806,10 @@ async fn create_dao_entities(
         minted_tokens.buffer_wallet.asset_name.clone(),
         1_u64,
     );
-    let merkle_tree = MerkleTree::<Keccak256>::new();
+    let mut merkle_tree = MerkleTree::<Keccak256>::new();
+    let mut leaves = vec![[0; 32]];
+    merkle_tree.append(&mut leaves);
+    merkle_tree.commit();
     let merkle_tree_root_hash_digest = merkle_tree.root().unwrap().to_vec();
 
     let buffer_wallet_datum = BufferWalletConfig {
@@ -1338,7 +1343,7 @@ async fn create_redeem_voting_escrow_onchain_order(
     OutputRef::new(tx_hash, 0)
 }
 
-async fn create_initial_farms(op_inputs: &OperationInputs) {
+async fn create_initial_farms(op_inputs: &OperationInputs, pool_id: PoolId) {
     let OperationInputs {
         explorer,
         addr,
@@ -1483,7 +1488,6 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     smart_farm_assets.set(protocol_deployment.smart_farm.hash, mint_farm_auth_asset_name, 1);
     let perm_manager_auth_policy = deployment_config.minted_deployment_tokens.perm_auth.policy_id;
 
-    let pool_id = PoolId::random();
     let smart_farm_datum_pd = SmartFarmConfig {
         perm_manager_auth_policy,
         pool_id,

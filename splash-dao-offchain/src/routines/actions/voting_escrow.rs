@@ -1071,7 +1071,8 @@ where
         }
 
         let ve_factory_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
-        let redeem_ve_order_deployed_validator = self.ctx.select::<DeployedValidator<{ VeFactory as u8 }>>();
+        let redeem_ve_order_deployed_validator =
+            self.ctx.select::<DeployedValidator<{ RedeemVeOrder as u8 }>>();
         let voting_escrow_deployed_validator = self
             .ctx
             .select::<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>();

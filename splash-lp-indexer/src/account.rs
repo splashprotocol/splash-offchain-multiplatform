@@ -1,148 +1,339 @@
 use crate::onchain::event::PositionEvent;
 use cml_core::Slot;
+use log::info;
 use serde::{Deserialize, Serialize};
+use splash_yf_offchain::Epoch;
 
-#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+/// Represents a user's share of a liquidity pool over a single epoch.
+/// The position is a step function of the form:
+/// ```text
+///         ^                             * endpoint included
+///         |             *----O          O endpoint excluded
+///  share  |        *----O
+///         |   *----O
+///         +----------------------->
+///         0   10   20   30   40 (slot #)
+/// ```
+/// In the above graph, we have a single epoch from slot 0 to slot 40. The user's first
+/// deposit occurs at slot 10. Subsequent events on the pool occur at slot 20 and slot 30,
+/// such that the user's share of the pool increases each time.
+///
+/// Note that for a given liquidity pool, its total LP supply is partitioned by all
+/// `AccountPosition`s (APs) in the pool. In addition, any change (deposit or redeem) to one AP
+/// results in a change all other APs in the pool. This means that all the APs in the pool have
+/// jumps in their pool-share profile at the same slots (i.e. same positions along the x-axis).
+///
+/// Finally, note the use of right-open intervals. This allows for simplified calculations free of
+/// `+- 1` values.
 pub struct AccountPosition {
-    /// Accumulator of avg share over period from `updated_at` to `updated_at`
-    pub avg_share_bps: u64,
-    /// Latest share as (personal_share, total_share)
-    pub share: (u64, u64),
-    pub created_at: Slot,
-    pub updated_at: Slot,
-    pub finalized: bool,
+    pub share_intervals: Vec<ShareInterval>,
 }
 
 impl AccountPosition {
-    pub fn new(current_slot: Slot) -> Self {
+    pub fn new(current_slot: Slot, share: (u64, u64)) -> Self {
         Self {
-            avg_share_bps: 0,
-            share: (0, 1),
-            created_at: current_slot,
-            updated_at: current_slot,
-            finalized: false,
+            share_intervals: vec![ShareInterval::new(current_slot, current_slot, share)],
         }
     }
 
-    pub fn updated(mut self, current_slot: Slot, total_lq: u64, events: Vec<PositionEvent>) -> Self {
-        let prev_avg_share_bps = self.avg_share_bps;
-        let past_period_weight = self.updated_at - self.created_at;
-        let curr_period_weight = current_slot - self.updated_at;
-        let curr_share_bps = self.share_bps();
-        let new_avg_share_bps_num =
-            prev_avg_share_bps * past_period_weight + curr_share_bps * curr_period_weight;
-        let new_avg_share_bps = new_avg_share_bps_num.checked_div(past_period_weight + curr_period_weight);
-        self.avg_share_bps = new_avg_share_bps.unwrap_or(0);
-        let prev_abs_share = self.share.0;
-        let new_abs_share = events.into_iter().fold(prev_abs_share, |acc, ev| match ev {
-            PositionEvent::Deposit(deposit) => acc.saturating_add(deposit.lp_mint),
-            PositionEvent::Redeem(redeem) => acc.saturating_sub(redeem.lp_burned),
-        });
-        self.share = (new_abs_share, total_lq);
-        self.updated_at = current_slot;
-        self
+    pub fn is_currently_zero_share(&self) -> bool {
+        self.share_intervals.is_empty() || self.share_intervals.last().unwrap().share.0 == 0
     }
 
-    fn share_bps(&self) -> u64 {
-        self.share.0 * 10_000 / self.share.1
+    /// Computes time-weighted average share of the liquidity pool in basis points over the entire epoch.
+    /// (see: https://en.wikipedia.org/wiki/Time-weighted_average_price)
+    pub fn weighted_average_share_bps(&self) -> u64 {
+        if self.share_intervals.is_empty() {
+            return 0;
+        }
+        let start_slot = self.share_intervals.first().unwrap().start;
+        let last_interval = self.share_intervals.last().unwrap();
+        let end_slot = last_interval.end;
+        if end_slot == start_slot {
+            return 0;
+        }
+
+        self.share_intervals
+            .iter()
+            .map(|interval| interval.share_bps())
+            .sum::<u64>()
+            .checked_div(end_slot - start_slot)
+            .unwrap()
+    }
+
+    /// Update position in response to external pool changes (i.e. other users depositing or redeeming).
+    pub fn update_from_external_pool_changes<E>(
+        &mut self,
+        current_slot: Slot,
+        new_pool_lp_supply: u64,
+        converter: &E,
+    ) where
+        E: EpochSlotConversion,
+    {
+        if let Some(current_position) = self.share_intervals.last().map(|interval| interval.share.0) {
+            if current_position > 0 {
+                self.add_new_share_interval(current_slot, (current_position, new_pool_lp_supply), converter);
+            }
+        }
+    }
+
+    /// Update the account position from user event (deposit or redeem).
+    pub fn update_from_user_event<E>(&mut self, current_slot: Slot, event: PositionEvent, converter: &E)
+    where
+        E: EpochSlotConversion,
+    {
+        if let Some((personal_position_lq, _)) = self.get_current_share().map(|interval| interval.share) {
+            match event {
+                PositionEvent::Deposit(deposit) => {
+                    let new_position_lq = personal_position_lq.checked_add(deposit.lp_mint).unwrap();
+                    self.add_new_share_interval(
+                        current_slot,
+                        (new_position_lq, deposit.lp_supply),
+                        converter,
+                    );
+                }
+                PositionEvent::Redeem(redeem) => {
+                    let new_position_lq = personal_position_lq.checked_sub(redeem.lp_burned).unwrap();
+                    self.add_new_share_interval(current_slot, (new_position_lq, redeem.lp_supply), converter);
+                }
+            }
+        } else {
+            match event {
+                PositionEvent::Deposit(deposit) => {
+                    self.add_new_share_interval(
+                        current_slot,
+                        (deposit.lp_mint, deposit.lp_supply),
+                        converter,
+                    );
+                }
+                PositionEvent::Redeem(_) => {
+                    unreachable!("Cannot redeem from an empty position");
+                }
+            }
+        }
+    }
+
+    pub fn extend_current_share_to(&mut self, current_slot: Slot) {
+        self.share_intervals.last_mut().unwrap().extend_to(current_slot);
+    }
+
+    pub fn get_current_share(&self) -> Option<ShareInterval> {
+        self.share_intervals.last().cloned()
+    }
+
+    pub fn rollback_to(&mut self, current_slot: Slot) {
+        if let Some(created_at_slot) = self.share_intervals.first().map(|interval| interval.start) {
+            if created_at_slot > current_slot {
+                self.share_intervals.clear();
+                return;
+            }
+        }
+        self.share_intervals.retain(|interval| {
+            interval.end <= current_slot || (interval.start <= current_slot && interval.end > current_slot)
+        });
+        if let Some(last_interval) = self.share_intervals.last_mut() {
+            if last_interval.end > current_slot {
+                assert!(last_interval.start <= current_slot);
+                last_interval.end = current_slot;
+            }
+        }
+    }
+
+    /// Add a new share interval to the account position at `current_slot` (representing the present
+    /// time). It's important to note that the new interval added is of zero-width, i.e. `start ==
+    /// end`.
+    fn add_new_share_interval<E>(&mut self, current_slot: Slot, share: (u64, u64), converter: &E)
+    where
+        E: EpochSlotConversion,
+    {
+        if let Some(last_interval) = self.share_intervals.last_mut() {
+            assert!(last_interval.end <= current_slot);
+            let last_interval_epoch = converter.to_epoch(last_interval.end);
+            if last_interval_epoch == converter.to_epoch(current_slot) {
+                last_interval.extend_to(current_slot);
+            } else {
+                last_interval.extend_to(converter.last_slot(last_interval_epoch));
+            }
+        }
+        // Clear out all prior intervals with empty weight i.e intervals with zero width.
+        self.share_intervals
+            .retain(|interval| interval.start < interval.end);
+
+        self.share_intervals
+            .push(ShareInterval::new(current_slot, current_slot, share));
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+/// Represents a continuous interval of time where the share of a liquidity pool is constant. Note
+/// that these intervals are right-open, i.e. of the form [start, end)
+pub struct ShareInterval {
+    pub start: Slot,
+    pub end: Slot,
+    pub share: (u64, u64),
+}
+
+impl ShareInterval {
+    pub fn new(start: Slot, end: Slot, share: (u64, u64)) -> Self {
+        Self { start, end, share }
+    }
+
+    /// Extend the right endpoint of the interval to the given slot.
+    pub fn extend_to(&mut self, current_slot: Slot) {
+        self.end = current_slot;
+    }
+
+    /// Calculates the number of basis points of the share of the liquidity pool, weighted by the
+    /// span of time. Note: `self.end` is not included in the calculation (right-open interval).
+    pub fn share_bps(&self) -> u64 {
+        let res = (self.end - self.start) * (self.share.0 * 10_000 / self.share.1);
+        info!(
+            "share_bps: {}, start: {}, end: {}, share: {:?}",
+            res, self.start, self.end, self.share
+        );
+        res
+    }
+}
+
+/// Convert between epochs and slots.
+pub trait EpochSlotConversion {
+    fn to_epoch(&self, slot: Slot) -> Epoch;
+    fn first_slot(&self, epoch: Epoch) -> Slot;
+    fn last_slot(&self, epoch: Epoch) -> Slot;
+}
+
+pub struct DefaultEpochSlotConversion {
+    slots_in_epoch: u64,
+    epoch_start: Slot,
+}
+
+impl DefaultEpochSlotConversion {
+    pub fn new(slots_in_epoch: u64, epoch_start: Slot) -> Self {
+        Self {
+            slots_in_epoch,
+            epoch_start,
+        }
+    }
+}
+
+impl EpochSlotConversion for DefaultEpochSlotConversion {
+    fn to_epoch(&self, slot: Slot) -> Epoch {
+        Epoch::unsafe_from_slot(slot, self.slots_in_epoch, self.epoch_start)
+    }
+
+    fn first_slot(&self, epoch: Epoch) -> Slot {
+        epoch.first_slot(self.slots_in_epoch, self.epoch_start)
+    }
+
+    fn last_slot(&self, epoch: Epoch) -> Slot {
+        epoch.last_slot(self.slots_in_epoch, self.epoch_start)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::account::AccountPosition;
+    use crate::account::{AccountPosition, DefaultEpochSlotConversion};
     use crate::onchain::event::{Deposit, PositionEvent, Redeem};
     use cml_chain::certs::Credential;
     use cml_crypto::Ed25519KeyHash;
     use spectrum_offchain_cardano::data::PoolId;
 
     #[test]
-    fn init_account() {
+    fn deposit_redeem_rollback() {
         let s0 = 10;
         let account_key = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
-        let acc = AccountPosition::new(s0);
         let personal_position_lq = 50_000;
         let total_lq = 1_000_000;
-        let events = vec![PositionEvent::Deposit(Deposit {
-            pool_id: PoolId::random(),
-            account: account_key,
+        let pool_id = PoolId::random();
+        let mut acc = AccountPosition::new(s0, (personal_position_lq, total_lq));
+
+        let s1 = s0 + 10;
+
+        let last_interval = acc.share_intervals.last().unwrap();
+        assert_eq!(last_interval.share, (personal_position_lq, total_lq));
+        assert_eq!(acc.weighted_average_share_bps(), 0);
+
+        acc.extend_current_share_to(s1);
+
+        let first_interval_bps = (s1 - s0) * personal_position_lq * 10_000 / total_lq;
+        assert_eq!(acc.weighted_average_share_bps(), first_interval_bps / 10);
+
+        let s2 = s1 + 60;
+        let personal_position_lq_2 = personal_position_lq * 2;
+        let total_lq_2 = total_lq + personal_position_lq;
+        let event = PositionEvent::Deposit(Deposit {
+            pool_id,
+            account: account_key.clone(),
             lp_mint: personal_position_lq,
-            lp_supply: total_lq,
-        })];
-        let init_acc = acc.updated(s0, total_lq, events);
-        assert_eq!(
-            init_acc,
-            AccountPosition {
-                avg_share_bps: 0,
-                share: (personal_position_lq, total_lq),
-                created_at: s0,
-                updated_at: s0,
-                finalized: false,
-            }
-        );
-    }
-
-    #[test]
-    fn deposit_redeem() {
-        let s0 = 10;
-        let s1 = 20;
-        let s2 = 30;
-        let pid = PoolId::random();
-        let account_key = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
-        let acc = AccountPosition::new(s0);
-        let personal_delta_lq_0 = 500_000;
-        let total_lq_0 = 1_000_000;
-        let events_0 = vec![PositionEvent::Deposit(Deposit {
-            pool_id: pid,
-            account: account_key.clone(),
-            lp_mint: personal_delta_lq_0,
-            lp_supply: total_lq_0,
-        })];
-        let init_acc = acc.updated(s0, total_lq_0, events_0);
-        let personal_delta_lq_1 = 500_000;
-        let total_lq_1 = 4_000_000;
-        let events_1 = vec![PositionEvent::Redeem(Redeem {
-            pool_id: pid,
-            account: account_key.clone(),
-            lp_burned: personal_delta_lq_1,
-            lp_supply: total_lq_1,
-        })];
-        let updated_acc_0 = init_acc.updated(s1, total_lq_1, events_1);
-        let personal_delta_lq_2 = 1_000_000;
-        let total_lq_2 = 4_000_000;
-        let events_2 = vec![PositionEvent::Deposit(Deposit {
-            pool_id: pid,
-            account: account_key,
-            lp_mint: personal_delta_lq_2,
             lp_supply: total_lq_2,
-        })];
-        let updated_acc_2 = updated_acc_0.updated(s2, total_lq_2, events_2);
-        assert_eq!(
-            updated_acc_2,
-            AccountPosition {
-                avg_share_bps: 2500,
-                share: (1000000, 4000000,),
-                updated_at: 30,
-                created_at: 10,
-                finalized: false,
-            },
-        );
+        });
+        let converter = DefaultEpochSlotConversion::new(1000, 0);
+        acc.update_from_user_event(s2, event, &converter);
+        assert_eq!(acc.weighted_average_share_bps(), first_interval_bps / 10);
+
+        let s3 = s2 + 80;
+        acc.extend_current_share_to(s3);
+        let second_interval_bps = (s3 - s2) * personal_position_lq_2 * 10_000 / total_lq_2;
+        let bps_s3 = (second_interval_bps + (s2 - s0) * first_interval_bps / (s1 - s0)) / (s3 - s0);
+        assert_eq!(acc.weighted_average_share_bps(), bps_s3);
+
+        // Extend current share by 1 slot
+        let s4 = s3 + 1;
+        let bps_s4 = (second_interval_bps / (s3 - s2) * (s4 - s2)
+            + (s2 - s0) * first_interval_bps / (s1 - s0))
+            / (s4 - s0);
+        acc.extend_current_share_to(s4);
+        assert_eq!(acc.weighted_average_share_bps(), bps_s4);
+
+        // Redeem entire position
+        let s5 = s4 + 100;
+        let event = PositionEvent::Redeem(Redeem {
+            pool_id,
+            account: account_key,
+            lp_burned: 2 * personal_position_lq,
+            lp_supply: total_lq,
+        });
+        acc.update_from_user_event(s5, event, &converter);
+        assert!(acc.is_currently_zero_share());
+        let bps_s5 = (second_interval_bps / (s3 - s2) * (s5 - s2)
+            + (s2 - s0) * first_interval_bps / (s1 - s0))
+            / (s5 - s0);
+        assert_eq!(acc.weighted_average_share_bps(), bps_s5);
+
+        // Rollback to s4
+        acc.rollback_to(s4);
+        assert!(!acc.is_currently_zero_share());
+        assert_eq!(acc.weighted_average_share_bps(), bps_s4);
+
+        // Rollback to s3
+        acc.rollback_to(s3);
+        assert_eq!(acc.weighted_average_share_bps(), bps_s3);
+
+        // Rollback prior to s0, so that the position should no longer exist.
+        acc.rollback_to(s0 - 1);
+        assert!(acc.is_currently_zero_share());
+        assert_eq!(acc.weighted_average_share_bps(), 0);
     }
 
     #[test]
-    fn flat_share() {
-        let pos = AccountPosition {
-            avg_share_bps: 2500,
-            share: (1000000, 4000000),
-            updated_at: 30,
-            created_at: 10,
-            finalized: false,
-        };
-        let pos1 = pos.updated(30, 4000000, vec![]);
-        let pos2 = pos.updated(130, 4000000, vec![]);
-        assert_eq!(pos1.share, pos.share);
-        assert_eq!(pos1.avg_share_bps, pos.avg_share_bps);
-        assert_eq!(pos2.share, pos.share);
-        assert_eq!(pos2.avg_share_bps, pos.avg_share_bps);
+    fn external_pool_changes() {
+        let s0 = 10;
+        let personal_position_lq = 50_000;
+        let total_lq = 1_000_000;
+        let converter = DefaultEpochSlotConversion::new(1000, 0);
+        let mut acc = AccountPosition::new(s0, (personal_position_lq, total_lq));
+
+        let s1 = s0 + 10;
+        acc.update_from_external_pool_changes(s1, 2 * total_lq, &converter);
+
+        let first_interval_bps = (s1 - s0) * personal_position_lq * 10_000 / total_lq;
+        assert_eq!(acc.weighted_average_share_bps(), first_interval_bps / 10);
+
+        let s2 = s1 + 60;
+        acc.extend_current_share_to(s2);
+        let bps_s2 =
+            (first_interval_bps + (s2 - s1) * personal_position_lq * 10_000 / total_lq / 2) / (s2 - s0);
+        assert_eq!(acc.weighted_average_share_bps(), bps_s2);
     }
 }

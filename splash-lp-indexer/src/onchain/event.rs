@@ -2,6 +2,7 @@ use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use crate::onchain::GaugeWeight;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
+use cml_crypto::Ed25519KeyHash;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -19,6 +20,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
+use splash_dao_offchain::entities::onchain::permission_manager::PermManagerSnapshot;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
 use splash_dao_offchain::entities::onchain::weighting_poll::WeightingPollSnapshot;
@@ -40,7 +42,8 @@ pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     Gauge(GaugeCreated),
     Pool(PoolCreated),
-    WeightingPoll(WeightingPollCompleted),
+    WeightingPoll(WeightingPollOutput),
+    PermManager(PermManagerUpdate),
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
@@ -49,6 +52,8 @@ pub enum OnChainEvent {
     Account(PositionEvent),
     Gauge(GaugeWeighted),
     Pool(PoolCreated),
+    PermManagerUpdate(SuspendedPools),
+    NewWeightingPoll(ActivePools),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for StatelessOnChainEvent
@@ -84,22 +89,25 @@ where
             .or_else(|| GaugeCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Gauge))
             .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Pool))
             .or_else(|| {
-                WeightingPollCompleted::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
+                WeightingPollOutput::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
             })
+            .or_else(|| PermManagerUpdate::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PermManager))
     }
 }
 
 impl OnChainEvent {
-    pub fn pool_id(&self) -> PoolId {
+    pub fn pool_id(&self) -> Option<PoolId> {
         match self {
-            OnChainEvent::Account(dr) => dr.pool_id(),
-            OnChainEvent::Gauge(fe) => fe.pool_id,
-            OnChainEvent::Pool(fe) => fe.pool_id,
+            OnChainEvent::Account(dr) => Some(dr.pool_id()),
+            OnChainEvent::Gauge(fe) => Some(fe.pool_id),
+            OnChainEvent::Pool(fe) => Some(fe.pool_id),
+            OnChainEvent::PermManagerUpdate(_) => None,
+            OnChainEvent::NewWeightingPoll(_) => None,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display, Clone)]
 pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -118,7 +126,8 @@ impl PositionEvent {
             PositionEvent::Redeem(r) => r.account.clone(),
         }
     }
-    pub fn lp_supply(&self) -> u64 {
+    /// Total LP supply of the pool after the event has been applied.
+    pub fn resulting_pool_lp_supply(&self) -> u64 {
         match self {
             PositionEvent::Deposit(d) => d.lp_supply,
             PositionEvent::Redeem(r) => r.lp_supply,
@@ -224,11 +233,13 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Deposit {
     pub pool_id: PoolId,
     pub account: Credential,
+    /// Amount of LP minted by the deposit.
     pub lp_mint: u64,
+    /// Total LP supply of the pool after the deposit.
     pub lp_supply: u64,
 }
 
@@ -263,11 +274,13 @@ fn find_lp_recv(
     })
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Redeem {
     pub pool_id: PoolId,
     pub account: Credential,
+    /// Amount of LP burned by the redeem.
     pub lp_burned: u64,
+    /// Total LP supply of the pool after the redeem.
     pub lp_supply: u64,
 }
 
@@ -448,15 +461,17 @@ pub struct GaugeWeighted {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("WeightingPollCompleted (distribution = {}, total_poll_weight = {}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
-pub struct WeightingPollCompleted {
+#[display("WeightingPollOutput (distribution = {}, total_poll_weight = {:?}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
+pub struct WeightingPollOutput {
+    /// Note that farms in the distribution are guarateed to be active by the WP Factory.
     pub distribution: Vec<(FarmId, u64)>,
-    /// Total number of voting tokens used in the poll.
-    pub total_poll_weight: u64,
+    /// Total number of voting tokens used in the poll. Note: this field is None if no votes have
+    /// been cast yet, which is the case for newly-created weighting polls.
+    pub total_poll_weight: Option<u64>,
     pub epoch: Epoch,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollCompleted
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollOutput
 where
     Cx: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
@@ -475,17 +490,17 @@ where
                 network_id: ctx.select::<NetworkId>(),
             };
 
-            WeightingPollSnapshot::try_from_ledger(output, &ctx).and_then(|wp_snapshot| {
+            WeightingPollSnapshot::try_from_ledger(output, &ctx).map(|wp_snapshot| {
                 let wp = wp_snapshot.get();
 
                 // Note: if this field in `WeightingPoll` is None then it means voting hasn't
                 // occurred.
-                let total_poll_weight = wp.weighting_power?;
-                Some(Self {
+                let total_poll_weight = wp.weighting_power;
+                Self {
                     distribution: wp.distribution.clone(),
                     epoch: Epoch::from(wp.epoch as u64),
                     total_poll_weight,
-                })
+                }
             })
         })
     }
@@ -563,5 +578,85 @@ impl Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>> f
 impl Has<NetworkId> for WPollCtx {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// List of active pools for an epoch as obtained by first extracting all active farms from
+/// `weighting_poll` distribution field, and then mapping each farm to its corresponding pool.
+pub struct ActivePools(pub Epoch, pub Vec<PoolId>);
+
+impl Display for ActivePools {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ActivePools({:?})", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// List of suspended pools obtained by first extracting all suspended farms from `perm_manager`,
+/// and then mapping each farm to its corresponding pool.
+pub struct SuspendedPools(pub Vec<PoolId>);
+
+impl Display for SuspendedPools {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SuspendedPools({:?})", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct PermManagerUpdate {
+    pub authorized_executors: Vec<Ed25519KeyHash>,
+    pub suspended_farms: Vec<FarmId>,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PermManagerUpdate
+where
+    Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+            let output_ref = OutputRef::new(repr.hash, ix as u64);
+            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
+
+            let ctx = PermManagerCtx {
+                timed_output_ref,
+                script_info: ctx.select::<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>(),
+                auth_policy: ctx.select::<PermManagerAuthPolicy>(),
+            };
+
+            PermManagerSnapshot::try_from_ledger(output, &ctx).map(|perm_manager_snapshot| {
+                let perm_manager = perm_manager_snapshot.get();
+                Self {
+                    authorized_executors: perm_manager.datum.authorized_executors.clone(),
+                    suspended_farms: perm_manager.datum.suspended_farms.clone(),
+                }
+            })
+        })
+    }
+}
+
+struct PermManagerCtx {
+    timed_output_ref: TimedOutputRef,
+    auth_policy: PermManagerAuthPolicy,
+    script_info: DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>,
+}
+
+impl Has<TimedOutputRef> for PermManagerCtx {
+    fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
+        self.timed_output_ref
+    }
+}
+
+impl Has<PermManagerAuthPolicy> for PermManagerCtx {
+    fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
+        self.auth_policy.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>> for PermManagerCtx {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }> {
+        self.script_info
     }
 }

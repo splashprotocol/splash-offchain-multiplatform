@@ -3,6 +3,7 @@ use crate::position_db::event_log::EventLog;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::Stream;
 use futures::StreamExt;
+use log::trace;
 
 pub async fn log_onchain_events<U, Log>(upstream: U, log: &Log)
 where
@@ -24,7 +25,16 @@ where
     match events {
         BlockEvents::RollForward {
             events, block_slot, ..
-        } => log.batch_append(block_slot, events).await,
+        } => {
+            if !events.is_empty() {
+                trace!(
+                    "log_event: roll_forward slot: {}, events: {:?}",
+                    block_slot,
+                    events
+                );
+            }
+            log.batch_append(block_slot, events).await
+        }
         BlockEvents::RollBackward {
             events, block_slot, ..
         } => log.batch_discard(block_slot, events).await,

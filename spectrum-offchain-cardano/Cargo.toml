@@ -49,3 +49,4 @@ strum_macros = "0.24.3"
 
 [dev-dependencies]
 rocksdb = "0.22.*"
+bip39 = "2.2.0"

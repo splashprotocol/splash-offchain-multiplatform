@@ -1,42 +1,47 @@
 {
   "factory_auth": {
-    "policy_id": "be1ae5c0c60d1dca30113e4cb2f94ee8eddb6ee6e3d6316b3c019f94",
+    "policy_id": "68c4e9ddef26154b67777ee0aded69d6bb740eb4ea02cc05c47e5983",
     "asset_name": "a4",
     "quantity": "1"
   },
   "wp_factory_auth": {
-    "policy_id": "43ecc63ca36d76042fdac669a140f0495cb7d82eec470f58a4d9a0fd",
+    "policy_id": "cf8d9ceb2811041902892b63392988e913018621c4c8d000256c10e3",
     "asset_name": "a4",
     "quantity": "1"
   },
   "ve_factory_auth": {
-    "policy_id": "2fc4af50dd2d339345d7fc13f9ac5b8dd47d9fe6ae8f40459a912f34",
+    "policy_id": "d9d03f87abe645d15be73585158bba32d300ee4a8b33f156a1a7a70e",
     "asset_name": "a4",
     "quantity": "1"
   },
   "perm_auth": {
-    "policy_id": "2f50134295af8c9197f30e3fd9df164d190bb001d0f5d6c64f8ef48b",
+    "policy_id": "dde14e979e158e518579d9ff5a30cb725bcad286b0ae878c6f85a7f7",
     "asset_name": "a4",
     "quantity": "1"
   },
   "proposal_auth": {
-    "policy_id": "c4d19ee0ac465ffc32f9264398a3a825d861895752e4f9bad74083c7",
+    "policy_id": "eb538f9c1863707922d0d9d42b0cee587ca6b0df3e4ce7e515d45d15",
     "asset_name": "a4",
     "quantity": "1"
   },
   "edao_msig": {
-    "policy_id": "4364178b675b6ca944efa325c8d35ffb453b0a9e2ec1352bc5d33a85",
+    "policy_id": "bd23065f5089f92f281c49543061d7b9a278426d1376a7c8171e1006",
     "asset_name": "a4",
     "quantity": "1"
   },
   "inflation_auth": {
-    "policy_id": "63a4f24efff23238e1ac5158a2b4ce1a7aaf6cebb8c6915f75d972b6",
+    "policy_id": "a06245a8ac00e2814bbd490ee67af4d61373fac78df367e4b8b2c455",
     "asset_name": "a4",
     "quantity": "1"
   },
   "gt": {
-    "policy_id": "27b20af131ddff716b7d32dd29192a65a81a4645f6205bd0e7d2d490",
+    "policy_id": "f85abeb8cfc89bf0e60877856d1045b58fbb683e3383faebf9cd7b43",
     "asset_name": "f4",
     "quantity": "45000000000000000"
+  },
+  "buffer_wallet": {
+    "policy_id": "af94703d2370584d3f6aac9e019f7b0be0d8dee3b58b3ce10ee46b71",
+    "asset_name": "a4",
+    "quantity": "1"
   }
 }

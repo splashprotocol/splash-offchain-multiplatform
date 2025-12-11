@@ -5,7 +5,6 @@ use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
-use splash_yf_offchain::ve_config::VeConfig;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,7 +21,6 @@ pub struct AppConfig {
     pub bootstrap_servers: String,
     pub harvest_limits: HarvestLimits,
     pub splash_policy_id_hex: String,
-    pub ve_config: VeConfig,
 }
 
 #[derive(serde::Deserialize)]

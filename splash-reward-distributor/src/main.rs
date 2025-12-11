@@ -41,7 +41,8 @@ use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::collateral::pull_collateral;
 use splash_dao_offchain::deployment::{
-    DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
+    CompleteDeployment as DaoDeployment, DeploymentProgress as DaoDeploymentProgress,
+    ProtocolDeployment as DaoProtocolDeployment,
 };
 use splash_dao_offchain::funding::FundingRepoRocksDB;
 use std::collections::HashSet;
@@ -69,11 +70,9 @@ async fn run_reward_bot(args: AppArgs) {
 
     let raw_deployment =
         std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
-    let dao_validators: DaoValidators =
+    let dao_deployment: DaoDeploymentProgress =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
-
-    let raw_tokens = std::fs::read_to_string(args.dao_tokens_path).expect("Cannot load DAO assets file");
-    let dao_tokens: ProtocolTokens = serde_json::from_str(&raw_tokens).expect("Invalid deployment file");
+    let dao_deployment = DaoDeployment::try_from((dao_deployment, config.network_id)).unwrap();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -83,7 +82,8 @@ async fn run_reward_bot(args: AppArgs) {
         .await
         .expect("Explorer initialization failed");
 
-    let dao_protocol_deployment = DaoDeployment::unsafe_pull(dao_validators, &explorer).await;
+    let dao_protocol_deployment =
+        DaoProtocolDeployment::unsafe_pull(dao_deployment.deployed_validators, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
@@ -137,11 +137,11 @@ async fn run_reward_bot(args: AppArgs) {
 
     let verifier_runtime_context = VerifierRuntimeContext {
         dao_deployment: dao_protocol_deployment.clone(),
-        dao_tokens,
+        dao_tokens: dao_deployment.minted_deployment_tokens.clone(),
         min_lovelace_per_harvest: config.harvest_limits.minimal_lovelace_per_single_harvest,
         splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
         network_id: config.network_id,
-        genesis_epoch_start_time: config.ve_config.epoch_start.into(),
+        genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
         reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
     };
@@ -182,7 +182,7 @@ async fn run_reward_bot(args: AppArgs) {
     let engine_handle = tokio::spawn(engine);
     processes.push(engine_handle);
 
-    let flow_driver_handle = tokio::spawn(flow_driver.run());
+    let flow_driver_handle = tokio::spawn(flow_driver.run(config.chain_sync.replay_from_point));
     processes.push(flow_driver_handle);
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
@@ -232,11 +232,9 @@ async fn run_verifier(args: AppArgs) {
 
     let raw_deployment =
         std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
-    let dao_validators: DaoValidators =
+    let dao_deployment: DaoDeploymentProgress =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
-
-    let raw_tokens = std::fs::read_to_string(args.dao_tokens_path).expect("Cannot load DAO assets file");
-    let dao_tokens: ProtocolTokens = serde_json::from_str(&raw_tokens).expect("Invalid deployment file");
+    let dao_deployment = DaoDeployment::try_from((dao_deployment, config.network_id)).unwrap();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -246,7 +244,8 @@ async fn run_verifier(args: AppArgs) {
         .await
         .expect("Explorer initialization failed");
 
-    let dao_protocol_deployment = DaoDeployment::unsafe_pull(dao_validators, &explorer).await;
+    let dao_protocol_deployment =
+        DaoProtocolDeployment::unsafe_pull(dao_deployment.deployed_validators, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::<MultiEraBlock>::init(
@@ -282,11 +281,11 @@ async fn run_verifier(args: AppArgs) {
 
     let ctx = VerifierRuntimeContext {
         dao_deployment: dao_protocol_deployment,
-        dao_tokens,
+        dao_tokens: dao_deployment.minted_deployment_tokens.clone(),
         min_lovelace_per_harvest: config.harvest_limits.minimal_lovelace_per_single_harvest,
         splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
         network_id: config.network_id,
-        genesis_epoch_start_time: config.ve_config.epoch_start.into(),
+        genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
         reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
     };
@@ -308,7 +307,7 @@ async fn run_verifier(args: AppArgs) {
     let listener = tokio::net::TcpListener::bind(config.verifier_url).await.unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let flow_driver_handle = tokio::spawn(flow_driver.run());
+    let flow_driver_handle = tokio::spawn(flow_driver.run(config.chain_sync.replay_from_point));
     processes.push(flow_driver_handle);
     let event_pipeline_handle = tokio::spawn(event_pipeline(
         block_events,
@@ -326,7 +325,7 @@ async fn run_verifier(args: AppArgs) {
         onchain_index,
         position_index,
         ChainedRewardTxGraph::new(),
-        config.ve_config.epoch_start.into(),
+        dao_deployment.genesis_epoch_start_time.into(),
         config.network_id,
         OperatorProver::new(config.operator_sk),
     );
@@ -368,8 +367,6 @@ struct AppArgs {
     /// Path to the DAO deployment JSON configuration file .
     #[arg(long)]
     dao_deployment_path: String,
-    #[arg(long)]
-    dao_tokens_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
     validation_rules_path: String,

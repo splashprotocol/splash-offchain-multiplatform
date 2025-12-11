@@ -27,7 +27,7 @@ mod tests {
             account_cred: Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28])),
             pool_id: PoolId::random(),
             epoch: Epoch::from(64),
-            update: AccountPosition::new(1),
+            update: AccountPosition::new(1, (1000000, 2000000)),
         };
         println!("{}", serde_json::to_string(&sample).unwrap());
     }

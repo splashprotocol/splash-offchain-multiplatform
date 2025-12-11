@@ -184,16 +184,10 @@ where
                         ),
                     ];
                     indexed_inputs.sort_by_key(|(input, _)| input.clone());
-                    let perm_manager_input_ix = indexed_inputs
-                        .iter()
-                        .position(|(_, typ)| matches!(typ, DistributeInflationRefInputType::PermManager))
-                        .unwrap() as u32;
 
                     let redeemer = smart_farm::Redeemer {
                         successor_out_ix: 1,
-                        action: smart_farm::Action::DistributeRewards {
-                            perm_manager_input_ix,
-                        },
+                        action: smart_farm::Action::Charge,
                     }
                     .into_pd();
 

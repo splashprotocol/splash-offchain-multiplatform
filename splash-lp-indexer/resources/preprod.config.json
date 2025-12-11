@@ -2,33 +2,33 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        90336103,
-        "b5e26950bb89be23d7df7b62252fbc3293aba4bc3c7eacbad6ccb5ec639cca40"
+        104996733,
+        "0b543a945f6cc046a8b303d9df6e49cb1d6c336dcbd8aebc4dc4bda85ac476d8"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        90336103,
-        "b5e26950bb89be23d7df7b62252fbc3293aba4bc3c7eacbad6ccb5ec639cca40"
+        104996733,
+        "0b543a945f6cc046a8b303d9df6e49cb1d6c336dcbd8aebc4dc4bda85ac476d8"
       ]
     },
     "disableRollbacksUntil": 90336103,
-    "dbPath": "state"
+    "dbPath": "state/lp-indexer"
   },
   "node": {
-    "path": "",
+    "path": "/Users/tling/node-external/node.socket",
     "magic": 1
   },
   "networkId": 0,
   "genesisEpochStartTime": 1723349688000,
   "explorer": {
-    "maestroKeyPath": ""
+    "maestroKeyPath": "splash-lp-indexer/resources/preprod.maestro.key"
   },
   "utxoIndexDbPath": "index/utxo",
   "accountsDbPath": "index/accounts",
   "gaugesDbPath": "index/gauges",
-  "confirmationDelayBlocks": 6,
-  "bootstrapServers": "0.0.0.0:19094",
+  "confirmationDelaySlots": 200,
+  "bootstrapServers": "127.0.0.1:19094",
   "eventsExportTopic": "events_export",
   "harvestLimits": {
     "minimalLovelacePerSingleHarvest": 1000000

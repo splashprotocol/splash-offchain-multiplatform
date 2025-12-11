@@ -49,3 +49,11 @@ rand = "0.8.5"
 rocksdb = "0.22.*"
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 splash-testing = { version = "1.0.0", path = "../splash-testing" }
+
+[features]
+default = []
+enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]
+enable_test_8_hour_epoch = ["splash-dao-offchain/test_8_hour_epoch"]
+
+[profile.release]
+overflow-checks = true

@@ -351,10 +351,7 @@ where
                 EpochRoutineState::DistributionInProgress(_) => unreachable!(),
                 EpochRoutineState::Eliminated => unreachable!(),
             },
-            Some(EpochRoutineState::PendingEliminatePoll(state)) => {
-                error!("eliminating wpoll of previous epoch");
-                self.try_eliminate_poll(state).await
-            }
+            Some(EpochRoutineState::PendingEliminatePoll(state)) => self.try_eliminate_poll(state).await,
             Some(EpochRoutineState::WeightingInProgress(_)) => unreachable!(),
             Some(EpochRoutineState::PendingCreatePoll(_)) => unreachable!(),
             Some(EpochRoutineState::Uninitialized) => unreachable!(),
@@ -532,7 +529,10 @@ impl<
                     let ve_id = onchain_order.order.datum.ve_identifier_token_name;
                     let ve_bundle = self.voting_escrow.read(VotingEscrowId(ve_id)).await?.erased();
                     let ve_version = ve_bundle.0.get().version;
-                    assert_eq!(order_version, ve_version);
+                    if order_version != ve_version {
+                        trace!("DaoOrder::WPollVote: voting order version mismatch: order_version: {}, ve_version: {}", order_version, ve_version);
+                        return None;
+                    }
                     info!("WPOLL voting order with VE_identifier {}", ve_id);
                     Some(NextPendingOrder::Voting {
                         weighting_poll,
@@ -564,7 +564,10 @@ impl<
                     let ve_factory_bundle = self.ve_factory.read(VEFactoryId).await.map(|v| v.erased())?;
                     let ve_bundle = self.voting_escrow.read(VotingEscrowId(ve_id)).await?.erased();
                     let ve_version = ve_bundle.0.get().version;
-                    // assert_eq!(order_version, ve_version);
+                    if order_version != ve_version {
+                        trace!("DaoOrder::ExtendVE: extend order version mismatch: order_version: {}, ve_version: {}", order_version, ve_version);
+                        return None;
+                    }
                     Some(NextPendingOrder::ExtendVotingEscrow {
                         onchain_order,
                         ve_bundle,
@@ -585,7 +588,11 @@ impl<
                         AnyMod::Predicted(ref traced) => traced.state.0 .0.get().version,
                     };
 
-                    assert_eq!(order_version, ve_version);
+                    if order_version != ve_version {
+                        trace!("DaoOrder::RedeemVE: redeem order version mismatch: order_version: {}, ve_version: {}", order_version, ve_version);
+                        return None;
+                    }
+
                     let ve_prev_state_id = match &traced_ve {
                         AnyMod::Confirmed(traced) => traced.prev_state_id,
                         AnyMod::Predicted(traced) => traced.prev_state_id,
@@ -1696,7 +1703,6 @@ impl<
     {
         for epoch in (0..=starting_epoch).rev() {
             if let Some(Either::Right(wp)) = self.weighting_poll(epoch).await {
-                trace!("Checking to eliminate wpoll @epoch {}", epoch);
                 if let PollState::PollExhaustedAndReadyToEliminate =
                     wp.as_erased().0.get().state(genesis, now_millis)
                 {
