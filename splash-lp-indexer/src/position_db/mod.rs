@@ -424,6 +424,8 @@ fn suspended_pools_key(slot: Slot) -> Vec<u8> {
     key
 }
 
+/// Get the slot number after last chain-rollback. Once a block is appended, we will use this slot
+/// number to first apply rollback on the `AccountPosition`s.
 fn get_account_positions_rollback_to_slot(
     tx: &Transaction<TransactionDB>,
     cf: &ColumnFamily,
@@ -437,6 +439,9 @@ fn get_account_positions_rollback_to_slot(
         })
 }
 
+/// Store the slot number after last chain-rollback. It's possible to rollback a number of blocks
+/// but as far as `AccountPosition`s are concerned, we only need to rollback to the slot number of
+/// the last rollback.
 fn set_account_positions_rollback_to_slot(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, slot: Slot) {
     tx.put_cf(cf, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY, slot.to_be_bytes())
         .unwrap();

@@ -735,18 +735,4 @@ mod tests {
         )];
         assert_eq!(acc2_position_epoch_5.share_intervals, expected_acc2_epoch_5);
     }
-
-    #[test]
-    fn test_perm_manager() {
-        let db = PositionDB::new(&DBPath::new("test_perm_manager"), 1000, 1000, 1000);
-        let datum = PermManagerDatum {
-            authorized_executors: vec![],
-            suspended_farms: vec![],
-        };
-        let perm_manager = PermManager { datum };
-        //let cf = ColumnFamilies::new(&db.db);
-        //set_perm_manager(&tx, cf.perm_manager, perm_manager, 1000);
-        //.dbt perm_manager = db.get_perm_manager(1000);
-        //assert_eq!(perm_manager, Some(perm_manager));
-    }
 }

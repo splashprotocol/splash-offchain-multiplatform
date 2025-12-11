@@ -27,6 +27,8 @@ impl EventLog for PositionDB {
             let tx = db.transaction();
 
             if let Some(rollback_to_slot) = get_account_positions_rollback_to_slot(&tx, cfs.kv) {
+                // We come to this line on the first appended block after a chain-rollback. Apply rollback
+                // on the `AccountPosition`s first.
                 let epoch_converter = DefaultEpochSlotConversion::new(epoch_start, num_slots_in_epoch);
                 rollback_account_positions(&tx, &cfs, epoch_converter, rollback_to_slot);
                 tx.delete_cf(cfs.kv, ACCOUNT_POSITIONS_ROLLBACK_TO_SLOT_KEY)
