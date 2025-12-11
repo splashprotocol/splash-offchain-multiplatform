@@ -1,13 +1,17 @@
+use std::collections::HashMap;
+
 use crate::account::AccountPosition;
+use crate::onchain::event::SuspendedPools;
 use crate::onchain::GaugeWeight;
 use crate::position_db::{
-    account_positions_key, account_to_pools_index_prefix, gauge_key, get_current_slot,
-    get_range_iterator_over_snapshot, parse_account_to_pools_index, parse_position_key, position_key,
-    ColumnFamilies, PositionDB, CURRENT_SLOT_KEY,
+    account_positions_key, account_to_pools_index_prefix, gauge_key, get_active_pools, get_current_slot,
+    get_current_suspended_pools, get_range_iterator_over_snapshot, parse_account_to_pools_index,
+    parse_position_key, position_key, ColumnFamilies, PositionDB, CURRENT_SLOT_KEY,
 };
 use cml_chain::certs::Credential;
 use log::trace;
 use serde::Serialize;
+use spectrum_offchain_cardano::data::PoolId;
 use splash_dao_offchain::entities::onchain::inflation_box::emission_rate;
 use splash_dao_offchain::routines::Slot;
 use splash_yf_offchain::Epoch;
@@ -53,14 +57,26 @@ impl Accounts for PositionDB {
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
                 .unwrap();
+            if current_slot < epoch_start {
+                return None;
+            }
             let current_epoch = Epoch::unsafe_from_slot(
                 current_slot - confirmation_delay_slots,
                 num_slots_in_epoch,
                 epoch_start,
             );
+            let suspended_pools = {
+                let tx = db.transaction();
+                get_current_suspended_pools(&tx, cfs.suspended_pools)
+            };
             let mut max_epoch = Epoch::from(0);
+            let mut active_pools_by_epoch: HashMap<Epoch, Vec<PoolId>> = HashMap::new();
             let account_positions: u64 = account_pools
                 .map(|pid| {
+                    if suspended_pools.is_some() && suspended_pools.as_ref().unwrap().0.contains(&pid) {
+                        return 0;
+                    }
+
                     let positions_range_key = account_positions_key(pid, &cred);
                     let start_from_key = position_key(pid, &cred, from_epoch_inclusive);
                     let pool_positions: u64 = get_range_iterator_over_snapshot(
@@ -72,6 +88,22 @@ impl Accounts for PositionDB {
                     .filter_map(|e| match e {
                         Ok((key, value)) => {
                             let (_, _, position_epoch) = parse_position_key(key.to_vec())?;
+                            let is_active = if let Some(active_pools) =
+                                active_pools_by_epoch.get(&position_epoch)
+                            {
+                                active_pools.contains(&pid)
+                            } else {
+                                let tx = db.transaction();
+                                let active_pools = get_active_pools(&tx, cfs.active_pools, position_epoch)?;
+                                let is_active = active_pools.contains(&pid);
+                                active_pools_by_epoch.insert(position_epoch, active_pools);
+                                is_active
+                            };
+
+                            if !is_active {
+                                return None;
+                            }
+
                             let position = rmp_serde::from_slice::<AccountPosition>(&value).ok()?;
                             let gauge_key = gauge_key(pid, position_epoch);
                             let gauge_weight = snap
@@ -79,10 +111,11 @@ impl Accounts for PositionDB {
                                 .unwrap()
                                 .and_then(|v| rmp_serde::from_slice::<GaugeWeight>(&v).ok())?;
                             trace!(
-                                "position_epoch: {}, max_epoch: {}, current_epoch: {}",
+                                "position_epoch: {}, max_epoch: {}, current_epoch: {}, position: {:?}",
                                 position_epoch,
                                 max_epoch,
-                                current_epoch
+                                current_epoch,
+                                position
                             );
                             if position_epoch > max_epoch
                                 && position_epoch < current_epoch

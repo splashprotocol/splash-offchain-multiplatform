@@ -58,6 +58,7 @@ pub struct WeightingPollId(pub ProtocolEpoch);
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
+    /// Note that farms in the distribution are guarateed to be active by the WP Factory.
     pub distribution: Vec<(FarmId, u64)>,
     pub emission_rate: TaggedAmount<Splash>,
     /// Note: weighting power is not determined until vote stage. If this field is None then no
