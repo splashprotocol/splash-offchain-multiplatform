@@ -114,7 +114,6 @@ impl<TxHash, Tx, UnconfirmedIn, ConfirmedIn, FailedOut>
         loop {
             let (tx, trs) = txs_to_track.select_next_some().await;
             let already_confirmed = recent_txs.lock().unwrap().contains(&tx);
-            trace!("Tracking tx: {}, already_confirmed: {}", tx, already_confirmed);
             if !already_confirmed {
                 let mut pending_txs = pending_txs.lock().unwrap();
                 pending_txs.append(tx, trs);

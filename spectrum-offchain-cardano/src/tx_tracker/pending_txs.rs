@@ -25,9 +25,14 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 
     pub fn append(&mut self, tx: TxHash, trs: Tx)
     where
-        TxHash: Copy + Eq + Hash,
+        TxHash: Copy + Eq + Hash + Display,
     {
         let should_confirm_until = self.current_block + self.max_confirmation_delay_blocks;
+        trace!(
+            "Appending Tx: {}, should be confirmed until block: {}",
+            tx,
+            should_confirm_until
+        );
         self.index.insert(tx, should_confirm_until);
         let now = Instant::now();
         match self.queue.entry(should_confirm_until) {
@@ -49,7 +54,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
         if let Some(key) = self.index.remove(&tx) {
             if let Some(txs) = self.queue.get_mut(&key) {
                 let removed = txs.remove(&tx);
-                trace!("[PendingTxs]: removed confirmed TX {}: {}", tx, removed.is_some());
+                trace!("Removed confirmed Tx {}: {}", tx, removed.is_some());
             }
         }
     }
@@ -65,10 +70,15 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
             let mut failed_txs_with_timestamp = BTreeMap::new();
             loop {
                 if let Some(entry) = self.queue.first_entry() {
-                    if *entry.key() <= new_block {
+                    let should_confirm_until = *entry.key();
+                    if should_confirm_until <= new_block {
                         let txs = entry.remove();
                         for (hash, (tx, instant)) in txs {
-                            trace!("Tx {} failed", hash);
+                            trace!(
+                                "Tx {} failed to confirm until block {}",
+                                hash,
+                                should_confirm_until
+                            );
                             self.index.remove(&hash);
                             failed_txs_with_timestamp.insert(Reverse(instant), tx);
                         }
@@ -81,7 +91,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
             // Reverse chronological order
             let failed_txs = failed_txs_with_timestamp.into_iter().map(|x| x.1).collect();
             trace!(
-                "[TxTracker] Queue size: {}, pending transactions: {}",
+                "Queue size: {}, pending transactions: {}",
                 self.queue.len(),
                 self.index.len()
             );
