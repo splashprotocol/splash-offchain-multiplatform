@@ -27,7 +27,6 @@ pub struct AppConfig {
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
     pub service_fee_address: OperatorRewardAddress,
-    pub allowed_payment_destinations: Vec<Address>,
     pub event_cache_ttl: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,

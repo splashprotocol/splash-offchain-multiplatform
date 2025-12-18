@@ -24,7 +24,6 @@ pub struct SnekHandlerContextProto {
     pub scripts: SnekProtocolScriptHashes,
     pub validation_rules: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
-    pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
 }
 
 #[derive(Clone, Debug)]
@@ -39,7 +38,6 @@ pub struct SnekHandlerContext<I: Copy> {
     pub bounds: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub added_payment_destinations: AddedPaymentDestinations,
-    pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
     pub mints: Option<Mints>,
 }
 
@@ -57,17 +55,8 @@ impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerCo
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             added_payment_destinations: event_ctx.added_payment_destinations,
-            allowed_payment_destinations: ctx_proto.allowed_payment_destinations,
             mints: event_ctx.mints,
         }
-    }
-}
-
-impl<I: Copy> Has<AllowedAdditionalPaymentDestinations> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<AllowedAdditionalPaymentDestinations>>(
-        &self,
-    ) -> AllowedAdditionalPaymentDestinations {
-        self.allowed_payment_destinations
     }
 }
 

@@ -189,7 +189,6 @@ where
         + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<AddedPaymentDestinations>
-        + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
         + Has<InstantOrderValidation>
         + Has<AdhocFeeStructure>,
@@ -207,10 +206,7 @@ where
                 0
             };
             let has_stake_part = io.redeemer_address.stake_cred.is_some();
-            let is_compliant = ctx
-                .select::<AddedPaymentDestinations>()
-                .complies_with(&ctx.select::<AllowedAdditionalPaymentDestinations>());
-            if has_stake_part && is_compliant {
+            if has_stake_part {
                 Some(Self(
                     InstantOrder {
                         input_amount: virtual_input_amount,
@@ -220,11 +216,10 @@ where
                 ))
             } else {
                 trace!(
-                    "AdhocOrder skipped for UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_compliant: {}",
+                    "AdhocOrder skipped for UTxO {}, AdhocOrder {} :: has_stake_part: {}",
                     ctx.select::<OutputRef>(),
                     io.beacon,
                     has_stake_part,
-                    is_compliant
                 );
                 None
             }

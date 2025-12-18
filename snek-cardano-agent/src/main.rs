@@ -210,7 +210,6 @@ async fn main() {
         executor_cred: operator_paycred,
         scripts: SnekProtocolScriptHashes::from(&protocol_deployment),
         validation_rules,
-        allowed_payment_destinations: allowed_payment_destinations(config.allowed_payment_destinations),
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let general_upd_handler: PairUpdateHandler<

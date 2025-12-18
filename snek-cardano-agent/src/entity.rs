@@ -68,7 +68,6 @@ where
         + Has<ConsumedIdentifiers<Token>>
         + Has<ProducedIdentifiers<Token>>
         + Has<AddedPaymentDestinations>
-        + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>>
