@@ -1,0 +1,55 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        104996733,
+        "0b543a945f6cc046a8b303d9df6e49cb1d6c336dcbd8aebc4dc4bda85ac476d8"
+      ]
+    },
+    "replayFromPoint": {
+      "Specific": [
+        104996733,
+        "0b543a945f6cc046a8b303d9df6e49cb1d6c336dcbd8aebc4dc4bda85ac476d8"
+      ]
+    },
+    "disableRollbacksUntil": 90336103,
+    "dbPath": "state/reward-bot"
+  },
+  "node": {
+    "path": "/Users/tling/node-external/node.socket",
+    "magic": 1
+  },
+  "networkId": 0,
+  "genesisEpochStartTime": 1723349688000,
+  "explorer": {
+    "maestroKeyPath": "splash-lp-indexer/resources/preprod.maestro.key"
+  },
+  "fundingIndexDbPath": "reward_bot_index/funding",
+  "onchainIndexDbPath": "reward_bot_index/onchain",
+  "utxoIndexDbPath": "reward_bot_index/utxo",
+  "persistentQueueDbPath": "reward_bot_index/persistent_queue",
+  "confirmationDelayBlocks": 200,
+  "bootstrapServers": "127.0.0.1:19094",
+  "eventsExportTopic": "events_export",
+  "harvestLimits": {
+    "minimalLovelacePerSingleHarvest": 1000000
+  },
+  "engine": {
+    "bufferingThreshold": 1000000
+  },
+  "eventCacheTtl": {
+    "secs": 120,
+    "nanos": 0
+  },
+  "txSubmissionBufferSize": 64,
+  "verifierUrl": "127.0.0.1:1235",
+  "lpIndexerUrl": "127.0.0.1:1234",
+  "maxNumberMerkleTreeSnapshots": 100,
+  "splashPolicyIdHex": "352127c4aa7c1c12adf687262380d8f80d3b7e4e10da5d61dc7a81c8",
+  "operatorSk": "",
+  "authorizedExecutors": [
+    "ed25519_pk1vh0eku8v5cx8anwd34dn8qzv7gn3lrh6aewzpg3gcq0pwypfaxgs3599er",
+    "ed25519_pk1rh485tltr4qsdspk6v0h2pzjm4g8pw34am0qw4s902vgt6du2u5qrl3z0r"
+  ],
+  "rewardTxTtlInSlots": 10
+}

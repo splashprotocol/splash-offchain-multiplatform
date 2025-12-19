@@ -7,7 +7,7 @@ use cml_chain::crypto::Vkeywitness;
 use cml_chain::transaction::Transaction;
 use cml_crypto::RawBytesEncoding;
 use cml_crypto::{Ed25519KeyHash, PublicKey, TransactionHash};
-use log::{info, warn};
+use log::{info, trace, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -139,10 +139,10 @@ impl<Index, PositionIndex, UHarvestIndex, Prover>
         }
     }
 
-    fn get_current_slot(&self) -> u64 {
+    fn get_current_slot(&self) -> Option<u64> {
         // We can be sure that `block_slot_buffer` is not empty because verification can't be
         // performed until chain-sync is complete.
-        *self.block_slot_buffer.back().expect("Block slot buffer is empty")
+        self.block_slot_buffer.back().map(|s| *s)
     }
 
     fn compute_epoch(&self, slot: u64) -> u64 {
@@ -184,14 +184,16 @@ where
     }
 
     fn confirm_block_slot(&mut self, block_slot: u64) {
-        let current_slot = self.get_current_slot();
-        let current_epoch = self.compute_epoch(current_slot);
-        let new_epoch = self.compute_epoch(block_slot);
-        if new_epoch > current_epoch {
-            // It's still possible to see a rollback back to the previous epoch, but the worst thing
-            // to happen is that we delete some unconfirmed TXs, which is fine.
-            self.unconfirmed_harvest_tx_index.notify_end_of_epoch();
+        if let Some(current_slot) = self.get_current_slot() {
+            let current_epoch = self.compute_epoch(current_slot);
+            let new_epoch = self.compute_epoch(block_slot);
+            if new_epoch > current_epoch {
+                // It's still possible to see a rollback back to the previous epoch, but the worst thing
+                // to happen is that we delete some unconfirmed TXs, which is fine.
+                self.unconfirmed_harvest_tx_index.notify_end_of_epoch();
+            }
         }
+        trace!("Confirmed block slot: {}", block_slot);
         self.block_slot_buffer.add(block_slot);
     }
 
@@ -244,7 +246,7 @@ where
         + Sync,
 {
     async fn try_approve(&mut self, tx: &TxCosignRequest, ctx: &Ctx) -> Option<Transaction> {
-        let current_slot = self.get_current_slot();
+        let current_slot = self.get_current_slot()?;
         match tx {
             TxCosignRequest::Harvest(tx) => {
                 // Check signature

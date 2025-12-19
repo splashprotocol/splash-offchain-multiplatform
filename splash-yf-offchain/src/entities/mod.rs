@@ -10,6 +10,7 @@ pub struct BufferWalletSplashTokenIncrease(pub u64);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BufferWalletSplashTokenDecrease(pub u64);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BufferWalletSplashBalanceChange {
     Increase(u64),
     Decrease(u64),

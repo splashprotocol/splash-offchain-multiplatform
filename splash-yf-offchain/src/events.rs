@@ -8,6 +8,7 @@ use crate::entities::{
 };
 use crate::settings::MinLovelacePerHarvest;
 use cml_crypto::TransactionHash;
+use log::trace;
 use serde::de;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -111,7 +112,7 @@ where
             } else {
                 // gauge-buffering tx
                 let Some(gauge_updates) = UpdatedGauges::try_from_ledger(repr, ctx) else {
-                    unreachable!("Can't update buffer wallet with no harvest orders nor any gauge updates");
+                    return None;
                 };
                 if let UpdatedGauges::Withdrawals(drained_gauges) = gauge_updates {
                     let BufferWalletSplashBalanceChange::Increase(deposited_amount) =

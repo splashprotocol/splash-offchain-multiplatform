@@ -191,6 +191,7 @@ mod tests {
         ));
 
         println!("operator_prv_bip32: {}", operator_prv_bip32.to_bech32());
+        println!("operator_pk_main: {}", operator_pk_main.to_raw_key().to_bech32());
         println!("operator pkh (main): {}", pkh_main);
         println!("stake pkh (1): {}", child_pkh_1);
         println!("stake pkh (2): {}", child_pkh_2);

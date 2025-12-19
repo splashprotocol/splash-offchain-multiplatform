@@ -14,6 +14,7 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_crypto::TransactionHash;
 use futures::channel::mpsc::Receiver;
 use futures::{Stream, StreamExt};
+use log::trace;
 use serde::Deserialize;
 use splash_dao_offchain::routines::Slot;
 use splash_yf_offchain::entities::gauge::GaugeDeposits;
@@ -26,6 +27,7 @@ use std::task::{Context, Poll};
 use tokio::time::Sleep;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EngineConfig {
     buffering_threshold: u64,
 }
@@ -71,9 +73,9 @@ impl<U, Q, E> Engine<U, Q, E> {
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
+impl<GaugeId, StateId, Bearer, U, Q, E> Stream for Engine<U, Q, E>
 where
-    GaugeId: Copy + Into<TaskId> + Unpin + Send + 'static,
+    GaugeId: Copy + Debug + Into<TaskId> + Unpin + Send + 'static,
     StateId: Copy + Into<TaskId> + Unpin + Send + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
@@ -89,15 +91,16 @@ where
         + Send
         + 'static,
 {
-    type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+    type Item = ();
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<()>> {
         loop {
             if let Some(mut task) = self.current_task.as_mut() {
                 if let Poll::Ready(cf) = Future::poll(Pin::new(&mut task), cx) {
                     self.current_task = None;
-                    if cf.is_break() {
-                        break;
-                    }
+                    return Poll::Ready(Some(()));
+                    //if cf.is_break() {
+                    //    break;
+                    //}
                 }
             }
 
@@ -105,20 +108,21 @@ where
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
                 let conf = self.conf;
                 self.block_on(process_events(queue, events, tx, conf));
-                continue;
+                return Poll::Ready(Some(()));
             }
 
             if let Poll::Ready(Some(tx_hash)) =
                 Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
             {
                 self.block_on(reschedule_tasks_from_dropped_tx(tx_hash, queue));
-                continue;
+                return Poll::Ready(Some(()));
             }
 
             // Wait until initial tx TTL delay is resolved (CompleteDataLoss stressor).
             if let Some(mut initial_tx_ttl_delay) = self.initial_tx_ttl_delay.take() {
                 if Future::poll(Pin::new(&mut initial_tx_ttl_delay), cx).is_pending() {
                     self.initial_tx_ttl_delay = Some(initial_tx_ttl_delay);
+                } else {
                     continue;
                 }
             }
@@ -127,16 +131,21 @@ where
             if let Some(mut blocker) = self.blocker.take() {
                 if Future::poll(Pin::new(&mut blocker), cx).is_pending() {
                     self.blocker = Some(blocker);
-                    continue;
+                } else {
+                    return Poll::Ready(Some(()));
                 }
             }
 
-            if !self.state_synced.read() {
+            if !self.state_synced.read() && self.blocker.is_none() {
                 self.blocker = Some(self.state_synced.once(true));
                 continue;
             }
-            let executor = self.executor.clone();
-            self.block_on(process_tasks(queue, executor));
+
+            if self.current_task.is_none() && self.blocker.is_none() {
+                let executor = self.executor.clone();
+                self.block_on(process_tasks(queue, executor));
+            }
+            break;
         }
         Poll::Pending
     }
@@ -149,7 +158,7 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy + Into<TaskId>,
+    GaugeId: Copy + Into<TaskId> + Debug,
     StateId: Copy + Into<TaskId>,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
@@ -205,6 +214,7 @@ where
                         .filter_map(|(gauge_update, _)| {
                             if gauge_update.created.0.balance >= conf.buffering_threshold {
                                 let gauge_id = gauge_update.created.0.id;
+                                trace!("Scheduling gauge-buffering for gauge {:?}", gauge_id);
                                 return Some(QueueCmd::Schedule(
                                     gauge_id.into(),
                                     Task::new_gauge_buffering(gauge_id),

@@ -48,7 +48,11 @@ where
                 created.push(snapshot.get().clone());
             }
         }
-        Some(Self { consumed, created })
+        if !consumed.is_empty() || !created.is_empty() {
+            Some(Self { consumed, created })
+        } else {
+            None
+        }
     }
 }
 

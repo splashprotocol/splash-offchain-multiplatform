@@ -133,6 +133,7 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferWalletUpdate<StateId, Bearer> {
     pub update: EntityUpdated<BufferWallet<StateId>, StateId, Bearer>,
     pub balance_change: BufferWalletSplashBalanceChange,

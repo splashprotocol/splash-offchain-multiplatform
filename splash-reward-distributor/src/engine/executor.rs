@@ -114,6 +114,7 @@ pub trait BatchExecutor<TaskId, Task, Out, Err> {
 pub enum Error {
     TxInputsAlreadySpent { failed_task_ids: Vec<TaskId> },
     UnrecoverableNodeError,
+    NoFlowInstanceExists,
 }
 
 #[derive(Clone)]
@@ -1115,7 +1116,7 @@ where
                     }
                 }
             }
-            None => panic!("No flow instance exists"),
+            None => Err(Error::NoFlowInstanceExists),
         }
     }
 }

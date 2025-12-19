@@ -3,6 +3,8 @@
 .DS_Store
 .idea/
 index/
+reward_bot_index/
+verifier_index/
 log/
 logs/
 *.bin

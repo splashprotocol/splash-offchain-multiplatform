@@ -131,6 +131,10 @@ async fn run_reward_bot(args: AppArgs) {
 
     let (_op_cred, collateral_addr, _funding_addresses) = operator_creds(&operator_sk, config.network_id);
 
+    println!(
+        "Pulling collateral for address: {}",
+        collateral_addr.clone().address().to_bech32(None).unwrap()
+    );
     let collateral = pull_collateral(collateral_addr, &explorer)
         .await
         .expect("Couldn't retrieve collateral");
@@ -179,7 +183,7 @@ async fn run_reward_bot(args: AppArgs) {
 
     let processes = FuturesUnordered::new();
 
-    let engine_handle = tokio::spawn(engine);
+    let engine_handle = tokio::spawn(run_stream(engine));
     processes.push(engine_handle);
 
     let flow_driver_handle = tokio::spawn(flow_driver.run(config.chain_sync.replay_from_point));
