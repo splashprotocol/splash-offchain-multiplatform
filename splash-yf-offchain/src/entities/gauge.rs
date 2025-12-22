@@ -22,8 +22,11 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::{
     constants::SPLASH_NAME,
     deployment::ProtocolValidator as DaoProtocolValidator,
-    entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot},
-    protocol_config::{PermManagerAuthPolicy, SplashPolicy},
+    entities::onchain::{
+        farm_factory::FarmFactorySnapshot,
+        smart_farm::{FarmId, SmartFarmSnapshot},
+    },
+    protocol_config::{FarmFactoryAuthPolicy, PermManagerAuthPolicy, SplashPolicy},
     routines::{Slot, TimedOutputRef},
 };
 
@@ -80,6 +83,7 @@ pub struct GaugeWithdrawals<FarmId, StateId, Bearer>(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UpdatedGauges<FarmId, StateId, Bearer> {
+    Create(EntityUpdated<Gauge<FarmId, StateId>, StateId, Bearer>),
     Deposits(GaugeDeposits<FarmId, StateId, Bearer>),
     Withdrawals(GaugeWithdrawals<FarmId, StateId, Bearer>),
 }
@@ -87,7 +91,9 @@ pub enum UpdatedGauges<FarmId, StateId, Bearer> {
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for UpdatedGauges<FarmId, OutputRef, FinalizedTxOut>
 where
     Cx: Has<PermManagerAuthPolicy>
+        + Has<FarmFactoryAuthPolicy>
         + Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -105,7 +111,9 @@ pub fn try_extract_updated_gauges<C>(
 ) -> Option<UpdatedGauges<FarmId, OutputRef, FinalizedTxOut>>
 where
     C: Has<PermManagerAuthPolicy>
+        + Has<FarmFactoryAuthPolicy>
         + Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     let mut successor_ix = 1_u64;
@@ -126,6 +134,49 @@ where
         .collect();
 
     let num_consumed_gauges = consumed_gauges.len();
+
+    if num_consumed_gauges == 0 {
+        // If a new gauge is created in this TX:
+        // - output[0] contains resulting farm factory
+        // - output[1] contains new gauge
+
+        let farm_factory_ctx = FarmFactoryCtx {
+            farm_factory_auth_policy: ctx.select::<FarmFactoryAuthPolicy>(),
+            deployed_script_info: ctx
+                .select::<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>(),
+        };
+
+        let farm_factory_input = inputs.iter().find_map(|(_, output)| {
+            if let Some(TimedOutput { output, .. }) = output {
+                if let Some(farm_factory_snapshot) =
+                    FarmFactorySnapshot::try_from_ledger(output, &farm_factory_ctx)
+                {
+                    let farm_factory = farm_factory_snapshot.get();
+                    return Some(farm_factory.clone());
+                }
+            }
+            None
+        })?;
+        let farm_factory_output = {
+            let snapshot = FarmFactorySnapshot::try_from_ledger(&outputs[0], &farm_factory_ctx)?;
+            snapshot.get().clone()
+        };
+        let correct_farm_ids = farm_factory_output.last_farm_id == farm_factory_input.last_farm_id + 1;
+        let seed_data_matches = farm_factory_output.farm_seed_data == farm_factory_input.farm_seed_data;
+        if correct_farm_ids && seed_data_matches {
+            let output_ref = TimedOutputRef::new(OutputRef::new(tx_hash, 1), slot);
+            let new_gauge = try_extract_gauge(&outputs[1], output_ref, ctx)?;
+            return Some(UpdatedGauges::Create(EntityUpdated {
+                consumed: None,
+                created: (
+                    new_gauge,
+                    FinalizedTxOut(outputs[1].clone(), output_ref.output_ref),
+                ),
+            }));
+        } else {
+            return None;
+        }
+    }
 
     // `outputs[0]`` contains buffer_wallet_output, `outputs.last` contains change UTxO, the rest
     // are gauge outputs.
@@ -246,5 +297,33 @@ impl Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>> for Gaug
         &self,
     ) -> DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }> {
         self.deployed_script_info
+    }
+}
+
+struct FarmFactoryCtx {
+    farm_factory_auth_policy: FarmFactoryAuthPolicy,
+    deployed_script_info: DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>,
+}
+
+impl Has<FarmFactoryAuthPolicy> for FarmFactoryCtx {
+    fn select<U: type_equalities::IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
+        self.farm_factory_auth_policy.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>> for FarmFactoryCtx {
+    fn select<
+        U: type_equalities::IsEqual<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>,
+    >(
+        &self,
+    ) -> DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }> {
+        self.deployed_script_info
+    }
+}
+
+impl Has<OutputRef> for FarmFactoryCtx {
+    fn select<U: type_equalities::IsEqual<OutputRef>>(&self) -> OutputRef {
+        // Note: a dummy output ref suffices, as we just want to extract a `FarmFactory` instance
+        OutputRef::new(TransactionHash::from([0_u8; 32]), 0)
     }
 }

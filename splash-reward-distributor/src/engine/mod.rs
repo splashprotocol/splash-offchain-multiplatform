@@ -208,7 +208,7 @@ where
                         .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
                         .collect(),
                 ),
-                OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => Some(
+                OnChainEvent::ChargeGauges(GaugeDeposits(updated_gauges)) => Some(
                     updated_gauges
                         .into_iter()
                         .filter_map(|(gauge_update, _)| {
@@ -225,7 +225,9 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::AuthManagerUpdated(_) | OnChainEvent::Funding { .. } => None,
+                OnChainEvent::AuthManagerUpdated(_)
+                | OnChainEvent::Funding { .. }
+                | OnChainEvent::CreateGauge(_) => None,
             })
             .flatten()
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
@@ -279,7 +281,7 @@ where
                         .collect(),
                 ),
 
-                OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => Some(
+                OnChainEvent::ChargeGauges(GaugeDeposits(updated_gauges)) => Some(
                     updated_gauges
                         .into_iter()
                         .filter_map(|(gauge_update, _)| {
@@ -291,7 +293,9 @@ where
                         })
                         .collect(),
                 ),
-                OnChainEvent::AuthManagerUpdated(_) | OnChainEvent::Funding { .. } => None,
+                OnChainEvent::AuthManagerUpdated(_)
+                | OnChainEvent::Funding { .. }
+                | OnChainEvent::CreateGauge(_) => None,
             })
             .flatten()
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])

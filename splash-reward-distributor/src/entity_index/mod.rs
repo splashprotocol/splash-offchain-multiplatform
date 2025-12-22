@@ -328,7 +328,13 @@ where
                             indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
                     }
-                    OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => {
+                    OnChainEvent::CreateGauge(gauge_update) => {
+                        let prev_state_id = gauge_update.consumed;
+                        let (entity, bearer) = gauge_update.created.clone();
+                        let bundled = Bundled(entity, bearer);
+                        indexer.write_confirmed_gauge(bundled, prev_state_id).await;
+                    }
+                    OnChainEvent::ChargeGauges(GaugeDeposits(updated_gauges)) => {
                         for (gauge_update, _) in updated_gauges {
                             let prev_state_id = gauge_update.consumed;
                             let (entity, bearer) = gauge_update.created.clone();
@@ -404,7 +410,13 @@ where
                             assert_eq!(gauge_update.consumed, prev_state_id);
                         }
                     }
-                    OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => {
+                    OnChainEvent::CreateGauge(gauge_update) => {
+                        let prev_state_id = indexer
+                            .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)
+                            .await;
+                        assert_eq!(gauge_update.consumed, prev_state_id);
+                    }
+                    OnChainEvent::ChargeGauges(GaugeDeposits(updated_gauges)) => {
                         for (gauge_update, _) in updated_gauges {
                             let prev_state_id = indexer
                                 .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)

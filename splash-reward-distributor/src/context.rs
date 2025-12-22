@@ -11,7 +11,7 @@ use splash_dao_offchain::deployment::{
     ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens, ProtocolValidator::*,
 };
 use splash_dao_offchain::protocol_config::{
-    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
@@ -39,6 +39,16 @@ has_deployed_script_info!(
     SmartFarm,
     VerifierRuntimeContext,
     |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.smart_farm).into()
+);
+has_deployed_validator!(
+    FarmFactory,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| ctx.dao_deployment.farm_factory.clone()
+);
+has_deployed_script_info!(
+    FarmFactory,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.farm_factory).into()
 );
 has_deployed_validator!(
     HarvestOrder,
@@ -99,6 +109,12 @@ impl Has<SplashPolicy> for VerifierRuntimeContext {
 impl Has<PermManagerAuthPolicy> for VerifierRuntimeContext {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.dao_tokens.perm_auth.policy_id)
+    }
+}
+
+impl Has<FarmFactoryAuthPolicy> for VerifierRuntimeContext {
+    fn select<U: IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
+        FarmFactoryAuthPolicy(self.dao_tokens.factory_auth.policy_id)
     }
 }
 
@@ -168,6 +184,16 @@ has_deployed_script_info!(
     |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.smart_farm).into()
 );
 has_deployed_validator!(
+    FarmFactory,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| ctx.verifier_runtime_context.dao_deployment.farm_factory.clone()
+);
+has_deployed_script_info!(
+    FarmFactory,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.farm_factory).into()
+);
+has_deployed_validator!(
     HarvestOrder,
     RewardBotRuntimeContext,
     |ctx: &RewardBotRuntimeContext| ctx.verifier_runtime_context.dao_deployment.harvest_order.clone()
@@ -225,6 +251,12 @@ impl Has<SplashPolicy> for RewardBotRuntimeContext {
 impl Has<PermManagerAuthPolicy> for RewardBotRuntimeContext {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.verifier_runtime_context.dao_tokens.perm_auth.policy_id)
+    }
+}
+
+impl Has<FarmFactoryAuthPolicy> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
+        FarmFactoryAuthPolicy(self.verifier_runtime_context.dao_tokens.factory_auth.policy_id)
     }
 }
 

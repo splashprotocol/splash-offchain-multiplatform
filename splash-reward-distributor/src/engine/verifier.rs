@@ -22,7 +22,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::routines::slot_to_epoch;
 use splash_dao_offchain::GenesisEpochStartTime;
@@ -236,6 +236,8 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::FarmFactory as u8 }>>
+        + Has<FarmFactoryAuthPolicy>
         + Has<NetworkId>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
