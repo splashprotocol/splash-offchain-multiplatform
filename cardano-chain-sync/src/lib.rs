@@ -51,7 +51,7 @@ where
     }
 }
 
-pub fn chain_sync_stream<'a, Block, ToHealthMonitor>(
+pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,
     state_synced: Beacon,
 ) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
