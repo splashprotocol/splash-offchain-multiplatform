@@ -22,6 +22,12 @@ pub enum ChainSyncHealth {
     Ok
 }
 
+impl Default for ChainSyncHealth {
+    fn default() -> Self {
+        Self::Ok
+    }
+}
+
 pub fn chain_sync_stream_with_health_monitor<'a, Block, ToHealthMonitor>(
     mut chain_sync: ChainSyncClient<Block>,
     state_synced: Beacon,
