@@ -345,21 +345,312 @@ Now I'll add comprehensive tests at the end of the file:
 
 <details><summary>Tool use: **search_replace** • Edit file: /Users/ilia/dev/splash-offchain-multiplatform/cardano-mempool-sync/src/client.rs</summary>
 
-Status: **loading**
+**Chunk 1**
+Lines added: 85, lines removed: undefined
 
-```rust
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("error connecting bearer")]
-    ConnectFailure(#[source] tokio::io::Error),
+```diff
+@@ -140,3 +140,88 @@
+      IncompatibleVersion,
+  }
++ 
++ #[cfg(test)]
++ mod tests {
++     use super::*;
++ 
++     fn make_tx_hash(byte: u8) -&gt; RawTxHash {
++         RawTxHash([byte; 28])
++     }
++ 
++     #[test]
++     fn test_mempool_projection_tx_lifecycle() {
++         let mut projection = MempoolProjection::new(100);
++         let tx1 = make_tx_hash(1);
++         let tx2 = make_tx_hash(2);
++         let tx3 = make_tx_hash(3);
++ 
++         // Slot 1: tx1 is added to mempool, should return false (new tx)
++         assert_eq!(projection.register(tx1, 1), false, "tx1 at slot 1 should be new");
++         assert_eq!(projection.slot, 1);
++         assert!(projection.current_projection.contains(&amp;tx1));
++         assert!(projection.prev_projection.is_empty());
++ 
++         // Slot 2: tx1 is seen again, should return true (duplicate from previous slot)
++         assert_eq!(projection.register(tx1, 2), true, "tx1 at slot 2 should be duplicate");
++         assert_eq!(projection.slot, 2);
++         // tx1 should now be in prev_projection
++         assert!(projection.prev_projection.contains(&amp;tx1));
++         // And should NOT be in current_projection since it returned true
++         assert!(!projection.current_projection.contains(&amp;tx1));
++ 
++         // Slot 3: other txs added, but tx1 is not there
++         assert_eq!(projection.register(tx2, 3), false, "tx2 at slot 3 should be new");
++         assert_eq!(projection.register(tx3, 3), false, "tx3 at slot 3 should be new");
++         assert_eq!(projection.slot, 3);
++         // After slot advance, tx1 is no longer in prev_projection (it was in current at slot 2)
++         assert!(!projection.prev_projection.contains(&amp;tx1));
++         assert!(projection.current_projection.contains(&amp;tx2));
++         assert!(projection.current_projection.contains(&amp;tx3));
++ 
++         // Slot 4: tx1 appears again, should return false (reappeared after being absent)
++         assert_eq!(projection.register(tx1, 4), false, "tx1 at slot 4 should be new (reappeared)");
++         assert_eq!(projection.slot, 4);
++         // tx1 is not in prev_projection (which had tx2, tx3 from slot 3)
++         assert!(projection.prev_projection.contains(&amp;tx2));
++         assert!(projection.prev_projection.contains(&amp;tx3));
++         // tx1 is now in current_projection
++         assert!(projection.current_projection.contains(&amp;tx1));
++     }
++ 
++     #[test]
++     fn test_mempool_projection_same_slot_multiple_txs() {
++         let mut projection = MempoolProjection::new(100);
++         let tx1 = make_tx_hash(1);
++         let tx2 = make_tx_hash(2);
++ 
++         // Multiple txs in same slot
++         assert_eq!(projection.register(tx1, 1), false);
++         assert_eq!(projection.register(tx2, 1), false);
++         
++         // Duplicate in same slot should also return false (not in prev_projection)
++         assert_eq!(projection.register(tx1, 1), false);
++         
++         // All txs should be in current_projection
++         assert!(projection.current_projection.contains(&amp;tx1));
++         assert!(projection.current_projection.contains(&amp;tx2));
++     }
++ 
++     #[test]
++     fn test_mempool_projection_slot_skip() {
++         let mut projection = MempoolProjection::new(100);
++         let tx1 = make_tx_hash(1);
++ 
++         // Add tx1 at slot 1
++         assert_eq!(projection.register(tx1, 1), false);
++         
++         // Skip to slot 5 (simulate missing slots)
++         let tx2 = make_tx_hash(2);
++         assert_eq!(projection.register(tx2, 5), false);
++         assert_eq!(projection.slot, 5);
++         
++         // tx1 should be in prev_projection
++         assert!(projection.prev_projection.contains(&amp;tx1));
++         assert!(projection.current_projection.contains(&amp;tx2));
++     }
++ }
+  
+```
 
-    #[error("handshake protocol error")]
-    HandshakeProtocol(handshake::Error),
+</details>
 
-    #[error("handshake version not accepted")]
-    IncompatibleVersion,
-}
+</tool-use>
 
+---
+
+<think><details><summary>Thought Process</summary>
+Good, I added the tests. Now let me check for linter errors and then run the tests to make sure they pass.</details></think>
+
+---
+
+Now let me check for any linting errors:
+
+---
+
+<tool-use data-tool-type="generic" data-tool-name="read_lints">
+<details>
+          <summary>Tool use: **read_lints** • Read lints for 1 file</summary>
+      
+Lint paths:
+
+- `/Users/ilia/dev/splash-offchain-multiplatform/cardano-mempool-sync/src/client.rs`
+
+Lint results
+
+
+**No lint errors found**
+</details>
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+Great, no linter errors. Now let me run the tests to make sure they pass.</details></think>
+
+---
+
+Perfect! Now let's run the tests to verify they work correctly:
+
+---
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_cmd">
+<details><summary>Tool use: **run_terminal_cmd** • Run command: cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync</summary>
+
+```bash
+cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync
+```
+
+```
+   Compiling spectrum-offchain v0.1.0 (/Users/ilia/dev/splash-offchain-multiplatform/spectrum-offchain)
+   Compiling pallas-codec v1.0.0-alpha.3 (https://github.com/txpipe/pallas.git?rev=f331365c765ec195f19ddfd58ccf3c03c19ceee9#f331365c)
+   Compiling rand_core v0.9.3
+   Compiling pallas-crypto v1.0.0-alpha.3 (https://github.com/txpipe/pallas.git?rev=f331365c765ec195f19ddfd58ccf3c03c19ceee9#f331365c)
+error: couldn't read &#96;/Users/ilia/.cargo/git/checkouts/pallas-7fc9f8806223757b/f331365/pallas-crypto/src/key/mod.rs&#96;: Operation not permitted (os error 1)
+ --&gt; /Users/ilia/.cargo/git/checkouts/pallas-7fc9f8806223757b/f331365/pallas-crypto/src/lib.rs:5:1
+  |
+5 | pub mod key;
+  | ^^^^^^^^^^^^
+
+error: could not compile &#96;pallas-crypto&#96; (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: unused import: &#96;Write&#96;
+ --&gt; spectrum-offchain/src/display.rs:2:36
+  |
+2 | use std::fmt::{Display, Formatter, Write};
+  |                                    ^^^^^
+  |
+  = note: &#96;#[warn(unused_imports)]&#96; on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+ --&gt; spectrum-offchain/src/display.rs:4:31
+  |
+4 | pub fn display_option&lt;T&gt;(opt: &amp;Option&lt;T&gt;) -&gt; DisplayOption&lt;T&gt; {
+  |                               ^^^^^^^^^^     ---------------- the same lifetime is hidden here
+  |                               |
+  |                               the lifetime is elided here
+  |
+  = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+  = note: &#96;#[warn(mismatched_lifetime_syntaxes)]&#96; on by default
+help: use &#96;'_&#96; for type paths
+  |
+4 | pub fn display_option&lt;T&gt;(opt: &amp;Option&lt;T&gt;) -&gt; DisplayOption&lt;'_, T&gt; {
+  |                                                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --&gt; spectrum-offchain/src/display.rs:48:28
+   |
+48 | pub fn display_vec&lt;T&gt;(vec: &amp;Vec&lt;T&gt;) -&gt; DisplayVec&lt;T&gt; {
+   |                            ^^^^^^^     ------------- the same lifetime is hidden here
+   |                            |
+   |                            the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use &#96;'_&#96; for type paths
+   |
+48 | pub fn display_vec&lt;T&gt;(vec: &amp;Vec&lt;T&gt;) -&gt; DisplayVec&lt;'_, T&gt; {
+   |                                                   +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --&gt; spectrum-offchain/src/display.rs:65:28
+   |
+65 | pub fn display_set&lt;T&gt;(set: &amp;HashSet&lt;T&gt;) -&gt; DisplaySet&lt;T&gt; {
+   |                            ^^^^^^^^^^^     ------------- the same lifetime is hidden here
+   |                            |
+   |                            the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use &#96;'_&#96; for type paths
+   |
+65 | pub fn display_set&lt;T&gt;(set: &amp;HashSet&lt;T&gt;) -&gt; DisplaySet&lt;'_, T&gt; {
+   |                                                       +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --&gt; spectrum-offchain/src/display.rs:84:33
+   |
+84 | pub fn display_map&lt;T1, T2&gt;(map: &amp;HashMap&lt;T1, T2&gt;) -&gt; DisplayMap&lt;T1, T2&gt; {
+   |                                 ^^^^^^^^^^^^^^^^     ------------------ the same lifetime is hidden here
+   |                                 |
+   |                                 the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use &#96;'_&#96; for type paths
+   |
+84 | pub fn display_map&lt;T1, T2&gt;(map: &amp;HashMap&lt;T1, T2&gt;) -&gt; DisplayMap&lt;'_, T1, T2&gt; {
+   |                                                                 +++
+
+warning: &#96;spectrum-offchain&#96; (lib) generated 5 warnings
+
+```
+</details>
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+There's a file permission issue with the cargo git checkout. Let me run with all permissions.</details></think>
+
+---
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_cmd">
+<details><summary>Tool use: **run_terminal_cmd** • Run command: cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync</summary>
+
+```bash
+cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync
+```
+</details>
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+Great! The command succeeded. Let me read the output to see if the tests passed.</details></think>
+
+---
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_cmd">
+<details><summary>Tool use: **run_terminal_cmd** • Run command: cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync -- --nocapture</summary>
+
+```bash
+cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync -- --nocapture
+```
+</details>
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+Let me check the test output to confirm that all tests passed. I'll read the output file.</details></think>
+
+---
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_cmd">
+<details><summary>Tool use: **run_terminal_cmd** • Run command: cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync 2>&1 | grep -A 20 "running.*test"</summary>
+
+```bash
+cd /Users/ilia/dev/splash-offchain-multiplatform && cargo test -p cardano-mempool-sync 2>&1 | grep -A 20 "running.*test"
+```
+
+```
+running 3 tests
+test client::tests::test_mempool_projection_same_slot_multiple_txs ... ok
+test client::tests::test_mempool_projection_slot_skip ... ok
+test client::tests::test_mempool_projection_tx_lifecycle ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests cardano_mempool_sync
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+```
+</details>
+</tool-use>
+
+---
+
+<think><details><summary>Thought Process</summary>
+Perfect! All 3 tests passed. Let me summarize what I did for the user.</details></think>
+
+---
+
+Perfect! I've successfully added comprehensive tests for the `MempoolProjection` functionality. All 3 tests pass! ✓
+
+Here's what I added:
+
+## Test Coverage
+
+```rust:144:221:cardano-mempool-sync/src/client.rs
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,61 +661,45 @@ mod tests {
 
     #[test]
     fn test_mempool_projection_tx_lifecycle() {
-        let mut projection = MempoolProjection::new(100);
-        let tx1 = make_tx_hash(1);
-        let tx2 = make_tx_hash(2);
-        let tx3 = make_tx_hash(3);
-
-        // Slot 1: tx1 is added to mempool, should return false (new tx)
-        assert_eq!(projection.register(tx1, 1), false, "tx1 at slot 1 should be new");
-        assert_eq!(projection.slot, 1);
-        assert!(projection.current_projection.contains(&tx1));
-        assert!(projection.prev_projection.is_empty());
-
-        // Slot 2: tx1 is seen again, should return true (duplicate from previous slot)
-        assert_eq!(projection.register(tx1, 2), true, "tx1 at slot 2 should be duplicate");
-        assert_eq!(projection.slot, 2);
-        // tx1 should now be in prev_projection
-        assert!(projection.prev_projection.contains(&tx1));
-        // And should NOT be in current_projection since it returned true
-        assert!(!projection.current_projection.contains(&tx1));
-
-        // Slot 3: other txs added, but tx1 is not there
-        assert_eq!(projection.register(tx2, 3), false, "tx2 at slot 3 should be new");
-        assert_eq!(projection.register(tx3, 3), false, "tx3 at slot 3 should be new");
-        assert_eq!(projection.slot, 3);
-        // After slot advance, tx1 is no longer in prev_projection (it was in current at slot 2)
-        assert!(!projection.prev_projection.contains(&tx1));
-        assert!(projection.current_projection.contains(&tx2));
-        assert!(projection.current_projection.contains(&tx3));
-
-        // Slot 4: tx1 appears again, should return false (reappeared after being absent)
-        assert_eq!(projection.register(tx1, 4), false, "tx1 at slot 4 should be new (reappeared)");
-        assert_eq!(projection.slot, 4);
-        // tx1 is not in prev_projection (which had tx2, tx3 from slot 3)
-        assert!(projection.prev_projection.contains(&tx2));
-        assert!(projection.prev_projection.contains(&tx3));
-        // tx1 is now in current_projection
-        assert!(projection.current_projection.contains(&tx1));
+        // Tests all 4 scenarios you requested:
+        // 1. tx1 at slot 1 returns false (new)
+        // 2. tx1 at slot 2 returns true (duplicate)
+        // 3. Other txs at slot 3, tx1 is not there
+        // 4. tx1 at slot 4 returns false (reappeared)
     }
 
     #[test]
     fn test_mempool_projection_same_slot_multiple_txs() {
-        let mut projection = MempoolProjection::new(100);
-        let tx1 = make_tx_hash(1);
-        let tx2 = make_tx_hash(2);
+        // Tests multiple txs in the same slot
+        // and duplicate detection within same slot
+    }
 
-        // Multiple txs in same slot
-        assert_eq!(
+    #[test]
+    fn test_mempool_projection_slot_skip() {
+        // Tests behavior when slots are skipped
+        // (e.g., slot 1 → slot 5)
+    }
+}
 ```
 
-</details>
+## Test Results
 
-</tool-use>
+```
+running 3 tests
+test client::tests::test_mempool_projection_same_slot_multiple_txs ... ok
+test client::tests::test_mempool_projection_slot_skip ... ok
+test client::tests::test_mempool_projection_tx_lifecycle ... ok
 
----
+test result: ok. 3 passed; 0 failed; 0 ignored
+```
 
+The main test (`test_mempool_projection_tx_lifecycle`) covers all 4 scenarios you requested:
+1. ✅ tx1 added at slot 1 → returns `false` (new tx)
+2. ✅ tx1 seen again at slot 2 → returns `true` (duplicate from prev slot)
+3. ✅ At slot 3, other txs added, tx1 not present
+4. ✅ At slot 4, tx1 reappears → returns `false` (no longer in prev projection)
 
+I also added two bonus tests for edge cases: multiple txs in the same slot, and skipping slots.
 
 ---
 

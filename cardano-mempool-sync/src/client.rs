@@ -61,7 +61,7 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
         stream! {
             loop {
                 let mut tx_monitor = self.tx_monitor.lock().await;
-                if let Ok(slot) = tx_monitor.client.await_acquire().await {
+                if let Ok(slot) = tx_monitor.client.acquire().await {
                     loop {
                         if let Ok(Some(raw_tx)) = tx_monitor.client.query_next_tx().await {
                             let bytes = &*raw_tx.1;
