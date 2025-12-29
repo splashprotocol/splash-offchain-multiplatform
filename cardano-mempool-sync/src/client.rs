@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
 
         let state = MonitorState {
             client: txmonitor::Client::new(tm_channel),
-            filter: TxFilter::new(FILTER_CAP),
+            mempool: MempoolProjection::new(FILTER_CAP),
         };
 
         Ok(Self {
@@ -61,11 +61,11 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
         stream! {
             loop {
                 let mut tx_monitor = self.tx_monitor.lock().await;
-                if let Ok(_) = tx_monitor.client.acquire().await {
+                if let Ok(slot) = tx_monitor.client.await_acquire().await {
                     loop {
                         if let Ok(Some(raw_tx)) = tx_monitor.client.query_next_tx().await {
                             let bytes = &*raw_tx.1;
-                            if !tx_monitor.filter.register(hash_tx_bytes(bytes)) {
+                            if !tx_monitor.mempool.register(hash_tx_bytes(bytes), slot) {
                                 if let Some(tx) = Tx::from_cbor_bytes(bytes).ok() {
                                     yield tx;
                                 }
@@ -85,37 +85,37 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
 }
 
 const PROTOCOL_N2C_TX_MONITOR: u16 = 9;
-const FILTER_CAP: usize = 4096;
+const FILTER_CAP: usize = 16384;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 struct RawTxHash([u8; 28]);
 
-struct TxFilter {
-    known_txs: HashSet<RawTxHash>,
-    eviction_queue: VecDeque<RawTxHash>,
-    cap: usize,
+struct MempoolProjection {
+    prev_projection: HashSet<RawTxHash>,
+    current_projection: HashSet<RawTxHash>,
+    slot: u64,
 }
 
-impl TxFilter {
-    fn new(cap: usize) -> Self {
+impl MempoolProjection {
+    fn new(capacity: usize) -> Self {
         Self {
-            known_txs: HashSet::with_capacity(cap),
-            eviction_queue: VecDeque::with_capacity(cap),
-            cap,
+            prev_projection: HashSet::with_capacity(capacity),
+            current_projection: HashSet::with_capacity(capacity),
+            slot: 0,
         }
     }
-    fn register(&mut self, tx: RawTxHash) -> bool {
-        if self.known_txs.contains(&tx) {
-            return true;
+    fn register(&mut self, tx: RawTxHash, slot: u64) -> bool {
+        if slot > self.slot {
+            self.prev_projection = std::mem::take(&mut self.current_projection);
+            self.slot = slot;
         }
-        if self.known_txs.len() > self.cap {
-            if let Some(candidate) = self.eviction_queue.pop_back() {
-                self.known_txs.remove(&candidate);
-            }
+        
+        if self.prev_projection.contains(&tx) {
+            true
+        } else {
+            self.current_projection.insert(tx);
+            false
         }
-        self.known_txs.insert(tx);
-        self.eviction_queue.push_front(tx);
-        false
     }
 }
 
@@ -125,7 +125,7 @@ fn hash_tx_bytes(tx: &[u8]) -> RawTxHash {
 
 struct MonitorState {
     client: txmonitor::Client,
-    filter: TxFilter,
+    mempool: MempoolProjection,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -138,4 +138,89 @@ pub enum Error {
 
     #[error("handshake version not accepted")]
     IncompatibleVersion,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tx_hash(byte: u8) -> RawTxHash {
+        RawTxHash([byte; 28])
+    }
+
+    #[test]
+    fn test_mempool_projection_tx_lifecycle() {
+        let mut projection = MempoolProjection::new(100);
+        let tx1 = make_tx_hash(1);
+        let tx2 = make_tx_hash(2);
+        let tx3 = make_tx_hash(3);
+
+        // Slot 1: tx1 is added to mempool, should return false (new tx)
+        assert_eq!(projection.register(tx1, 1), false, "tx1 at slot 1 should be new");
+        assert_eq!(projection.slot, 1);
+        assert!(projection.current_projection.contains(&tx1));
+        assert!(projection.prev_projection.is_empty());
+
+        // Slot 2: tx1 is seen again, should return true (duplicate from previous slot)
+        assert_eq!(projection.register(tx1, 2), true, "tx1 at slot 2 should be duplicate");
+        assert_eq!(projection.slot, 2);
+        // tx1 should now be in prev_projection
+        assert!(projection.prev_projection.contains(&tx1));
+        // And should NOT be in current_projection since it returned true
+        assert!(!projection.current_projection.contains(&tx1));
+
+        // Slot 3: other txs added, but tx1 is not there
+        assert_eq!(projection.register(tx2, 3), false, "tx2 at slot 3 should be new");
+        assert_eq!(projection.register(tx3, 3), false, "tx3 at slot 3 should be new");
+        assert_eq!(projection.slot, 3);
+        // After slot advance, tx1 is no longer in prev_projection (it was in current at slot 2)
+        assert!(!projection.prev_projection.contains(&tx1));
+        assert!(projection.current_projection.contains(&tx2));
+        assert!(projection.current_projection.contains(&tx3));
+
+        // Slot 4: tx1 appears again, should return false (reappeared after being absent)
+        assert_eq!(projection.register(tx1, 4), false, "tx1 at slot 4 should be new (reappeared)");
+        assert_eq!(projection.slot, 4);
+        // tx1 is not in prev_projection (which had tx2, tx3 from slot 3)
+        assert!(projection.prev_projection.contains(&tx2));
+        assert!(projection.prev_projection.contains(&tx3));
+        // tx1 is now in current_projection
+        assert!(projection.current_projection.contains(&tx1));
+    }
+
+    #[test]
+    fn test_mempool_projection_same_slot_multiple_txs() {
+        let mut projection = MempoolProjection::new(100);
+        let tx1 = make_tx_hash(1);
+        let tx2 = make_tx_hash(2);
+
+        // Multiple txs in same slot
+        assert_eq!(projection.register(tx1, 1), false);
+        assert_eq!(projection.register(tx2, 1), false);
+        
+        // Duplicate in same slot should also return false (not in prev_projection)
+        assert_eq!(projection.register(tx1, 1), false);
+        
+        // All txs should be in current_projection
+        assert!(projection.current_projection.contains(&tx1));
+        assert!(projection.current_projection.contains(&tx2));
+    }
+
+    #[test]
+    fn test_mempool_projection_slot_skip() {
+        let mut projection = MempoolProjection::new(100);
+        let tx1 = make_tx_hash(1);
+
+        // Add tx1 at slot 1
+        assert_eq!(projection.register(tx1, 1), false);
+        
+        // Skip to slot 5 (simulate missing slots)
+        let tx2 = make_tx_hash(2);
+        assert_eq!(projection.register(tx2, 5), false);
+        assert_eq!(projection.slot, 5);
+        
+        // tx1 should be in prev_projection
+        assert!(projection.prev_projection.contains(&tx1));
+        assert!(projection.current_projection.contains(&tx2));
+    }
 }

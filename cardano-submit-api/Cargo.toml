@@ -8,7 +8,7 @@ rust-version = "1.84.0"
 
 [dependencies]
 async-trait = "0.1.72"
-pallas-network = { git = "https://github.com/txpipe/pallas.git", tag = "v1.0.0-alpha.2" }
+pallas-network = { git = "https://github.com/txpipe/pallas.git", rev = "f331365c765ec195f19ddfd58ccf3c03c19ceee9" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
