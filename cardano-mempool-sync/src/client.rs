@@ -62,12 +62,7 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
             let mut seq_num = 0;
             loop {
                 let mut tx_monitor = self.tx_monitor.lock().await;
-                let acquire_next = if *tx_monitor.client.state() == txmonitor::State::Idle {
-                    tx_monitor.client.acquire().await
-                } else {
-                    tx_monitor.client.await_acquire().await
-                };
-                if let Ok(_) = acquire_next {
+                if let Ok(_) = tx_monitor.client.acquire().await {
                     while let Ok(Some(raw_tx)) = tx_monitor.client.query_next_tx().await {
                         let bytes = &*raw_tx.1;
                         if !tx_monitor.mempool.register(hash_tx_bytes(bytes), seq_num) {
