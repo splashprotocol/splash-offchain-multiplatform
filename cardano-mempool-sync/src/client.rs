@@ -59,22 +59,25 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
         Tx: Deserialize + 'a,
     {
         stream! {
+            let mut seq_num = 0;
             loop {
                 let mut tx_monitor = self.tx_monitor.lock().await;
-                if let Ok(slot) = tx_monitor.client.acquire().await {
-                    loop {
-                        if let Ok(Some(raw_tx)) = tx_monitor.client.query_next_tx().await {
-                            let bytes = &*raw_tx.1;
-                            if !tx_monitor.mempool.register(hash_tx_bytes(bytes), slot) {
-                                if let Some(tx) = Tx::from_cbor_bytes(bytes).ok() {
-                                    yield tx;
-                                }
+                let acquire_next = if *tx_monitor.client.state() == txmonitor::State::Idle {
+                    tx_monitor.client.acquire().await
+                } else {
+                    tx_monitor.client.await_acquire().await
+                };
+                if let Ok(_) = acquire_next {
+                    while let Ok(Some(raw_tx)) = tx_monitor.client.query_next_tx().await {
+                        let bytes = &*raw_tx.1;
+                        if !tx_monitor.mempool.register(hash_tx_bytes(bytes), seq_num) {
+                            if let Some(tx) = Tx::from_cbor_bytes(bytes).ok() {
+                                yield tx;
                             }
-                        } else {
-                            break;
                         }
                     }
                 }
+                seq_num += 1;
             }
         }
     }
@@ -110,7 +113,7 @@ impl MempoolProjection {
             self.slot = slot;
         }
         
-        if self.prev_projection.contains(&tx) {
+        if self.prev_projection.contains(&tx) || self.current_projection.contains(&tx) {
             true
         } else {
             self.current_projection.insert(tx);
@@ -198,8 +201,8 @@ mod tests {
         assert_eq!(projection.register(tx1, 1), false);
         assert_eq!(projection.register(tx2, 1), false);
         
-        // Duplicate in same slot should also return false (not in prev_projection)
-        assert_eq!(projection.register(tx1, 1), false);
+        // Duplicate in same slot should return true (not in prev_projection)
+        assert_eq!(projection.register(tx1, 1), true);
         
         // All txs should be in current_projection
         assert!(projection.current_projection.contains(&tx1));
