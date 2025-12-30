@@ -31,7 +31,6 @@ pub struct AppConfig {
     pub verifier_url: String,
     pub lp_indexer_url: String,
     pub max_number_merkle_tree_snapshots: u8,
-    pub splash_policy_id_hex: String,
     pub authorized_executors: Vec<PublicKey>,
     pub operator_sk: String,
     pub reward_tx_ttl_in_slots: u64,

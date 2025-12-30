@@ -60,6 +60,7 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<BufferWalletAuthPolicy>
         + Has<FarmFactoryAuthPolicy>
         + Has<MinLovelacePerHarvest>

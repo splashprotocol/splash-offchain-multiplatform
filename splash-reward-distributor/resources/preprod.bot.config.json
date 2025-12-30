@@ -45,7 +45,6 @@
   "verifierUrl": "127.0.0.1:1235",
   "lpIndexerUrl": "127.0.0.1:1234",
   "maxNumberMerkleTreeSnapshots": 100,
-  "splashPolicyIdHex": "352127c4aa7c1c12adf687262380d8f80d3b7e4e10da5d61dc7a81c8",
   "operatorSk": "",
   "authorizedExecutors": [
     "ed25519_pk1vh0eku8v5cx8anwd34dn8qzv7gn3lrh6aewzpg3gcq0pwypfaxgs3599er",

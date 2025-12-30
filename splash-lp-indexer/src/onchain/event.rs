@@ -336,6 +336,7 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<FarmFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
@@ -477,6 +478,7 @@ pub struct WeightingPollOutput {
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollOutput
 where
     Cx: Has<GenesisEpochStartTime>
+        + Has<SplashPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<NetworkId>,
 {
@@ -486,6 +488,7 @@ where
             let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
 
             let ctx = WPollCtx {
+                splash_policy: ctx.select::<SplashPolicy>(),
                 timed_output_ref,
                 epoch_start_time: ctx.select::<GenesisEpochStartTime>(),
                 script_info: ctx
@@ -552,10 +555,17 @@ where
 }
 
 struct WPollCtx {
+    splash_policy: SplashPolicy,
     epoch_start_time: GenesisEpochStartTime,
     timed_output_ref: TimedOutputRef,
     script_info: DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>,
     network_id: NetworkId,
+}
+
+impl Has<SplashPolicy> for WPollCtx {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+        self.splash_policy.clone()
+    }
 }
 
 impl Has<TimedOutputRef> for WPollCtx {

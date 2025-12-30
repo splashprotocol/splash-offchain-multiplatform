@@ -17,7 +17,7 @@ use futures::{Stream, StreamExt};
 use log::trace;
 use serde::Deserialize;
 use splash_dao_offchain::routines::Slot;
-use splash_yf_offchain::entities::gauge::GaugeDeposits;
+use splash_yf_offchain::entities::gauge::GaugeCharge;
 use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
@@ -208,26 +208,23 @@ where
                         .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
                         .collect(),
                 ),
-                OnChainEvent::ChargeGauges(GaugeDeposits(updated_gauges)) => Some(
-                    updated_gauges
-                        .into_iter()
-                        .filter_map(|(gauge_update, _)| {
-                            if gauge_update.created.0.balance >= conf.buffering_threshold {
-                                let gauge_id = gauge_update.created.0.id;
-                                trace!("Scheduling gauge-buffering for gauge {:?}", gauge_id);
-                                return Some(QueueCmd::Schedule(
-                                    gauge_id.into(),
-                                    Task::new_gauge_buffering(gauge_id),
-                                    StrikeTime::Ready,
-                                ));
-                            }
-                            None
-                        })
-                        .collect(),
-                ),
+                OnChainEvent::ChargeGauges(GaugeCharge { gauge_update, .. }) => {
+                    Some(if gauge_update.created.0.balance >= conf.buffering_threshold {
+                        let gauge_id = gauge_update.created.0.id;
+                        trace!("Scheduling gauge-buffering for gauge {:?}", gauge_id);
+                        vec![QueueCmd::Schedule(
+                            gauge_id.into(),
+                            Task::new_gauge_buffering(gauge_id),
+                            StrikeTime::Ready,
+                        )]
+                    } else {
+                        vec![]
+                    })
+                }
                 OnChainEvent::AuthManagerUpdated(_)
                 | OnChainEvent::Funding { .. }
-                | OnChainEvent::CreateGauge(_) => None,
+                | OnChainEvent::CreateGauge(_)
+                | OnChainEvent::CreateBufferWalletAndAuthManager { .. } => None,
             })
             .flatten()
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
@@ -281,21 +278,18 @@ where
                         .collect(),
                 ),
 
-                OnChainEvent::ChargeGauges(GaugeDeposits(updated_gauges)) => Some(
-                    updated_gauges
-                        .into_iter()
-                        .filter_map(|(gauge_update, _)| {
-                            if gauge_update.created.0.balance >= conf.buffering_threshold {
-                                let task_id = gauge_update.created.0.id.into();
-                                return Some(QueueCmd::Cancel(task_id));
-                            }
-                            None
-                        })
-                        .collect(),
-                ),
+                OnChainEvent::ChargeGauges(GaugeCharge { gauge_update, .. }) => {
+                    Some(if gauge_update.created.0.balance >= conf.buffering_threshold {
+                        let task_id = gauge_update.created.0.id.into();
+                        vec![QueueCmd::Cancel(task_id)]
+                    } else {
+                        vec![]
+                    })
+                }
                 OnChainEvent::AuthManagerUpdated(_)
                 | OnChainEvent::Funding { .. }
-                | OnChainEvent::CreateGauge(_) => None,
+                | OnChainEvent::CreateGauge(_)
+                | OnChainEvent::CreateBufferWalletAndAuthManager { .. } => None,
             })
             .flatten()
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])

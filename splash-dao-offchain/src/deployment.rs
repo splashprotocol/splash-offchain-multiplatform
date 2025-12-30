@@ -12,7 +12,7 @@ use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
+    protocol_config::{GTAuthPolicy, SplashPolicy, VEFactoryAuthPolicy},
     GenesisEpochStartTime,
 };
 
@@ -307,6 +307,12 @@ impl Has<GTAuthPolicy> for CompleteDeployment {
 impl Has<GenesisEpochStartTime> for CompleteDeployment {
     fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
         GenesisEpochStartTime::from(self.genesis_epoch_start_time)
+    }
+}
+
+impl Has<SplashPolicy> for CompleteDeployment {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+        SplashPolicy(self.splash_tokens.policy_id)
     }
 }
 

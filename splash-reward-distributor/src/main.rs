@@ -143,7 +143,7 @@ async fn run_reward_bot(args: AppArgs) {
         dao_deployment: dao_protocol_deployment.clone(),
         dao_tokens: dao_deployment.minted_deployment_tokens.clone(),
         min_lovelace_per_harvest: config.harvest_limits.minimal_lovelace_per_single_harvest,
-        splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
+        splash_policy_id: dao_deployment.splash_tokens.policy_id,
         network_id: config.network_id,
         genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
@@ -190,7 +190,13 @@ async fn run_reward_bot(args: AppArgs) {
     processes.push(flow_driver_handle);
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
+    let filter = HashSet::from([
+        dao_protocol_deployment.buffer_wallet.hash,
+        dao_protocol_deployment.farm_factory.hash,
+        dao_protocol_deployment.smart_farm.hash,
+        dao_protocol_deployment.mint_wpauth_token.hash,
+        dao_protocol_deployment.perm_manager.hash,
+    ]);
 
     let mempool_index_handle = tokio::spawn(update_index_from_mempool_dropped_tx(
         failed_txs_recv,
@@ -280,14 +286,20 @@ async fn run_verifier(args: AppArgs) {
 
     let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
+    let filter = HashSet::from([
+        dao_protocol_deployment.buffer_wallet.hash,
+        dao_protocol_deployment.farm_factory.hash,
+        dao_protocol_deployment.smart_farm.hash,
+        dao_protocol_deployment.mint_wpauth_token.hash,
+        dao_protocol_deployment.perm_manager.hash,
+    ]);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
 
     let ctx = VerifierRuntimeContext {
         dao_deployment: dao_protocol_deployment,
         dao_tokens: dao_deployment.minted_deployment_tokens.clone(),
         min_lovelace_per_harvest: config.harvest_limits.minimal_lovelace_per_single_harvest,
-        splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
+        splash_policy_id: dao_deployment.splash_tokens.policy_id,
         network_id: config.network_id,
         genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),

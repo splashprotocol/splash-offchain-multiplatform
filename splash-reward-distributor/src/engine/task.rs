@@ -1,3 +1,4 @@
+use cml_crypto::blake2b256;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::OutputRef;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
@@ -29,7 +30,7 @@ impl TryFrom<Vec<u8>> for TaskId {
 
 impl From<FarmId> for TaskId {
     fn from(farm_id: FarmId) -> Self {
-        todo!()
+        blake2b256(farm_id.0.as_bytes()).into()
     }
 }
 

@@ -51,6 +51,16 @@ has_deployed_script_info!(
     |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.farm_factory).into()
 );
 has_deployed_validator!(
+    MintWpAuthPolicy,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| ctx.dao_deployment.mint_wpauth_token.clone()
+);
+has_deployed_script_info!(
+    MintWpAuthPolicy,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.mint_wpauth_token).into()
+);
+has_deployed_validator!(
     HarvestOrder,
     VerifierRuntimeContext,
     |ctx: &VerifierRuntimeContext| ctx.dao_deployment.harvest_order.clone()
@@ -192,6 +202,20 @@ has_deployed_script_info!(
     FarmFactory,
     RewardBotRuntimeContext,
     |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.farm_factory).into()
+);
+has_deployed_validator!(
+    MintWpAuthPolicy,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| ctx
+        .verifier_runtime_context
+        .dao_deployment
+        .mint_wpauth_token
+        .clone()
+);
+has_deployed_script_info!(
+    MintWpAuthPolicy,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.mint_wpauth_token).into()
 );
 has_deployed_validator!(
     HarvestOrder,

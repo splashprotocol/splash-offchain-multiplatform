@@ -155,6 +155,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
             let (snd, recv) = oneshot::channel();
             downstream.send((applied_txs, snd.into())).await.unwrap();
             recv.await.unwrap();
+            cache_block(cache.clone(), &hdr, blk_bytes).await;
         }
         let mut upstream = upstream.fuse();
         loop {

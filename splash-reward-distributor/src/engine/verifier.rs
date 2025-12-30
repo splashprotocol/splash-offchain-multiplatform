@@ -237,6 +237,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::FarmFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<FarmFactoryAuthPolicy>
         + Has<NetworkId>
         + Has<GenesisEpochStartTime>

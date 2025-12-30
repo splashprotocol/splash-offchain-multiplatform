@@ -64,6 +64,7 @@ pub struct WeightingPoll {
     /// Note: weighting power is not determined until vote stage. If this field is None then no
     /// votes have currently been cast for the current epoch.
     pub weighting_power: Option<u64>,
+    pub remaining_splash_emission: TaggedAmount<Splash>,
     pub eliminated: bool,
 }
 
@@ -239,6 +240,7 @@ where
     C: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<NetworkId>
+        + Has<SplashPolicy>
         + Has<TimedOutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -269,14 +271,24 @@ where
                             value.multiasset.get(&weighting_power_policy, &token_asset_name);
 
                         trace!(
-                            "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
+                            "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}, value: {:?}",
                             epoch,
-                            weighting_power
+                            weighting_power,
+                            value
+                        );
+                        let splash_asset_name =
+                            cml_chain::assets::AssetName::try_from(SPLASH_NAME.as_bytes().to_vec()).unwrap();
+                        let remaining_splash_emission = TaggedAmount::new(
+                            value
+                                .multiasset
+                                .get(&ctx.select::<SplashPolicy>().0, &splash_asset_name)
+                                .unwrap_or_default(),
                         );
                         let weighting_poll = WeightingPoll {
                             epoch,
                             distribution,
                             emission_rate: TaggedAmount::new(emission_rate),
+                            remaining_splash_emission,
                             weighting_power,
                             eliminated: false,
                         };

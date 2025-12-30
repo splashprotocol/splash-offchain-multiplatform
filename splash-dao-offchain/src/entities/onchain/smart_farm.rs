@@ -12,6 +12,7 @@ use cml_chain::{
 };
 use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
+use log::trace;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
