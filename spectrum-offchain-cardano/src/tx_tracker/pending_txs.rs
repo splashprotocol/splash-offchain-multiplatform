@@ -27,12 +27,18 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
     where
         TxHash: Copy + Eq + Hash + Display,
     {
+        if self.index.contains_key(&tx) {
+            trace!("Tx {} already exists in index", tx);
+            return;
+        }
+
         let should_confirm_until = self.current_block + self.max_confirmation_delay_blocks;
         trace!(
             "Appending Tx: {}, should be confirmed until block: {}",
             tx,
             should_confirm_until
         );
+
         self.index.insert(tx, should_confirm_until);
         let now = Instant::now();
         match self.queue.entry(should_confirm_until) {

@@ -107,7 +107,7 @@ impl MempoolProjection {
             self.prev_projection = std::mem::take(&mut self.current_projection);
             self.slot = slot;
         }
-        
+
         if self.prev_projection.contains(&tx) || self.current_projection.contains(&tx) {
             true
         } else {
@@ -160,7 +160,11 @@ mod tests {
         assert!(projection.prev_projection.is_empty());
 
         // Slot 2: tx1 is seen again, should return true (duplicate from previous slot)
-        assert_eq!(projection.register(tx1, 2), true, "tx1 at slot 2 should be duplicate");
+        assert_eq!(
+            projection.register(tx1, 2),
+            true,
+            "tx1 at slot 2 should be duplicate"
+        );
         assert_eq!(projection.slot, 2);
         // tx1 should now be in prev_projection
         assert!(projection.prev_projection.contains(&tx1));
@@ -177,7 +181,11 @@ mod tests {
         assert!(projection.current_projection.contains(&tx3));
 
         // Slot 4: tx1 appears again, should return false (reappeared after being absent)
-        assert_eq!(projection.register(tx1, 4), false, "tx1 at slot 4 should be new (reappeared)");
+        assert_eq!(
+            projection.register(tx1, 4),
+            false,
+            "tx1 at slot 4 should be new (reappeared)"
+        );
         assert_eq!(projection.slot, 4);
         // tx1 is not in prev_projection (which had tx2, tx3 from slot 3)
         assert!(projection.prev_projection.contains(&tx2));
@@ -195,10 +203,10 @@ mod tests {
         // Multiple txs in same slot
         assert_eq!(projection.register(tx1, 1), false);
         assert_eq!(projection.register(tx2, 1), false);
-        
+
         // Duplicate in same slot should return true (not in prev_projection)
         assert_eq!(projection.register(tx1, 1), true);
-        
+
         // All txs should be in current_projection
         assert!(projection.current_projection.contains(&tx1));
         assert!(projection.current_projection.contains(&tx2));
@@ -211,12 +219,12 @@ mod tests {
 
         // Add tx1 at slot 1
         assert_eq!(projection.register(tx1, 1), false);
-        
+
         // Skip to slot 5 (simulate missing slots)
         let tx2 = make_tx_hash(2);
         assert_eq!(projection.register(tx2, 5), false);
         assert_eq!(projection.slot, 5);
-        
+
         // tx1 should be in prev_projection
         assert!(projection.prev_projection.contains(&tx1));
         assert!(projection.current_projection.contains(&tx2));

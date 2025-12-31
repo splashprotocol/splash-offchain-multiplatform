@@ -19,7 +19,7 @@ pub mod event_source;
 
 #[derive(Debug, Clone, Serialize)]
 pub enum ChainSyncHealth {
-    Ok
+    Ok,
 }
 
 impl Default for ChainSyncHealth {
