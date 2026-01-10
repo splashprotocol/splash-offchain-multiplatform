@@ -169,9 +169,9 @@ where
             None
         });
         let balance_change = if let Some((_, input_balance)) = consumed {
-            BufferWalletSplashBalanceChange::from_diff(input_balance, created.0.balance)
+            BufferWalletSplashBalanceChange::from_buffer_wallet_diff(input_balance, created.0.balance)
         } else {
-            BufferWalletSplashBalanceChange::from_diff(0, output_balance)
+            BufferWalletSplashBalanceChange::from_buffer_wallet_diff(0, output_balance)
         };
         let consumed = consumed.map(|(consumed, _)| consumed);
         let update = EntityUpdated { consumed, created };

@@ -16,7 +16,7 @@
     "dbPath": "state/reward-verifier"
   },
   "node": {
-    "path": "/Users/tling/node-external/node.socket",
+    "path": "/data/cardano-node-preprod-10-1-4/ipc/node.socket",
     "magic": 1
   },
   "networkId": 0,
@@ -43,7 +43,7 @@
   },
   "txSubmissionBufferSize": 64,
   "verifierUrl": "127.0.0.1:1235",
-  "lpIndexerUrl": "127.0.0.1:1234",
+  "lpIndexerUrl": "http://127.0.0.1:1234",
   "maxNumberMerkleTreeSnapshots": 100,
   "operatorSk": "",
   "authorizedExecutors": [

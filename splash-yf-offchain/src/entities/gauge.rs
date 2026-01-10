@@ -243,7 +243,7 @@ where
                     trace!("gauge_output_ref: {:?}", gauge_output_ref);
                     let gauge_out = try_extract_gauge(&outputs[1], gauge_output_ref, ctx)?;
                     trace!("gauge_out: {:?}", gauge_out);
-                    let balance_change = BufferWalletSplashBalanceChange::from_diff(
+                    let balance_change = BufferWalletSplashBalanceChange::from_gauge_diff(
                         consumed_gauges[0].0.balance,
                         gauge_out.balance,
                     );
@@ -289,12 +289,13 @@ where
             .zip(outputs.iter().enumerate().skip(1).take(num_consumed_gauges))
         {
             if successor_ix != output_ix as u64 {
+                trace!("successor_ix != output_ix as u64");
                 return None;
             }
             let output_ref = TimedOutputRef::new(OutputRef::new(tx_hash, successor_ix), slot);
             if let Some(gauge_out) = try_extract_gauge(tx_output, output_ref, ctx) {
                 let balance_change =
-                    BufferWalletSplashBalanceChange::from_diff(gauge_in.balance, gauge_out.balance);
+                    BufferWalletSplashBalanceChange::from_gauge_diff(gauge_in.balance, gauge_out.balance);
                 if gauge_out.id == gauge_in.id {
                     res.push((
                         EntityUpdated {
@@ -308,12 +309,13 @@ where
                     ));
                 }
             } else {
+                trace!("No gauge output found for output_ix: {}", output_ix);
                 return None;
             }
         }
 
         let all_withdrawals = res.iter().all(|(_, balance_change)| {
-            matches!(balance_change, BufferWalletSplashBalanceChange::Decrease(_))
+            matches!(balance_change, BufferWalletSplashBalanceChange::Increase(_))
         });
         assert!(all_withdrawals);
         let res = res

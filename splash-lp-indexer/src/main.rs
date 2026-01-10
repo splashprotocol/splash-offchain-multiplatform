@@ -126,15 +126,15 @@ async fn main() {
 
     let server_handle = server.handle();
 
-    let kafka = ClientConfig::new()
-        .set("bootstrap.servers", &config.bootstrap_servers)
-        .create::<FutureProducer>()
-        .expect("Failed to create kafka producer");
-    let publisher = EventPublisher::<ExportAccountPositionEvent, _>::new(
-        position_db.clone(),
-        kafka,
-        config.events_export_topic,
-    );
+    //let kafka = ClientConfig::new()
+    //    .set("bootstrap.servers", &config.bootstrap_servers)
+    //    .create::<FutureProducer>()
+    //    .expect("Failed to create kafka producer");
+    //let publisher = EventPublisher::<ExportAccountPositionEvent, _>::new(
+    //    position_db.clone(),
+    //    kafka,
+    //    config.events_export_topic,
+    //);
 
     let gauges_db = VoteEscrowDB::new(config.gauges_db_path);
 
@@ -156,8 +156,8 @@ async fn main() {
     let process_mature_events_handle = tokio::spawn(process_mature_events(position_db));
     processes.push(process_mature_events_handle);
 
-    let export_events_handle = tokio::spawn(publisher.run());
-    processes.push(export_events_handle);
+    //let export_events_handle = tokio::spawn(publisher.run());
+    //processes.push(export_events_handle);
 
     let server_process_handle = tokio::spawn(server.map(|r| r.unwrap()));
     processes.push(server_process_handle);

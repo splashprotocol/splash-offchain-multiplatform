@@ -155,7 +155,7 @@ mod tests {
     fn gen_operator_creds() {
         let network = NetworkInfo::preprod().network_id();
 
-        let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
+        let operator_prv_bip32 = Bip32PrivateKey::from_bech32("xprv1srawtvnrmydeyys0vf8cp8zrw682a022zqd9zwngjp82df7aje2ggategkuy4gv6jln97w5sdwf0epkvwtkewtvn4ucy9t3lnp253cdxlpgnrvkrjh8vv0avq2k3x980sldxfalxqqflxh7hdrsydne3h57tumpl").unwrap();
 
         let operator_pk_main = operator_prv_bip32.to_public();
 
@@ -192,6 +192,10 @@ mod tests {
 
         println!("operator_prv_bip32: {}", operator_prv_bip32.to_bech32());
         println!("operator_pk_main: {}", operator_pk_main.to_raw_key().to_bech32());
+        println!(
+            "operator_pk_main hash: {}",
+            operator_pk_main.to_raw_key().hash().to_hex()
+        );
         println!("operator pkh (main): {}", pkh_main);
         println!("stake pkh (1): {}", child_pkh_1);
         println!("stake pkh (2): {}", child_pkh_2);

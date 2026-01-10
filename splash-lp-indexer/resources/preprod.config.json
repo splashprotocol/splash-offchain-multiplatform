@@ -16,7 +16,7 @@
     "dbPath": "state/lp-indexer"
   },
   "node": {
-    "path": "/Users/tling/node-external/node.socket",
+    "path": "/data/cardano-node-preprod-10-1-4/ipc/node.socket",
     "magic": 1
   },
   "networkId": 0,

@@ -24,11 +24,26 @@ impl BufferWalletSplashBalanceChange {
         }
     }
 
-    pub fn from_diff(gauge_input_amount: u64, gauge_output_amount: u64) -> Self {
+    pub fn from_gauge_diff(gauge_input_amount: u64, gauge_output_amount: u64) -> Self {
         if gauge_input_amount > gauge_output_amount {
             BufferWalletSplashBalanceChange::Increase(gauge_input_amount - gauge_output_amount)
         } else {
             BufferWalletSplashBalanceChange::Decrease(gauge_output_amount - gauge_input_amount)
+        }
+    }
+
+    pub fn from_buffer_wallet_diff(
+        buffer_wallet_input_amount: u64,
+        buffer_wallet_output_amount: u64,
+    ) -> Self {
+        if buffer_wallet_input_amount > buffer_wallet_output_amount {
+            BufferWalletSplashBalanceChange::Decrease(
+                buffer_wallet_input_amount - buffer_wallet_output_amount,
+            )
+        } else {
+            BufferWalletSplashBalanceChange::Increase(
+                buffer_wallet_output_amount - buffer_wallet_input_amount,
+            )
         }
     }
 }

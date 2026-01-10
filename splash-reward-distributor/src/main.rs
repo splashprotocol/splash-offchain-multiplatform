@@ -40,8 +40,9 @@ use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSub
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::collateral::pull_collateral;
+use splash_dao_offchain::constants::DAO_SCRIPT_BYTES;
 use splash_dao_offchain::deployment::{
-    CompleteDeployment as DaoDeployment, DeploymentProgress as DaoDeploymentProgress,
+    CompleteDeployment as DaoDeployment, DaoScriptData, DeploymentProgress as DaoDeploymentProgress,
     ProtocolDeployment as DaoProtocolDeployment,
 };
 use splash_dao_offchain::funding::FundingRepoRocksDB;
@@ -54,6 +55,19 @@ use tracing_subscriber::fmt::Subscriber;
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
     let args = AppArgs::parse();
+
+    let dao_script_bytes_str =
+        std::fs::read_to_string(args.script_bytes_path.clone()).expect("Cannot load script bytes file");
+    let dao_script_bytes: DaoScriptData =
+        serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
+
+    DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();
+
+    println!(
+        "buffer_wallet ex_units: {:?}",
+        DaoScriptData::global().buffer_wallet.ex_units.clone()
+    );
+
     match args.command {
         Command::RewardBot => run_reward_bot(args).await,
         Command::Verifier => run_verifier(args).await,
@@ -148,11 +162,11 @@ async fn run_reward_bot(args: AppArgs) {
         genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
         reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
+        operator_sk,
     };
 
     let ctx = RewardBotRuntimeContext {
         verifier_runtime_context,
-        operator_sk,
         collateral,
     };
 
@@ -240,6 +254,8 @@ async fn run_verifier(args: AppArgs) {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
+    println!("authorized executors: {:?}", config.authorized_executors);
+
     let raw_deployment =
         std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
     let dao_deployment: DaoDeploymentProgress =
@@ -304,6 +320,7 @@ async fn run_verifier(args: AppArgs) {
         genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
         reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
+        operator_sk: config.operator_sk.clone(),
     };
 
     let (voting_order_snd, voting_event_rcv) = mpsc::channel(100);
@@ -383,6 +400,9 @@ struct AppArgs {
     /// Path to the DAO deployment JSON configuration file .
     #[arg(long)]
     dao_deployment_path: String,
+    /// Path to the JSON DAO script bytes file.
+    #[arg(long, short)]
+    script_bytes_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
     validation_rules_path: String,

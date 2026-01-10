@@ -6,7 +6,7 @@ use crate::constants::{
 use crate::context::RewardTxTtl;
 use crate::engine::batch::{BufferingBatch, HarvestBatch, OrderWithSpendDetails};
 use crate::engine::resolved_tx::{
-    CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx,
+    CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx, SerializableSignedTxBuilder,
 };
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
 use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
@@ -23,10 +23,11 @@ use cml_chain::builders::witness_builder::{
     NativeScriptWitnessInfo, PartialPlutusWitness, PlutusScriptWitness,
 };
 use cml_chain::certs::Credential;
-use cml_chain::transaction::{DatumOption, Transaction, TransactionInput};
-use cml_chain::{RequiredSigners, Value};
-use cml_crypto::{RawBytesEncoding, TransactionHash};
-use log::{error, warn};
+use cml_chain::crypto::utils::make_vkey_witness;
+use cml_chain::transaction::{DatumOption, Transaction, TransactionBody, TransactionInput};
+use cml_chain::{Deserialize, RequiredSigners, Value};
+use cml_crypto::{Ed25519KeyHash, PrivateKey, RawBytesEncoding, TransactionHash};
+use log::{error, trace, warn};
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
 };
@@ -59,6 +60,7 @@ use splash_dao_offchain::routines::actions::{BlueprintEstimates, DaoTxBlueprint}
 use splash_dao_offchain::routines::{
     last_slot_of_epoch, slot_to_epoch, time_millis_to_epoch, FundingBoxChanges, Slot,
 };
+use splash_dao_offchain::util::set_min_ada;
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::entities::buffer_wallet::{
     BufferWallet, BufferWalletAction, BufferWalletConfig, BufferWalletWrap,
@@ -130,7 +132,7 @@ impl<Ctx, PositionIndex, OnChainIndex>
     BatchExecutor<
         TaskId,
         Harvesting<OutputRef>,
-        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
+        HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, SerializableSignedTxBuilder, CardanoTxInputs>,
         Error,
     > for HarvestingFlow<OutputRef, FinalizedTxOut, Ctx, PositionIndex, OnChainIndex>
 where
@@ -248,7 +250,7 @@ where
     ) -> Result<
         ExecutionResult<
             TaskId,
-            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
+            HarvestFlowEntityUpdates<OutputRef, FinalizedTxOut, SerializableSignedTxBuilder, CardanoTxInputs>,
         >,
         Error,
     > {
@@ -275,7 +277,7 @@ where
             struct InputData {
                 input: InputBuilderResult,
                 ex_units: Option<cml_chain::plutus::ExUnits>,
-                issued_at: Option<(Slot, Epoch)>,
+                issued_at: Option<Slot>,
             }
 
             let mut sorted_input_data: Vec<_> = batch
@@ -309,7 +311,7 @@ where
                         InputData {
                             input: harvest_order_input,
                             ex_units: ex_units.clone(),
-                            issued_at: Some(issued_at),
+                            issued_at: Some(issued_at.0),
                         }
                     },
                 )
@@ -457,14 +459,25 @@ where
                 )
                 .collect();
 
-            let output = tx_builder
+            let signed_tx_builder = tx_builder
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
 
-            let tx_body = output.body();
+            let tx_body = signed_tx_builder.body();
             let tx_hash = hash_transaction_canonical(&tx_body);
+            use cml_chain::Serialize;
+            let cbor_bytes = tx_body.to_cbor_bytes().to_vec();
+            let serializable_signed_tx_builder = SerializableSignedTxBuilder {
+                body_cbor_bytes: cbor_bytes,
+                witness_set: signed_tx_builder.witness_set(),
+                is_valid: signed_tx_builder.is_valid(),
+                auxiliary_data: signed_tx_builder.auxiliary_data(),
+            };
 
-            let resolved_tx = PartiallySignedCardanoTx { tx: output, inputs };
+            let resolved_tx = PartiallySignedCardanoTx {
+                tx: serializable_signed_tx_builder,
+                inputs,
+            };
 
             let mut buffer_wallet = buffer_wallet_in;
             buffer_wallet.balance -= batch.total_payout;
@@ -512,7 +525,13 @@ impl<Ctx, OnChainIndex, FundingIndex>
     BatchExecutor<
         TaskId,
         GaugeBuffering<FarmId>,
-        BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
+        BufferingFlowEntityUpdates<
+            OutputRef,
+            FarmId,
+            FinalizedTxOut,
+            SerializableSignedTxBuilder,
+            CardanoTxInputs,
+        >,
         Error,
     > for BufferingFlow<FarmId, OutputRef, FinalizedTxOut, Ctx, OnChainIndex, FundingIndex>
 where
@@ -526,6 +545,7 @@ where
         + Has<SplashPolicy>
         + Has<RewardTxTtl>
         + Has<GenesisEpochStartTime>
+        + Has<PrivateKey>
         + Has<NetworkId>,
     OnChainIndex: GaugeIndex<FarmId, OutputRef, FinalizedTxOut>
         + AuthManagerIndex<FarmId, OutputRef, FinalizedTxOut>
@@ -549,6 +569,7 @@ where
             return Control::Stop;
         };
         if let Some(gauge) = self.onchain_index.get_gauge(task.gauge_id).await {
+            trace!("Adding gauge {:?} to batch", gauge);
             batch.add_gauge(gauge);
         } else {
             warn!("Gauge {} not found, dropping task {}", task.gauge_id, task_id);
@@ -562,7 +583,13 @@ where
     ) -> Result<
         ExecutionResult<
             TaskId,
-            BufferingFlowEntityUpdates<OutputRef, FarmId, FinalizedTxOut, SignedTxBuilder, CardanoTxInputs>,
+            BufferingFlowEntityUpdates<
+                OutputRef,
+                FarmId,
+                FinalizedTxOut,
+                SerializableSignedTxBuilder,
+                CardanoTxInputs,
+            >,
         >,
         Error,
     > {
@@ -570,13 +597,15 @@ where
         enum RefInputT {
             AuthManager,
             Gauge,
+            BufferWallet,
         }
         if let Some(batch) = self.batch.take() {
             let Bundled(bw_tx_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
-            let buffer_wallet_script_hash = self
+            let buffer_wallet_deployed_validator = self
                 .ctx
-                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>()
-                .hash;
+                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>();
+            let buffer_wallet_script_hash = buffer_wallet_deployed_validator.hash;
+            let buffer_wallet_ref_input = buffer_wallet_deployed_validator.reference_utxo;
             let buffer_wallet_witness = PartialPlutusWitness::new(
                 PlutusScriptWitness::Ref(buffer_wallet_script_hash),
                 BufferWalletAction::Deposit.into_pd(),
@@ -600,6 +629,7 @@ where
             let mut typed_ref_inputs = vec![
                 (RefInputT::AuthManager, perm_manager_unspent_input),
                 (RefInputT::Gauge, smart_farm_ref_input),
+                (RefInputT::BufferWallet, buffer_wallet_ref_input),
             ];
             typed_ref_inputs.sort_by_key(|(_, input)| input.input.clone());
 
@@ -667,6 +697,7 @@ where
                 BufferWallet(InputBuilderResult),
                 FundingBox(InputBuilderResult),
             }
+            trace!("Number of gauge inputs: {}", batch.gauges.len());
             let mut typed_inputs: Vec<_> = batch
                 .gauges
                 .into_iter()
@@ -734,17 +765,25 @@ where
 
                         let amount_splash_in_gauge = tx_out.0.value().amount_of(splash_asset_class).unwrap();
                         let splash_delta = make_splash_value(splash_asset_class, amount_splash_in_gauge);
-                        assert!(buffer_wallet_out.value_mut().checked_add(&splash_delta).is_ok());
+                        buffer_wallet_out
+                            .update_value(buffer_wallet_out.value().checked_add(&splash_delta).unwrap());
+
+                        set_min_ada(&mut buffer_wallet_out);
 
                         let mut gauge_output = tx_out.0;
-                        assert!(gauge_output.value_mut().checked_sub(&splash_delta).is_ok());
+                        gauge_output.update_value(gauge_output.value().checked_sub(&splash_delta).unwrap());
 
                         gauge_outputs.push(gauge_output);
 
                         successor_out_ix += 1;
                         (gauge_input, gauge_ex_units.clone())
                     }
-                    InputT::BufferWallet(b) | InputT::FundingBox(b) => (b, None),
+                    InputT::BufferWallet(b) => {
+                        let ex_units = Some(DaoScriptData::global().buffer_wallet.ex_units.clone());
+                        (b, ex_units)
+                    }
+
+                    InputT::FundingBox(b) => (b, None),
                 })
                 .collect();
 
@@ -754,7 +793,7 @@ where
                 .chain(gauge_outputs.clone())
                 .map(SingleOutputBuilderResult::new)
                 .collect();
-            let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
+            let OperatorCreds(operator_pkh, operator_address) = self.ctx.select::<OperatorCreds>();
 
             let change_output_ix = outputs.len() as u64;
             let blueprint = DaoTxBlueprint {
@@ -781,6 +820,12 @@ where
                 .unwrap();
 
             set_tx_ttl(&mut tx_builder, &self.ctx);
+            tx_builder.add_required_signer(operator_pkh);
+
+            // TODO: remove hardcoded verifier signer.
+            tx_builder.add_required_signer(
+                Ed25519KeyHash::from_hex("52202b0a9aa9797c6d22b29d0bcd2b2782aaca47db097aa99428f45c").unwrap(),
+            );
 
             let inputs = tx_builder
                 .get_inputs()
@@ -792,14 +837,42 @@ where
                     issued_at: None,
                 })
                 .collect();
-            let output = tx_builder
+            let mut signed_tx_builder = tx_builder
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
 
-            let tx_body = output.body();
-            let tx_hash = hash_transaction_canonical(&tx_body);
+            let tx_body = signed_tx_builder.body();
 
-            let resolved_tx = PartiallySignedCardanoTx { tx: output, inputs };
+            let tx_hash = hash_transaction_canonical(&tx_body);
+            trace!("Gauge Buffering TX hash: {}", tx_hash.to_hex());
+            trace!(
+                "Gauge Buffering TX hash (from original TX body reference): {}",
+                hash_transaction_canonical(signed_tx_builder.body_ref()).to_hex()
+            );
+            let tx_body_json = serde_json::to_string(&tx_body).unwrap();
+            trace!("Gauge Buffering TX body JSON: {}", tx_body_json,);
+
+            let reconstructed_tx_body: TransactionBody = serde_json::from_str(&tx_body_json).unwrap();
+            let reconstructed_tx_hash = hash_transaction_canonical(&reconstructed_tx_body);
+            trace!("Reconstructed TX hash: {}", reconstructed_tx_hash.to_hex());
+            use cml_chain::Serialize;
+            let cbor_bytes = tx_body.to_canonical_cbor_bytes().to_vec();
+
+            let sk = self.ctx.select::<PrivateKey>();
+            let signature = make_vkey_witness(&tx_hash, &sk);
+            signed_tx_builder.add_vkey(signature);
+
+            let serializable_signed_tx_builder = SerializableSignedTxBuilder {
+                body_cbor_bytes: cbor_bytes,
+                witness_set: signed_tx_builder.witness_set(),
+                is_valid: signed_tx_builder.is_valid(),
+                auxiliary_data: signed_tx_builder.auxiliary_data(),
+            };
+
+            let resolved_tx = PartiallySignedCardanoTx {
+                tx: serializable_signed_tx_builder,
+                inputs,
+            };
 
             // Gather predicted buffer_wallet update
             let buffer_wallet_out_output_ref = OutputRef::new(tx_hash, 0);
@@ -819,7 +892,7 @@ where
             assert_eq!(sorted_gauge_inputs.len(), gauge_outputs.len());
             let predicted_gauge_updates: Vec<_> = sorted_gauge_inputs
                 .into_iter()
-                .zip(gauge_outputs.into_iter())
+                .zip(gauge_outputs)
                 .enumerate()
                 .map(|(ix, (gauge_in, gauge_output))| {
                     let output_ref = OutputRef::new(tx_hash, (ix as u64) + 1);
@@ -835,7 +908,6 @@ where
                     }
                 })
                 .collect();
-
             // Funding box changes
             let funding_id = FundingBoxId::from(OutputRef::new(tx_hash, change_output_ix));
             let created_funding_box = vec![Predicted(FundingBox {
@@ -1019,17 +1091,17 @@ where
         + Sync,
     FundingIndex: FundingRepo + Clone + Send + Sync,
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
-    Verifier: RemoteVerifier<PartiallySignedTx<SignedTxBuilder, TxInputs>, Tx> + Send,
+    Verifier: RemoteVerifier<PartiallySignedTx<SerializableSignedTxBuilder, TxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex>: BatchExecutor<
         TaskId,
         Harvesting<StateId>,
-        HarvestFlowEntityUpdates<StateId, Bearer, SignedTxBuilder, TxInputs>,
+        HarvestFlowEntityUpdates<StateId, Bearer, SerializableSignedTxBuilder, TxInputs>,
         Error,
     >,
     BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
         TaskId,
         GaugeBuffering<GaugeId>,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SignedTxBuilder, TxInputs>,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SerializableSignedTxBuilder, TxInputs>,
         Error,
     >,
     Ctx: Send
@@ -1081,40 +1153,31 @@ where
                     }
                 };
 
-                loop {
-                    match self.verifier.try_approve(&resolved_tx).await {
-                        Ok(coop_tx) => {
-                            match (self.tx_submit.submit_tx(coop_tx.clone()).await, typed_result) {
-                                (Ok(_), update) => {
-                                    index_predicted_entities(
-                                        update,
-                                        &self.onchain_index,
-                                        &self.funding_index,
-                                    )
-                                    .await;
-                                    return Ok(ExecutionResult {
-                                        executed_tasks,
-                                        output: coop_tx.canonical_hash(),
-                                    });
-                                }
+                // loop {
+                match self.verifier.try_approve(&resolved_tx).await {
+                    Ok(coop_tx) => match (self.tx_submit.submit_tx(coop_tx.clone()).await, typed_result) {
+                        (Ok(_), update) => {
+                            index_predicted_entities(update, &self.onchain_index, &self.funding_index).await;
+                            return Ok(ExecutionResult {
+                                executed_tasks,
+                                output: coop_tx.canonical_hash(),
+                            });
+                        }
 
-                                (Err(reject_reasons), update) => {
-                                    if let Some(failed_task_ids) =
-                                        extract_failed_task_ids(update, reject_reasons)
-                                    {
-                                        return Err(Error::TxInputsAlreadySpent { failed_task_ids });
-                                    } else {
-                                        return Err(Error::UnrecoverableNodeError);
-                                    }
-                                }
+                        (Err(reject_reasons), update) => {
+                            if let Some(failed_task_ids) = extract_failed_task_ids(update, reject_reasons) {
+                                return Err(Error::TxInputsAlreadySpent { failed_task_ids });
+                            } else {
+                                return Err(Error::UnrecoverableNodeError);
                             }
                         }
-                        Err(VerifierRejection::Unavailable) => continue, // todo: RestartVerifierWhenUnresponsive
-                        Err(VerifierRejection::InvalidWithdrawal) => {
-                            panic!() // todo: ShouldGoToIndexFaultMode; ShouldResyncOnMismatch
-                        }
+                    },
+                    Err(VerifierRejection::Unavailable) => panic!("Verifier is unavailable"), // todo: RestartVerifierWhenUnresponsive
+                    Err(VerifierRejection::InvalidWithdrawal) => {
+                        panic!() // todo: ShouldGoToIndexFaultMode; ShouldResyncOnMismatch
                     }
                 }
+                // }
             }
             None => Err(Error::NoFlowInstanceExists),
         }

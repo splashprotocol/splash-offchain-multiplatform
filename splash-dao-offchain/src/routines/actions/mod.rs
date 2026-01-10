@@ -15,6 +15,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::Coin;
 use cml_crypto::{blake2b256, RawBytesEncoding, ScriptHash};
+use log::trace;
 use serde::Serialize;
 use spectrum_offchain::domain::event::{Predicted, Traced};
 
@@ -385,7 +386,9 @@ impl DaoTxBlueprint {
             txb.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Reward, 0), ex_units.clone());
         }
 
-        let estimated_fee = txb.min_fee(true).unwrap() + self.fee_buffer;
+        let tx_min_fee = txb.min_fee(true).unwrap();
+        trace!("tx_min_fee: {}", tx_min_fee);
+        let estimated_fee = tx_min_fee + self.fee_buffer;
         let change_output =
             change_output_creator.create_change_output(estimated_fee, self.operator_address.clone());
 

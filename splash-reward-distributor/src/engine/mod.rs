@@ -331,6 +331,7 @@ where
         Ok(res) => {
             let tx_hash = res.output;
 
+            trace!("Executed tasks: {:?}", res);
             let commands = res
                 .executed_tasks
                 .into_iter()
@@ -342,7 +343,9 @@ where
                 )
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
 
+            trace!("Commands: {:?}", commands);
             queue.batch_execute(commands.collect()).await;
+            trace!("Commands executed");
         }
         Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {
             let commands = failed_task_ids

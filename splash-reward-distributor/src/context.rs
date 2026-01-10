@@ -1,7 +1,7 @@
 use crate::engine::verifier::AuthorizedExecutors;
 use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::certs::Credential;
-use cml_crypto::{Ed25519KeyHash, ScriptHash};
+use cml_crypto::{Ed25519KeyHash, PrivateKey, ScriptHash};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
@@ -28,6 +28,7 @@ pub struct VerifierRuntimeContext {
     pub genesis_epoch_start_time: GenesisEpochStartTime,
     pub authorized_executors: AuthorizedExecutors,
     pub reward_tx_ttl: RewardTxTtl,
+    pub operator_sk: String,
 }
 
 has_deployed_validator!(
@@ -143,12 +144,15 @@ impl Has<AuthorizedExecutors> for VerifierRuntimeContext {
 /// Provide dummy operator credentials here to satisfy trait bounds in `event_pipeline()`
 impl Has<OperatorCreds> for VerifierRuntimeContext {
     fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
-        let dummy_key_hash = Ed25519KeyHash::from([0_u8; 28]);
-        let dummy_address = Address::Enterprise(EnterpriseAddress::new(
-            self.network_id.into(),
-            Credential::new_pub_key(dummy_key_hash),
-        ));
-        OperatorCreds(dummy_key_hash, dummy_address)
+        let (operator_cred, _, funding_addresses) = operator_creds(&self.operator_sk, self.network_id);
+        OperatorCreds(operator_cred.0, funding_addresses.index(0).clone())
+    }
+}
+
+impl Has<PrivateKey> for VerifierRuntimeContext {
+    fn select<U: IsEqual<PrivateKey>>(&self) -> PrivateKey {
+        let bip32_key = cml_crypto::Bip32PrivateKey::from_bech32(self.operator_sk.as_str()).unwrap();
+        bip32_key.to_raw_key()
     }
 }
 
@@ -165,7 +169,6 @@ impl Has<RewardTxTtl> for VerifierRuntimeContext {
 #[derive(Clone)]
 pub struct RewardBotRuntimeContext {
     pub verifier_runtime_context: VerifierRuntimeContext,
-    pub operator_sk: String,
     pub collateral: Collateral,
 }
 
@@ -177,9 +180,20 @@ impl Has<Collateral> for RewardBotRuntimeContext {
 
 impl Has<OperatorCreds> for RewardBotRuntimeContext {
     fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
-        let (operator_cred, _, funding_addresses) =
-            operator_creds(&self.operator_sk, self.verifier_runtime_context.network_id);
+        let (operator_cred, _, funding_addresses) = operator_creds(
+            &self.verifier_runtime_context.operator_sk,
+            self.verifier_runtime_context.network_id,
+        );
         OperatorCreds(operator_cred.0, funding_addresses.index(0).clone())
+    }
+}
+
+impl Has<PrivateKey> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<PrivateKey>>(&self) -> PrivateKey {
+        let bip32_key =
+            cml_crypto::Bip32PrivateKey::from_bech32(self.verifier_runtime_context.operator_sk.as_str())
+                .unwrap();
+        bip32_key.to_raw_key()
     }
 }
 

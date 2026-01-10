@@ -139,6 +139,7 @@ where
                 match cmd {
                     QueueCmd::Schedule(id, task, time) => {
                         let ct = self.read_current_time(&tx).unwrap();
+                        cancel(&tx, &tables, id);
                         schedule(&tx, &tables, id, task, time, ct)
                     }
                     QueueCmd::Reschedule(id, time) => {
@@ -218,7 +219,7 @@ where
                                 continue;
                             }
                         }
-                        tx.delete_cf(tables.pending, task_id).unwrap();
+                        tx.delete_cf(tables.pending, &key).unwrap();
                     }
                 }
             }
@@ -342,7 +343,24 @@ fn drop_unconfirmed_tx(tx: &Transaction<TransactionDB>, tables: &Tables, tx_hash
 }
 
 fn cancel<TaskId: AsRef<[u8]>>(tx: &Transaction<TransactionDB>, tables: &Tables, id: TaskId) {
-    tx.delete_cf(tables.index, id).unwrap();
+    tx.delete_cf(tables.index, id.as_ref()).unwrap();
+
+    // Delete from pending - need to find all pending entries for this task ID
+    // The pending key format is [strike_time (8 bytes) | task_id]
+    let task_id_bytes = id.as_ref();
+    let mut pending_iter = tx.iterator_cf_opt(tables.pending, ReadOptions::default(), IteratorMode::Start);
+
+    let mut keys_to_delete = vec![];
+    while let Some(Ok((key, _))) = pending_iter.next() {
+        // Check if this key ends with our task_id
+        if key.len() >= task_id_bytes.len() && &key[key.len() - task_id_bytes.len()..] == task_id_bytes {
+            keys_to_delete.push(key.to_vec());
+        }
+    }
+
+    for key in keys_to_delete {
+        tx.delete_cf(tables.pending, key).unwrap();
+    }
 }
 
 fn done<TaskId: Copy + AsRef<[u8]>>(
@@ -672,5 +690,19 @@ mod tests {
                 .await
                 .is_none()
         );
+    }
+
+    #[test]
+    fn hex_encodes() {
+        let hex_0 = hex::encode(&[
+            224, 92, 98, 205, 36, 66, 156, 122, 56, 253, 139, 88, 154, 32, 165, 47, 123, 208, 65, 43, 243,
+            60, 142, 76, 113, 21, 89, 138,
+        ]);
+        let hex_1 = hex::encode(&[
+            43, 243, 97, 138, 24, 252, 99, 1, 1, 90, 245, 197, 102, 179, 237, 140, 220, 192, 117, 216, 81,
+            52, 198, 167, 40, 75, 216, 140,
+        ]);
+        println!("hex_0: {}", hex_0);
+        println!("hex_1: {}", hex_1);
     }
 }

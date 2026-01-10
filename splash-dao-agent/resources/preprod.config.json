@@ -16,7 +16,7 @@
     "dbPath": "state/dao-bot"
   },
   "node": {
-    "path": "/Users/tling/node-external/node.socket",
+    "path": "/data/cardano-node-preprod-10-1-4/ipc/node.socket",
     "magic": 1
   },
   "maestroKeyPath": "splash-dao-agent/resources/preprod.maestro.key",
