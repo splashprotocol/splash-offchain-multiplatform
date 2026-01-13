@@ -73,6 +73,7 @@ impl TryFromPData for FarmId {
 
 pub struct SmartFarmConfig {
     pub perm_manager_auth_policy: PolicyId,
+    pub buffer_wallet_auth_policy: PolicyId,
     pub pool_id: PoolId,
 }
 
@@ -81,7 +82,8 @@ impl TryFromPData for SmartFarmConfig {
         let mut cpd = data.into_constr_pd()?;
         Some(Self {
             perm_manager_auth_policy: PolicyId::try_from_pd(cpd.take_field(0)?)?,
-            pool_id: Token::try_from_pd(cpd.take_field(1)?)?.into(),
+            buffer_wallet_auth_policy: PolicyId::try_from_pd(cpd.take_field(1)?)?,
+            pool_id: Token::try_from_pd(cpd.take_field(2)?)?.into(),
         })
     }
 }
@@ -94,6 +96,7 @@ impl IntoPlutusData for SmartFarmConfig {
         ]);
         make_constr_pd_indefinite_arr(vec![
             PlutusData::new_bytes(self.perm_manager_auth_policy.to_raw_bytes().to_vec()),
+            PlutusData::new_bytes(self.buffer_wallet_auth_policy.to_raw_bytes().to_vec()),
             pool_id_pd,
         ])
     }
@@ -137,7 +140,10 @@ impl IntoPlutusData for Redeemer {
 
 pub enum Action {
     Charge,
-    DistributeRewards { perm_manager_input_ix: u32 },
+    DistributeRewards {
+        perm_manager_input_ix: u32,
+        buffer_wallet_input_ix: u32,
+    },
 }
 
 impl IntoPlutusData for Action {
@@ -146,9 +152,13 @@ impl IntoPlutusData for Action {
             Action::Charge => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
             Action::DistributeRewards {
                 perm_manager_input_ix,
+                buffer_wallet_input_ix,
             } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
                 1,
-                vec![PlutusData::Integer(BigInteger::from(perm_manager_input_ix))],
+                vec![
+                    PlutusData::Integer(BigInteger::from(perm_manager_input_ix)),
+                    PlutusData::Integer(BigInteger::from(buffer_wallet_input_ix)),
+                ],
             )),
         }
     }

@@ -1577,9 +1577,11 @@ async fn create_initial_farms(op_inputs: &OperationInputs, pool_id: PoolId) {
     let mut smart_farm_assets = MultiAsset::default();
     smart_farm_assets.set(protocol_deployment.smart_farm.hash, mint_farm_auth_asset_name, 1);
     let perm_manager_auth_policy = deployment_config.minted_deployment_tokens.perm_auth.policy_id;
+    let buffer_wallet_auth_policy = deployment_config.minted_deployment_tokens.buffer_wallet.policy_id;
 
     let smart_farm_datum_pd = SmartFarmConfig {
         perm_manager_auth_policy,
+        buffer_wallet_auth_policy,
         pool_id,
     }
     .into_pd();
