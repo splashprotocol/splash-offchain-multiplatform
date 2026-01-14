@@ -11,7 +11,7 @@ use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
 use async_primitives::beacon::{Beacon, Once};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
-use cml_crypto::TransactionHash;
+use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use futures::channel::mpsc::Receiver;
 use futures::{Stream, StreamExt};
 use log::trace;
@@ -30,6 +30,7 @@ use tokio::time::Sleep;
 #[serde(rename_all = "camelCase")]
 pub struct EngineConfig {
     buffering_threshold: u64,
+    verifier_key_hash: Ed25519KeyHash,
 }
 
 pub struct Engine<U, Q, E> {
@@ -143,7 +144,8 @@ where
 
             if self.current_task.is_none() && self.blocker.is_none() {
                 let executor = self.executor.clone();
-                self.block_on(process_tasks(queue, executor));
+                let verifier_key_hash = self.conf.verifier_key_hash;
+                self.block_on(process_tasks(queue, executor, verifier_key_hash));
             }
             break;
         }
@@ -300,7 +302,11 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, StateId, Q, E>(
+    queue: Q,
+    mut executor: E,
+    verifier_key_hash: Ed25519KeyHash,
+) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
@@ -327,7 +333,7 @@ where
         }
         break;
     }
-    match executor.execute().await {
+    match executor.execute(verifier_key_hash).await {
         Ok(res) => {
             let tx_hash = res.output;
 

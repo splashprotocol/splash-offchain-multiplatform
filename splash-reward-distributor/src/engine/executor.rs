@@ -109,7 +109,15 @@ pub struct BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, Tx, TxInputs> {
 #[async_trait]
 pub trait BatchExecutor<TaskId, Task, Out, Err> {
     async fn feed(&mut self, task_id: TaskId, task: Task) -> Control<TaskId>;
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, Out>, Err>;
+    /// Execute the batch.
+    ///
+    /// `verifier_key_hash` is the key hash of the verifier that will be used to sign the
+    /// transaction. It needs to be known here as setting required signers on the TX affects the TX
+    /// hash. The reward-bot and verifier MUST sign a TX with the same TX-hash.
+    async fn execute(
+        &mut self,
+        verifier_key_hash: Ed25519KeyHash,
+    ) -> Result<ExecutionResult<TaskId, Out>, Err>;
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +255,7 @@ where
 
     async fn execute(
         &mut self,
+        verifier_key_hash: Ed25519KeyHash,
     ) -> Result<
         ExecutionResult<
             TaskId,
@@ -580,6 +589,7 @@ where
 
     async fn execute(
         &mut self,
+        verifier_key_hash: Ed25519KeyHash,
     ) -> Result<
         ExecutionResult<
             TaskId,
@@ -827,11 +837,7 @@ where
 
             set_tx_ttl(&mut tx_builder, &self.ctx);
             tx_builder.add_required_signer(operator_pkh);
-
-            // TODO: remove hardcoded verifier signer.
-            tx_builder.add_required_signer(
-                Ed25519KeyHash::from_hex("52202b0a9aa9797c6d22b29d0bcd2b2782aaca47db097aa99428f45c").unwrap(),
-            );
+            tx_builder.add_required_signer(verifier_key_hash);
 
             let inputs = tx_builder
                 .get_inputs()
@@ -1141,18 +1147,21 @@ where
         }
     }
 
-    async fn execute(&mut self) -> Result<ExecutionResult<TaskId, TransactionHash>, Error> {
+    async fn execute(
+        &mut self,
+        verifier_key_hash: Ed25519KeyHash,
+    ) -> Result<ExecutionResult<TaskId, TransactionHash>, Error> {
         match self.blocked_on.take() {
             Some(flow) => {
                 let (typed_result, resolved_tx, executed_tasks) = match flow {
                     Flow::Harvesting(mut hf) => {
-                        let res = hf.execute().await?;
+                        let res = hf.execute(verifier_key_hash).await?;
                         let resolved_tx = res.output.resolved_tx.clone();
                         let typed_res = TypedExecutionUpdate::Harvesting(res.output);
                         (typed_res, resolved_tx, res.executed_tasks)
                     }
                     Flow::Buffering(mut bf) => {
-                        let res = bf.execute().await?;
+                        let res = bf.execute(verifier_key_hash).await?;
                         let resolved_tx = res.output.resolved_tx.clone();
                         let typed_res = TypedExecutionUpdate::Buffering(res.output);
                         (typed_res, resolved_tx, res.executed_tasks)

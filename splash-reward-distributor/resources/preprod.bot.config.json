@@ -35,7 +35,8 @@
     "minimalLovelacePerSingleHarvest": 1000000
   },
   "engine": {
-    "bufferingThreshold": 1000000
+    "bufferingThreshold": 1000000,
+    "verifierKeyHash": "52202b0a9aa9797c6d22b29d0bcd2b2782aaca47db097aa99428f45c"
   },
   "eventCacheTtl": {
     "secs": 120,
