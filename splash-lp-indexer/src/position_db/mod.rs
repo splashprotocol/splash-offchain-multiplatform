@@ -402,7 +402,7 @@ fn set_active_pools(tx: &Transaction<TransactionDB>, cf: &ColumnFamily, epoch: E
     tx.put_cf(
         cf,
         epoch.unwrap().to_be_bytes(),
-        rmp_serde::to_vec(pools).unwrap(),
+        rmp_serde::to_vec_named(pools).unwrap(),
     )
     .unwrap();
 }

@@ -87,6 +87,11 @@ impl MatureEvents for PositionDB {
                             if let Some(pool_lp_supply) = pool_events.lp_supply.or(old_lp_supply) {
                                 let latest_account_positions =
                                     get_latest_account_positions(&db, cfs.account_positions, pool_key);
+                                trace!(
+                                    "latest account positions: {:?}, epoch_start: {}",
+                                    latest_account_positions,
+                                    epoch_start
+                                );
                                 if current_event_slot >= epoch_start {
                                     let current_epoch = Epoch::unsafe_from_slot(
                                         current_event_slot,
@@ -126,6 +131,7 @@ impl MatureEvents for PositionDB {
                                             slots_in_epoch,
                                             epoch_start,
                                         );
+                                        trace!("positions for update: {:?}", positions_for_update);
                                         for ((cred, epoch), position) in positions_for_update {
                                             let position_key = position_key(pool_id, &cred, epoch);
                                             let position_value = rmp_serde::to_vec_named(&position).unwrap();
@@ -169,12 +175,12 @@ impl MatureEvents for PositionDB {
 fn sync_account_positions(
     position_events_in_block: Vec<PositionEvent>,
     latest_account_positions: HashMap<Credential, (Epoch, AccountPosition)>,
-    current_slot: Slot,
+    current_event_slot: Slot,
     pool_lp_supply: u64,
     slots_in_epoch: u64,
     epoch_start: Slot,
 ) -> HashMap<(Credential, Epoch), AccountPosition> {
-    let current_epoch = Epoch::unsafe_from_slot(current_slot, slots_in_epoch, epoch_start);
+    let current_epoch = Epoch::unsafe_from_slot(current_event_slot, slots_in_epoch, epoch_start);
     if !latest_account_positions.is_empty() {
         trace!(
             "prepare positions for update. current epoch: {:?}, latest account positions: {:?}",
@@ -216,7 +222,7 @@ fn sync_account_positions(
 
             if *position_epoch == current_epoch {
                 assert!(adjacent_epochs.is_empty());
-                current_position.extend_current_share_to(current_slot);
+                current_position.extend_current_share_to(current_event_slot);
                 account_positions_in_current_epoch.insert(account_cred.clone(), current_position);
             } else {
                 current_position
@@ -235,7 +241,7 @@ fn sync_account_positions(
                     let last_current_share = current_position.get_current_share().unwrap().share;
                     let mut current_position = AccountPosition::new(epoch_first_slot, last_current_share);
                     if epoch == current_epoch {
-                        current_position.extend_current_share_to(current_slot);
+                        current_position.extend_current_share_to(current_event_slot);
                         account_positions_in_current_epoch.insert(account_cred.clone(), current_position);
                     } else {
                         current_position.extend_current_share_to(epoch_last_slot);
@@ -261,15 +267,15 @@ fn sync_account_positions(
                 account_positions_in_current_epoch
                     .get_mut(&account_cred)
                     .unwrap()
-                    .update_from_user_event(current_slot, position_event, &converter);
+                    .update_from_user_event(current_event_slot, position_event, &converter);
             } else if new_account_positions.contains_key(&account_cred) {
                 new_account_positions
                     .get_mut(&account_cred)
                     .unwrap()
-                    .update_from_user_event(current_slot, position_event, &converter);
+                    .update_from_user_event(current_event_slot, position_event, &converter);
             } else {
-                let mut position = AccountPosition::new(current_slot, (0, pool_lp_supply));
-                position.update_from_user_event(current_slot, position_event, &converter);
+                let mut position = AccountPosition::new(current_event_slot, (0, pool_lp_supply));
+                position.update_from_user_event(current_event_slot, position_event, &converter);
                 new_account_positions.insert(account_cred.clone(), position);
             }
         }
@@ -293,7 +299,7 @@ fn sync_account_positions(
         // the entire block has been processed.
         for ((_, epoch), position) in positions_for_update.iter_mut() {
             if *epoch == current_epoch {
-                position.update_from_external_pool_changes(current_slot, final_lp_supply, &converter);
+                position.update_from_external_pool_changes(current_event_slot, final_lp_supply, &converter);
             }
         }
     }

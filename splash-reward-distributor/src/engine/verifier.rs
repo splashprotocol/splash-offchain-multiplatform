@@ -505,28 +505,68 @@ fn to_tx_view_partially_resolved(
 #[cfg(test)]
 mod tests {
     use cml_chain::{builders::tx_builder::SignedTxBuilder, transaction::TransactionBody};
-    use spectrum_cardano_lib::hash::hash_transaction_canonical;
+    use cml_crypto::RawBytesEncoding;
+    use spectrum_cardano_lib::{hash::hash_transaction_canonical, AssetName, Token};
     use spectrum_offchain::tx_hash::CanonicalHash;
+    use spectrum_offchain_cardano::data::PoolId;
+    use splash_dao_offchain::deployment::IssuedAsset;
 
     use crate::engine::verifier::TxCosignRequest;
 
     #[test]
     fn encode_hex() {
-        let hex0 = hex::encode(&[
-            65, 95, 43, 96, 170, 63, 158, 126, 76, 122, 107, 147, 92, 108, 21, 196, 159, 10, 233, 246, 16,
-            247, 13, 47, 206, 243, 81, 50,
-        ]);
-        let hex1 = hex::encode(&[
-            82, 32, 43, 10, 154, 169, 121, 124, 109, 34, 178, 157, 11, 205, 43, 39, 130, 170, 202, 71, 219,
-            9, 122, 169, 148, 40, 244, 92,
-        ]);
+        let hex0 = hex::encode(&[]);
+        let hex1 = hex::encode(&[65, 68, 65, 95, 85, 83, 68, 77, 95, 78, 70, 84]);
         let hex2 = hex::encode(&[
-            224, 92, 98, 205, 36, 66, 156, 122, 56, 253, 139, 88, 154, 32, 165, 47, 123, 208, 65, 43, 243,
-            60, 142, 76, 113, 21, 89, 138,
+            186, 204, 186, 164, 67, 247, 95, 24, 61, 92, 165, 154, 55, 193, 197, 225, 149, 67, 24, 63, 92,
+            109, 138, 233, 239, 198, 208, 54,
         ]);
         println!("hex0: {}", hex0);
         println!("hex1: {}", hex1);
         println!("hex2: {}", hex2);
+    }
+
+    #[test]
+    fn test_asset_name() {
+        let json_input = r#"{
+        "initial_farms": [
+    {
+      "policy_id": "baccbaa443f75f183d5ca59a37c1c5e19543183f5c6d8ae9efc6d036",
+      "asset_name": "4144415f5553444d5f4e4654",
+      "quantity": "1"
+    },
+    {
+      "policy_id": "bce349fc159b2d715abba7e1de4eb35c0096cb28483f72b061ef7f8e",
+      "asset_name": "4144415f744d494e5f4e4654",
+      "quantity": "1"
+    }
+  ]
+}"#;
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            initial_farms: Vec<IssuedAsset>,
+        }
+
+        let wrapper: Wrapper = serde_json::from_str(json_input).unwrap();
+        let tokens = wrapper
+            .initial_farms
+            .into_iter()
+            .map(|asset| {
+                let asset_name = AssetName::from(asset.asset_name);
+                PoolId(Token(asset.policy_id, asset_name))
+            })
+            .collect::<Vec<_>>();
+
+        let pool_id_roundtrip: Vec<PoolId> = tokens
+            .iter()
+            .cloned()
+            .map(|pool_id| {
+                let mut bytes = pool_id.0 .0.to_raw_bytes().to_vec();
+                bytes.extend(pool_id.0 .1.as_bytes());
+                PoolId::try_from(bytes.as_slice()).unwrap()
+            })
+            .collect();
+        assert_eq!(tokens, pool_id_roundtrip);
     }
 
     #[test]

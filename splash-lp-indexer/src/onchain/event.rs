@@ -4,6 +4,7 @@ use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use cml_crypto::Ed25519KeyHash;
 use derive_more::Display;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
@@ -152,6 +153,11 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         if let Some(pool_diff) = PoolDiff::try_from_ledger(repr, ctx) {
             let (plus_sign, diff) = pool_diff.lp_diff;
+            trace!(
+                "pool diff found for pool policy_id: {} asset_name: {}",
+                pool_diff.pool_id.0 .0.to_hex(),
+                hex::encode(pool_diff.pool_id.0 .1.as_bytes()),
+            );
             if diff != 0 {
                 if let Some(account) =
                     find_lp_recv(pool_diff.lp_asset.into_token().unwrap(), pool_diff.pool_id, repr)
@@ -172,7 +178,11 @@ where
                             lp_supply: pool_diff.lp_supply,
                         })
                     });
+                } else {
+                    trace!("no account found for pool diff");
                 }
+            } else {
+                trace!("poll_diff == 0");
             }
         }
         None

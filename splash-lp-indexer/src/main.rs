@@ -105,6 +105,9 @@ async fn main() {
         dex_protocol_deployment.const_fn_pool_v2.hash,
         dex_protocol_deployment.royalty_pool.hash,
         dex_protocol_deployment.stable_fn_pool_t2t.hash,
+        dex_protocol_deployment.const_fn_pool_fee_switch.hash,
+        dex_protocol_deployment.const_fn_pool_fee_switch_v2.hash,
+        dex_protocol_deployment.const_fn_pool_fee_switch_bidir_fee.hash,
     ]);
 
     let cx = RuntimeContext {

@@ -101,6 +101,12 @@ impl Accounts for PositionDB {
                             };
 
                             if !is_active {
+                                trace!(
+                                    "pool {} (debug: {:?}) is not active in epoch {}",
+                                    pid,
+                                    pid,
+                                    position_epoch
+                                );
                                 return None;
                             }
 
@@ -117,7 +123,8 @@ impl Accounts for PositionDB {
                                 current_epoch,
                                 position
                             );
-                            if position_epoch > max_epoch
+                            if ((position_epoch.unwrap() == 0 && max_epoch.unwrap() == 0)
+                                || position_epoch > max_epoch)
                                 && position_epoch < current_epoch
                                 && gauge_weight.non_zero()
                             {

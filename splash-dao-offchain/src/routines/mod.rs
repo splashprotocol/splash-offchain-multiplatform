@@ -231,7 +231,6 @@ where
             eliminate_wpoll,
         } = self.read_state().await;
         if let Some((wp_state, eliminated_epoch)) = eliminate_wpoll {
-            trace!("Eliminating wpoll for epoch {}", eliminated_epoch);
             self.try_eliminate_poll(wp_state).await;
         }
         match previous_epoch_state {
@@ -1519,7 +1518,6 @@ impl<
             let lovelaces_input_value = funding_boxes.total_lovelaces();
             if lovelaces_input_value >= 3_000_000 && wp.can_be_eliminated(self.conf.genesis_time, time_millis)
             {
-                info!("Eliminating wpoll @ epoch {}", epoch);
                 let (signed_tx, funding_box_changes) = self
                     .actions
                     .eliminate_wpoll(
