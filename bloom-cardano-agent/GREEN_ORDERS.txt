@@ -1,0 +1,187 @@
+GREEN ORDERS IMPLEMENTATION
+===========================
+
+Green Orders are virtual orders (intents) that are signed by users and verified
+by on-chain Account UTxOs, rather than being stored directly on-chain as
+separate UTxOs.
+
+ARCHITECTURE OVERVIEW
+---------------------
+
+1. User signs an Intent (virtual order) off-chain
+2. Intent is submitted to intent-relay via HTTP
+3. Intent-relay forwards to bloom-cardano-agent via TCP
+4. Agent validates intent against Account state
+5. Agent constructs GreenOrder and submits to execution engine
+6. Execution produces transaction that updates Account UTxO
+
+COMPONENTS
+----------
+
+1. Data Structures (bloom-offchain-cardano/src/orders/green.rs)
+   - Account: On-chain account state with magic, allowlist, nonce, hot_cred, cold_cred, store
+   - Intent: Virtual order with leaving_asset, arriving_asset, amounts, fee, operator
+   - AuthorizedIntention: Intent + remainder + Auth (Sig or Path)
+   - Auth: Either Sig (first execution) or Path (continuation with MPT proof)
+   - GreenOrder: Full order with account_id, intention, account_utxo, mpt_snapshot
+   - MptSnapshot: Current MPT root + pending intent for partial fills
+   - MptDelta: Insert/Update/Delete operations for MPT after execution
+
+2. Account Index (bloom-cardano-agent/src/account_index.rs)
+   - In-memory storage mapping account_id (Token) to AccountEntry
+   - AccountEntry contains Account state, UTxO, and intent store
+   - Simplified Merkle tree implementation for root hash computation
+   - Methods: put, get, get_mut, apply_delta, accounts_with_pending_intents
+
+3. Intent Receiver (bloom-cardano-agent/src/intent_receiver.rs)
+   - TCP listener accepting connections from intent-relay
+   - Protocol: 4-byte length prefix (big-endian) + message body
+   - Decodes AuthedIntent, looks up account, constructs GreenOrder
+   - Sends GreenOrder to executor via channel
+
+4. BatchExec (bloom-offchain-cardano/src/execution_engine/instances.rs)
+   - Translates GreenOrder execution into on-chain transaction
+   - Uses Account validator with Delegate(witness_index) redeemer
+   - Adds GreenOrderWitness as witness script
+   - Updates account UTxO with new balances
+
+DEPLOYMENT VALIDATORS
+---------------------
+
+Added to spectrum-offchain-cardano/src/deployment.rs:
+- AccountV1 = 43
+- GreenOrderWitnessV1 = 44
+
+These must be configured in the deployment.json file.
+
+INTENT-RELAY PROTOCOL
+---------------------
+
+AuthedIntent encoding (TCP wire format):
++----------+-----------------------------------------------+
+| 32 bytes | account_id (Token bytes: policy_id + name)   |
++----------+-----------------------------------------------+
+| 4 bytes  | intent length (big-endian)                   |
+| N bytes  | intent bytes (CBOR-encoded PlutusData)       |
++----------+-----------------------------------------------+
+| 4 bytes  | prefix length                                |
+| N bytes  | prefix bytes                                 |
++----------+-----------------------------------------------+
+| 4 bytes  | postfix length                               |
+| N bytes  | postfix bytes                                |
++----------+-----------------------------------------------+
+| 4 bytes  | signature length                             |
+| N bytes  | signature bytes                              |
++----------+-----------------------------------------------+
+| 32 bytes | credential (hot_cred verification key)       |
++----------+-----------------------------------------------+
+
+HTTP API (intent-relay/src/server.rs):
+POST /intent/submit
+Content-Type: application/json
+{
+  "accountId": "<hex 32 bytes>",
+  "intent": "<hex>",
+  "prefix": "<hex>",
+  "postfix": "<hex>",
+  "signature": "<hex>",
+  "credential": "<hex 32 bytes>"
+}
+
+CONFIGURATION
+-------------
+
+Add to bloom-cardano-agent config.json:
+
+{
+  "intentReceiver": {
+    "bindAddr": "0.0.0.0:9090",
+    "maxCostPerExStep": 500000,
+    "minMarginalOutput": 1000000
+  }
+}
+
+Fields:
+- bindAddr: TCP address for receiving intents from intent-relay
+- maxCostPerExStep: Maximum execution cost per step for green orders
+- minMarginalOutput: Minimum marginal output value
+
+If intentReceiver is not present, the TCP listener is not started.
+
+PARTIAL FILL HANDLING
+---------------------
+
+Green orders support partial fills via the MPT (Merkle Patricia Tree):
+
+First Execution (Auth::Sig):
+1. User signs intent with signature
+2. Order is partially filled
+3. Remainder intent is inserted into account's MPT store
+4. Account datum updated with new store root hash
+
+Continuation (Auth::Path):
+1. Agent finds pending intent in AccountIndex
+2. Constructs Auth::Path with MPT proof
+3. Order is further filled
+4. If complete: intent deleted from MPT
+5. If partial: intent updated in MPT with new remainder
+
+MptDelta variants:
+- Insert: First partial fill, add intent to store
+- Update: Continuation partial fill, update intent
+- Delete: Final fill, remove intent from store
+- None: Complete fill on first execution
+
+EXECUTION FLOW
+--------------
+
+1. IntentReceiver receives AuthedIntent via TCP
+2. Looks up account in AccountIndex by account_id
+3. Parses Intent from CBOR bytes
+4. Creates AuthorizedIntention with Auth::Sig
+5. Creates MptSnapshot from AccountEntry
+6. Constructs GreenOrder with all required fields
+7. Sends GreenOrder to executor channel
+
+8. Executor matches GreenOrder against liquidity
+9. BatchExec::exec() builds transaction:
+   - Account UTxO as input with Delegate redeemer
+   - GreenOrderWitness as witness script
+   - Updated Account UTxO as output
+10. Transaction submitted to network
+
+11. On confirmation, AccountIndex updated with MptDelta
+
+FILES SUMMARY
+-------------
+
+Created:
+- bloom-offchain-cardano/src/orders/green.rs
+- bloom-cardano-agent/src/account_index.rs
+- bloom-cardano-agent/src/intent_receiver.rs
+
+Modified:
+- spectrum-offchain-cardano/src/deployment.rs (added validators)
+- intent-relay/src/intent.rs (added account_id field)
+- intent-relay/src/server.rs (added account_id to request)
+- bloom-offchain-cardano/src/execution_engine/instances.rs (BatchExec)
+- bloom-offchain-cardano/src/orders/mod.rs (added green module)
+- bloom-cardano-agent/src/config.rs (added IntentReceiverConfig)
+- bloom-cardano-agent/src/main.rs (wired components)
+
+LIMITATIONS / TODO
+------------------
+
+1. Signature verification is not fully implemented - currently trusts
+   intent-relay to verify signatures
+
+2. Account UTxO tracking via chain sync not implemented - accounts must
+   be manually added to AccountIndex
+
+3. Continuation scanner for pending intents not implemented - partial
+   fills require manual re-submission
+
+4. MptDelta application after transaction confirmation not wired
+
+5. Green orders flow through separate channel, not integrated with
+   main order matching pipeline yet

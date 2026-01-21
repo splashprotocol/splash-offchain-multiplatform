@@ -1,5 +1,7 @@
 #[derive(PartialEq, Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub struct AuthedIntent {
+    /// Account identifier (NFT Token - policy_id || asset_name, 32 bytes)
+    pub account_id: [u8; 32],
     pub intent: Vec<u8>,
     pub prefix: Vec<u8>,
     pub postfix: Vec<u8>,
@@ -10,6 +12,9 @@ pub struct AuthedIntent {
 impl AuthedIntent {
     pub fn encode(&self) -> Vec<u8> {
         let mut encoded = Vec::new();
+
+        // Encode account_id (fixed size 32 bytes, no length prefix needed)
+        encoded.extend(&self.account_id);
 
         // Encode intent with length prefix
         encoded.extend((self.intent.len() as u32).to_be_bytes());
@@ -36,6 +41,14 @@ impl AuthedIntent {
     pub fn decode(encoded: &[u8]) -> Result<AuthedIntent, String> {
         let mut cursor = 0;
 
+        // Decode account_id (fixed size 32 bytes)
+        if cursor + 32 > encoded.len() {
+            return Err("Invalid data: incomplete account_id".to_string());
+        }
+        let mut account_id = [0u8; 32];
+        account_id.copy_from_slice(&encoded[cursor..cursor + 32]);
+        cursor += 32;
+
         // Decode intent
         let intent_len = Self::read_u32(encoded, &mut cursor)?;
         let intent = Self::read_vec(encoded, intent_len, &mut cursor)?;
@@ -61,6 +74,7 @@ impl AuthedIntent {
         cursor += 32;
 
         Ok(AuthedIntent {
+            account_id,
             intent,
             prefix,
             postfix,
@@ -103,6 +117,7 @@ mod tests {
     #[test]
     fn test_encode_decode_authed_intent() {
         let authed_intent = AuthedIntent {
+            account_id: [42; 32],
             intent: vec![1, 2, 3, 4],
             prefix: vec![5, 6, 7],
             postfix: vec![8, 9],
@@ -122,21 +137,22 @@ mod tests {
 
     #[test]
     fn test_decode_invalid_data() {
-        // Incomplete data
+        // Incomplete account_id
         let invalid_encoded: Vec<u8> = vec![0, 0, 0, 4, 1, 2]; // Truncated data
         let result = AuthedIntent::decode(&invalid_encoded);
 
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Invalid data: unexpected end of input");
+        assert_eq!(result.unwrap_err(), "Invalid data: incomplete account_id");
 
-        // Incomplete credential
-        let incomplete_credential: Vec<u8> = vec![
+        // Incomplete credential (account_id present but rest truncated)
+        let mut incomplete_credential: Vec<u8> = vec![42; 32]; // account_id
+        incomplete_credential.extend([
             0, 0, 0, 4, 1, 2, 3, 4, // Intent
-            0, 0, 0, 3, 5, 6, 7, // Prefix
-            0, 0, 0, 2, 8, 9, // Postfix
+            0, 0, 0, 3, 5, 6, 7,    // Prefix
+            0, 0, 0, 2, 8, 9,       // Postfix
             0, 0, 0, 5, 10, 11, 12, 13, 14, // Signature
-            15, 15, 15, // Incomplete credential
-        ];
+            15, 15, 15,             // Incomplete credential
+        ]);
         let result = AuthedIntent::decode(&incomplete_credential);
 
         assert!(result.is_err());
@@ -146,6 +162,7 @@ mod tests {
     #[test]
     fn test_roundtrip_with_empty_fields() {
         let authed_intent = AuthedIntent {
+            account_id: [0; 32],
             intent: vec![],
             prefix: vec![],
             postfix: vec![],

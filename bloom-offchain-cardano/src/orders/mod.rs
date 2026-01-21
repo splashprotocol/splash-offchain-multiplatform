@@ -16,6 +16,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 pub mod adhoc;
+pub mod green;
 pub mod grid;
 pub mod instant;
 pub mod limit;

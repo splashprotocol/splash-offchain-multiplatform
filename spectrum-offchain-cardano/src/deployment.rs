@@ -140,6 +140,11 @@ pub struct DeployedValidators {
     pub royalty_pool_redeem_v2: DeployedValidatorRef,
     pub royalty_pool_withdraw_contract_v2: DeployedValidatorRef,
     pub royalty_pool_dao_contract_v2: DeployedValidatorRef,
+    // Green order (Aleph) validators - optional for backwards compatibility
+    #[serde(default)]
+    pub account: Option<DeployedValidatorRef>,
+    #[serde(default)]
+    pub green_order_witness: Option<DeployedValidatorRef>,
 }
 
 impl From<&DeployedValidators> for ProtocolScriptHashes {
@@ -182,6 +187,8 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             royalty_pool_dao: From::from(&deployment.royalty_pool_dao_contract),
             royalty_pool_dao_v2: From::from(&deployment.royalty_pool_dao_contract_v2),
             royalty_pool_withdraw: From::from(&deployment.royalty_pool_withdraw_contract),
+            account: deployment.account.as_ref().map(From::from),
+            green_order_witness: deployment.green_order_witness.as_ref().map(From::from),
         }
     }
 }
@@ -342,6 +349,9 @@ pub enum ProtocolValidator {
     RoyaltyPoolDAOV1 = 40,
     RoyaltyPoolV2DAO = 41,
     RoyaltyPoolDAOV2 = 42,
+    // Green order (Aleph) validators
+    AccountV1 = 43,
+    GreenOrderWitnessV1 = 44,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -391,6 +401,9 @@ pub struct ProtocolScriptHashes {
     pub royalty_pool_dao: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolDAOV1 as u8 }>,
     pub royalty_pool_dao_v2: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV2DAO as u8 }>,
     pub royalty_pool_withdraw: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolRoyaltyWithdraw as u8 }>,
+    // Green order (Aleph) validators
+    pub account: Option<DeployedScriptInfo<{ ProtocolValidator::AccountV1 as u8 }>>,
+    pub green_order_witness: Option<DeployedScriptInfo<{ ProtocolValidator::GreenOrderWitnessV1 as u8 }>>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -435,6 +448,8 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             royalty_pool_dao: From::from(&deployment.royalty_pool_dao),
             royalty_pool_dao_v2: From::from(&deployment.royalty_pool_v2_dao),
             royalty_pool_withdraw: From::from(&deployment.royalty_pool_withdraw),
+            account: deployment.account.as_ref().map(From::from),
+            green_order_witness: deployment.green_order_witness.as_ref().map(From::from),
         }
     }
 }
@@ -489,6 +504,9 @@ pub struct ProtocolDeployment {
         DeployedValidator<{ ProtocolValidator::RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>,
     pub royalty_pool_withdraw_v2:
         DeployedValidator<{ ProtocolValidator::RoyaltyPoolRoyaltyWithdrawV2 as u8 }>,
+    // Green order (Aleph) validators - optional
+    pub account: Option<DeployedValidator<{ ProtocolValidator::AccountV1 as u8 }>>,
+    pub green_order_witness: Option<DeployedValidator<{ ProtocolValidator::GreenOrderWitnessV1 as u8 }>>,
 }
 
 impl ProtocolDeployment {
@@ -624,6 +642,14 @@ impl ProtocolDeployment {
                 explorer,
             )
             .await,
+            account: match validators.account {
+                Some(v) => Some(DeployedValidator::unsafe_pull(v, explorer).await),
+                None => None,
+            },
+            green_order_witness: match validators.green_order_witness {
+                Some(v) => Some(DeployedValidator::unsafe_pull(v, explorer).await),
+                None => None,
+            },
         }
     }
 }

@@ -41,6 +41,31 @@ pub struct AppConfig {
     pub royalty_withdraw: RoyaltyWithdrawContext,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
+    /// Configuration for receiving green order intents from intent-relay
+    #[serde(default)]
+    pub intent_receiver: Option<IntentReceiverConfig>,
+}
+
+/// Configuration for the green orders intent receiver.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntentReceiverConfig {
+    /// Address to bind the TCP listener for receiving intents from intent-relay
+    pub bind_addr: SocketAddr,
+    /// Maximum cost per execution step for green orders
+    #[serde(default = "default_max_cost")]
+    pub max_cost_per_ex_step: u64,
+    /// Minimum marginal output
+    #[serde(default = "default_min_marginal_output")]
+    pub min_marginal_output: u64,
+}
+
+fn default_max_cost() -> u64 {
+    500_000
+}
+
+fn default_min_marginal_output() -> u64 {
+    1_000_000
 }
 
 fn default_disable_mempool() -> bool {

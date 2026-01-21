@@ -8,12 +8,14 @@ use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::future;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing_subscriber::fmt::Subscriber;
 
+use crate::account_index::AccountIndex;
 use crate::config::AppConfig;
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
+use crate::intent_receiver::intent_receiver_stream;
 use async_primitives::beacon::Beacon;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
@@ -70,9 +72,11 @@ use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSub
 use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerChannel};
 use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
 
+mod account_index;
 mod config;
 mod context;
 mod entity;
+mod intent_receiver;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -223,6 +227,14 @@ async fn main() {
     let funding_index = Arc::new(Mutex::new(
         InMemoryKvIndex::new(config.event_cache_ttl, SystemClock).with_tracing("funding_index"),
     ));
+
+    // Account index for green orders (virtual intents)
+    let account_index = Arc::new(RwLock::new(AccountIndex::new(config.event_cache_ttl)));
+
+    // Green order channel (if intent receiver is configured)
+    let (green_order_snd, _green_order_recv) =
+        mpsc::channel::<bloom_offchain_cardano::orders::green::GreenOrder>(config.event_feed_buffer_size);
+
     let dao_ctx: DAOContext = config.dao_config.clone().into();
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
@@ -458,6 +470,17 @@ async fn main() {
 
     let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
     processes.push(tx_tracker_handle);
+
+    // Spawn intent receiver if configured
+    if let Some(intent_config) = config.intent_receiver {
+        info!("Starting intent receiver on {}", intent_config.bind_addr);
+        let intent_receiver_handle = tokio::spawn(intent_receiver_stream(
+            intent_config,
+            Arc::clone(&account_index),
+            green_order_snd,
+        ));
+        processes.push(intent_receiver_handle);
+    }
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

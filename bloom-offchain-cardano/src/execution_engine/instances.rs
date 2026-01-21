@@ -34,6 +34,7 @@ use spectrum_offchain_cardano::script::{
 
 use crate::execution_engine::execution_state::{ExecutionState, ScriptInputBlueprint};
 use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
+use crate::orders::green::{delegate_redeemer, GreenOrder};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
 use crate::orders::{grid, instant, limit, AnyOrder};
@@ -718,6 +719,123 @@ where
 
         state.tx_blueprint.add_io(input, produced_out);
         state.tx_blueprint.add_ref_input(reference_utxo);
+        (state, effect, context)
+    }
+}
+
+// ============================================================================
+// BatchExec for GreenOrder
+// ============================================================================
+
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{AccountV1, GreenOrderWitnessV1};
+
+/// Effect preview type for GreenOrder
+pub type GreenEffectPreview = ExecutionEff<
+    Bundled<GreenOrder, TransactionOutput>,
+    Bundled<GreenOrder, FinalizedTxOut>,
+>;
+
+impl<Ctx> BatchExec<ExecutionState, GreenEffectPreview, Ctx>
+    for Magnet<Take<GreenOrder, FinalizedTxOut>>
+where
+    Ctx: Has<NetworkId>
+        + Has<DeployedValidator<{ AccountV1 as u8 }>>
+        + Has<DeployedValidator<{ GreenOrderWitnessV1 as u8 }>>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, GreenEffectPreview, Ctx) {
+        let Magnet(trans) = self;
+        trace!("Running GreenOrder transition: {}", trans);
+
+        let removed_input = trans.removed_input();
+        let added_output = trans.added_output();
+        let consumed_budget = trans.consumed_budget();
+        let consumed_fee = trans.consumed_fee();
+
+        trace!(
+            "GreenOrder::exec(removed_input={}, added_output={}, consumed_budget={}, consumed_fee={})",
+            removed_input,
+            added_output,
+            consumed_budget,
+            consumed_fee
+        );
+
+        let Trans {
+            target: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            result,
+        } = trans;
+
+        // Get account validator info
+        let DeployedValidatorErased {
+            reference_utxo: account_ref_utxo,
+            hash: account_hash,
+            ex_budget: account_ex_budget,
+            ..
+        } = context
+            .select::<DeployedValidator<{ AccountV1 as u8 }>>()
+            .erased();
+
+        // Get witness validator info
+        let witness = context.select::<DeployedValidator<{ GreenOrderWitnessV1 as u8 }>>();
+        let witness_erased = witness.erased();
+
+        // Build account input with Delegate redeemer
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out.clone(),
+            script: ScriptWitness {
+                hash: account_hash,
+                cost: ready_cost(account_ex_budget),
+            },
+            redeemer: ready_redeemer(delegate_redeemer(0)), // witness index placeholder
+            required_signers: vec![].into(),
+        };
+
+        let mut candidate = consumed_out.clone();
+
+        // Subtract budget + fee used to facilitate execution
+        candidate.sub_asset(AssetClass::Native, consumed_budget + consumed_fee);
+
+        // Subtract tradable input used in exchange
+        candidate.sub_asset(ord.input_asset(), removed_input);
+
+        // Add output resulted from exchange
+        candidate.add_asset(ord.output_asset(), added_output);
+
+        let consumed_bundle = Bundled(ord.clone(), FinalizedTxOut(consumed_out.clone(), in_ref));
+
+        let (residual_order, effect) = match result {
+            Next::Succ(next_ord) => {
+                // Order continues (partial fill)
+                (
+                    candidate.clone(),
+                    ExecutionEff::Updated(consumed_bundle, Bundled(next_ord, candidate)),
+                )
+            }
+            Next::Term(_) => {
+                // Order fully filled
+                (candidate.clone(), ExecutionEff::Eliminated(consumed_bundle))
+            }
+        };
+
+        // Add execution cost tracking
+        state.add_tx_fee(consumed_budget);
+        state.add_operator_interest(consumed_fee);
+
+        // Add witness script
+        state
+            .tx_blueprint
+            .add_witness(witness_erased, PlutusData::new_list(vec![]));
+
+        // Add input/output pair
+        state.tx_blueprint.add_io(input, residual_order);
+
+        // Add reference inputs for scripts
+        state.tx_blueprint.add_ref_input(account_ref_utxo);
+
         (state, effect, context)
     }
 }

@@ -48,6 +48,8 @@ impl<const N: usize> TryFrom<String> for ConstHexString<N> {
 #[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitIntentRequest {
+    /// Account identifier (NFT Token - policy_id || asset_name, 32 bytes hex)
+    account_id: ConstHexString<32>,
     intent: HexString,
     prefix: HexString,
     postfix: HexString,
@@ -58,6 +60,7 @@ pub struct SubmitIntentRequest {
 impl From<SubmitIntentRequest> for AuthedIntent {
     fn from(value: SubmitIntentRequest) -> Self {
         Self {
+            account_id: value.account_id.into(),
             intent: value.intent.into(),
             prefix: value.prefix.into(),
             postfix: value.postfix.into(),
