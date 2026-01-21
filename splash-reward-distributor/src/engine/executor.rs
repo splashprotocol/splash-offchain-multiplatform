@@ -643,11 +643,10 @@ where
             ];
             typed_ref_inputs.sort_by_key(|(_, input)| input.input.clone());
 
-            let perm_manager_input_ix = if matches!(typed_ref_inputs[0].0, RefInputT::AuthManager) {
-                0
-            } else {
-                1
-            };
+            let perm_manager_input_ix = typed_ref_inputs
+                .iter()
+                .position(|(typ, _)| matches!(typ, RefInputT::AuthManager))
+                .unwrap() as u32;
 
             let reference_inputs: Vec<_> = typed_ref_inputs
                 .into_iter()
@@ -855,27 +854,28 @@ where
 
             let tx_body = signed_tx_builder.body();
 
-            let tx_hash = hash_transaction_canonical(&tx_body);
-            trace!("Gauge Buffering TX hash: {}", tx_hash.to_hex());
-            trace!(
-                "Gauge Buffering TX hash (from original TX body reference): {}",
-                hash_transaction_canonical(signed_tx_builder.body_ref()).to_hex()
-            );
-            let tx_body_json = serde_json::to_string(&tx_body).unwrap();
-            trace!("Gauge Buffering TX body JSON: {}", tx_body_json,);
+            let (tx_hash, body_cbor_bytes) = {
+                use cml_chain::Serialize;
 
-            let reconstructed_tx_body: TransactionBody = serde_json::from_str(&tx_body_json).unwrap();
-            let reconstructed_tx_hash = hash_transaction_canonical(&reconstructed_tx_body);
-            trace!("Reconstructed TX hash: {}", reconstructed_tx_hash.to_hex());
-            use cml_chain::Serialize;
-            let cbor_bytes = tx_body.to_canonical_cbor_bytes().to_vec();
+                // We need to obtain the TX hash from the canonical CBOR bytes of the TX body. For
+                // some reason, if we compute the hash directly from the TX body, we get a different
+                // TX hash. The verifier will be provided the CBOR bytes so we will ensure that the
+                // same TX is being used. This is essential for signature verification to work
+                // properly.
+                let cbor_bytes = tx_body.to_canonical_cbor_bytes().to_vec();
+                let reconstructed_tx_body: TransactionBody =
+                    TransactionBody::from_cbor_bytes(&cbor_bytes).unwrap();
+                let tx_hash = hash_transaction_canonical(&reconstructed_tx_body);
+                trace!("Reconstructed TX hash: {}", tx_hash.to_hex());
+                (tx_hash, cbor_bytes)
+            };
 
             let sk = self.ctx.select::<PrivateKey>();
             let signature = make_vkey_witness(&tx_hash, &sk);
             signed_tx_builder.add_vkey(signature);
 
             let serializable_signed_tx_builder = SerializableSignedTxBuilder {
-                body_cbor_bytes: cbor_bytes,
+                body_cbor_bytes,
                 witness_set: signed_tx_builder.witness_set(),
                 is_valid: signed_tx_builder.is_valid(),
                 auxiliary_data: signed_tx_builder.auxiliary_data(),
