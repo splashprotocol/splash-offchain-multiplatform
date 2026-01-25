@@ -2,7 +2,8 @@
   "zeroth_epoch_start_offset": 100,
   "dao_authorized_executors": [
     "793c1117d6fd9b2abf69e3338ced93378906583907e5321364a1a094",
-    "415f2b60aa3f9e7e4c7a6b935c6c15c49f0ae9f610f70d2fcef35132"
+    "415f2b60aa3f9e7e4c7a6b935c6c15c49f0ae9f610f70d2fcef35132",
+    "52202b0a9aa9797c6d22b29d0bcd2b2782aaca47db097aa99428f45c"
   ],
   "buffer_wallet_authorized_executors": [
     "415f2b60aa3f9e7e4c7a6b935c6c15c49f0ae9f610f70d2fcef35132",

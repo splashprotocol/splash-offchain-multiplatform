@@ -755,11 +755,6 @@ where
                 .collect();
             typed_inputs.sort_by_key(|(_, input)| *input);
 
-            let buffer_wallet_input_ix = typed_inputs
-                .iter()
-                .position(|(typ, _)| matches!(typ, InputT::BufferWallet(_)))
-                .unwrap() as u32;
-
             // Now extract gauge inputs in sorted order
             let sorted_gauge_inputs: Vec<_> = typed_inputs
                 .iter()
@@ -800,7 +795,6 @@ where
                             successor_out_ix,
                             action: smart_farm::Action::DistributeRewards {
                                 perm_manager_input_ix,
-                                buffer_wallet_input_ix,
                             },
                         }
                         .into_pd();
