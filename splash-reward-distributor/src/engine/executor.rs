@@ -1,6 +1,6 @@
 use crate::accounts::{AccountReward, Accounts};
 use crate::constants::{
-    GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
+    BUFFER_WALLET_ADA_BUFFER, GAUGE_BUFFERING_TX_FEE_DELTA, GAUGE_BUFFERING_TX_MINIMAL_FUNDING_BOX_BALANCE,
     HARVESTING_TX_ASSUMED_BASE_FEE, HARVESTING_TX_FEE_DELTA,
 };
 use crate::context::RewardTxTtl;
@@ -9,7 +9,7 @@ use crate::engine::resolved_tx::{
     CardanoTxInput, CardanoTxInputs, PartiallySignedCardanoTx, PartiallySignedTx, SerializableSignedTxBuilder,
 };
 use crate::engine::task::{GaugeBuffering, Harvesting, Task, TaskId};
-use crate::engine::verifier::{RemoteVerifier, VerifierRejection};
+use crate::engine::verifier::{RemoteVerifier, TxCosignRequest, VerifierRejection};
 use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, HarvestOrderSpend, HarvestOrderStatus, Mod};
 use crate::entity_index::{BufferWalletIndex, GaugeIndex};
 use async_trait::async_trait;
@@ -125,6 +125,7 @@ pub enum Error {
     TxInputsAlreadySpent { failed_task_ids: Vec<TaskId> },
     UnrecoverableNodeError,
     NoFlowInstanceExists,
+    NoHarvestOrderFound,
 }
 
 #[derive(Clone)]
@@ -155,7 +156,8 @@ where
         + Has<Collateral>
         + Has<GenesisEpochStartTime>
         + Has<NetworkId>
-        + Has<RewardTxTtl>,
+        + Has<RewardTxTtl>
+        + Has<PrivateKey>,
 {
     async fn feed(&mut self, task_id: TaskId, task: Harvesting<OutputRef>) -> Control<TaskId> {
         let (harvest_order, tx_out) = if let Some(order) = self
@@ -167,8 +169,8 @@ where
                 Mod::Confirmed(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
                     (harvest_order, tx_out)
                 }
-                Mod::Predicted(Bundled((harvest_order, HarvestOrderStatus::Unspent), tx_out)) => {
-                    (harvest_order, tx_out)
+                Mod::Predicted(Bundled((_harvest_order, HarvestOrderStatus::Unspent), _tx_out)) => {
+                    unreachable!("Harvest orders created by users, and will never be picked up in mempool");
                 }
                 _ => return Control::Drop(task_id),
             }
@@ -200,6 +202,13 @@ where
             .as_millis() as u64;
         let genesis_start_time = self.ctx.select::<GenesisEpochStartTime>();
         let current_epoch = Epoch::from(time_millis_to_epoch(now, genesis_start_time).0 as u64);
+        if current_epoch > harvest_order.issued_at.1 {
+            warn!(
+                "Harvest order issued_at epoch ({}) is in the past, dropping request {}",
+                harvest_order.issued_at.1, harvest_order.id
+            );
+            return Control::Drop(task_id);
+        }
         let epoch_start = self
             .onchain_index
             .last_epoch_harvested(harvest_order.account_key)
@@ -213,13 +222,9 @@ where
             .await
         {
             Some(AccountReward {
-                accumulated_amount: amount,
+                amount,
                 latest_epoch_inclusive,
             }) => {
-                if latest_epoch_inclusive.next() < current_epoch {
-                    warn!("lp-indexer chain-index lags reward-bot");
-                    return Control::Retry;
-                }
                 let network_id = self.ctx.select::<NetworkId>();
                 let spend = HarvestOrderSpend {
                     amount,
@@ -270,6 +275,9 @@ where
             let harvest_order_ref_script_output = harvest_order_deployed_validator.reference_utxo;
 
             let num_payouts = batch.orders.len() as u64;
+            if num_payouts == 0 {
+                return Err(Error::NoHarvestOrderFound);
+            }
 
             let mut accounts = vec![];
 
@@ -328,10 +336,11 @@ where
 
             let Bundled(buffer_wallet_in, FinalizedTxOut(bw_tx_out, bw_in_output_ref)) = batch.buffer_wallet;
 
-            let buffer_wallet_script_hash = self
+            let buffer_wallet_deployed_validator = self
                 .ctx
-                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>()
-                .hash;
+                .select::<DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>>();
+            let buffer_wallet_ref_script_output = buffer_wallet_deployed_validator.reference_utxo;
+            let buffer_wallet_script_hash = buffer_wallet_deployed_validator.hash;
             let buffer_wallet_witness = PartialPlutusWitness::new(
                 PlutusScriptWitness::Ref(buffer_wallet_script_hash),
                 BufferWalletAction::Admin.into_pd(),
@@ -340,9 +349,10 @@ where
                 SingleInputBuilder::new(TransactionInput::from(bw_in_output_ref), bw_tx_out.clone())
                     .plutus_script_inline_datum(buffer_wallet_witness, RequiredSigners::from(vec![]))
                     .unwrap();
+            let buffer_wallet_ex_units = DaoScriptData::global().buffer_wallet.ex_units.clone();
             sorted_input_data.push(InputData {
                 input: buffer_wallet_input,
-                ex_units: None,
+                ex_units: Some(buffer_wallet_ex_units),
                 issued_at: None,
             });
 
@@ -363,7 +373,9 @@ where
             // Compute the new merkle tree root hash digest
             let mut last_confirmed_merkle_tree = batch.input_merkle_tree;
 
-            let new_merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap();
+            // Recall that before the first harvest order is processed, the merkle tree is empty and
+            // so we assume that the root hash digest is 0.
+            let new_merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap_or([0; 32]);
             assert_eq!(
                 new_merkle_tree_root_hash_digest.to_vec(),
                 bw_datum.merkle_tree_root_hash_digest
@@ -383,10 +395,13 @@ where
             let splash_policy = self.ctx.select::<SplashPolicy>().0;
             let splash_asset_class = AssetClass::Token(Token(splash_policy, splash_asset_name));
 
-            assert!(bw_out
-                .value_mut()
+            let deducted_value = bw_out
+                .value()
                 .checked_sub(&make_splash_value(splash_asset_class, batch.total_payout))
-                .is_ok());
+                .unwrap();
+            bw_out.set_amount(deducted_value);
+            set_min_ada(&mut bw_out);
+            bw_out.value_mut().coin += BUFFER_WALLET_ADA_BUFFER;
 
             let buffer_wallet_output = TransactionOutputBuilder::new()
                 .with_address(bw_out.address().clone())
@@ -421,7 +436,7 @@ where
             // receivers of payout.
             let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
             let mut blueprint = DaoTxBlueprint {
-                reference_inputs: vec![harvest_order_ref_script_output],
+                reference_inputs: vec![harvest_order_ref_script_output, buffer_wallet_ref_script_output],
                 sorted_inputs: blueprint_sorted_inputs,
                 outputs,
                 sorted_mints: vec![],
@@ -452,6 +467,10 @@ where
 
             set_tx_ttl(&mut tx_builder, &self.ctx);
 
+            let OperatorCreds(operator_pkh, operator_address) = self.ctx.select::<OperatorCreds>();
+            tx_builder.add_required_signer(operator_pkh);
+            tx_builder.add_required_signer(verifier_key_hash);
+
             let inputs = tx_builder
                 .get_inputs()
                 .clone()
@@ -468,16 +487,33 @@ where
                 )
                 .collect();
 
-            let signed_tx_builder = tx_builder
+            let mut signed_tx_builder = tx_builder
                 .build(ChangeSelectionAlgo::Default, &operator_address)
                 .unwrap();
 
             let tx_body = signed_tx_builder.body();
-            let tx_hash = hash_transaction_canonical(&tx_body);
-            use cml_chain::Serialize;
-            let cbor_bytes = tx_body.to_cbor_bytes().to_vec();
+            let (tx_hash, body_cbor_bytes) = {
+                use cml_chain::Serialize;
+
+                // We need to obtain the TX hash from the canonical CBOR bytes of the TX body. For
+                // some reason, if we compute the hash directly from the TX body, we get a different
+                // TX hash. The verifier will be provided the CBOR bytes so we will ensure that the
+                // same TX is being used. This is essential for signature verification to work
+                // properly.
+                let cbor_bytes = tx_body.to_canonical_cbor_bytes().to_vec();
+                let reconstructed_tx_body: TransactionBody =
+                    TransactionBody::from_cbor_bytes(&cbor_bytes).unwrap();
+                let tx_hash = hash_transaction_canonical(&reconstructed_tx_body);
+                trace!("Reconstructed TX hash: {}", tx_hash.to_hex());
+                (tx_hash, cbor_bytes)
+            };
+
+            let sk = self.ctx.select::<PrivateKey>();
+            let signature = make_vkey_witness(&tx_hash, &sk);
+            signed_tx_builder.add_vkey(signature);
+
             let serializable_signed_tx_builder = SerializableSignedTxBuilder {
-                body_cbor_bytes: cbor_bytes,
+                body_cbor_bytes,
                 witness_set: signed_tx_builder.witness_set(),
                 is_valid: signed_tx_builder.is_valid(),
                 auxiliary_data: signed_tx_builder.auxiliary_data(),
@@ -990,7 +1026,6 @@ pub struct Executor<
     StateId,
     Bearer,
     Tx,
-    TxInputs,
     Ctx,
     TxErr,
     PositionIndex,
@@ -1006,7 +1041,7 @@ pub struct Executor<
     verifier: Verifier,
     ctx: Ctx,
     blocked_on: Option<Flow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex, PositionIndex>>,
-    pd: PhantomData<(Tx, TxInputs, TxErr)>,
+    pd: PhantomData<(Tx, TxErr)>,
 }
 
 impl<
@@ -1014,7 +1049,6 @@ impl<
         StateId,
         Bearer,
         Tx,
-        TxInputs,
         Ctx,
         TxErr,
         PositionIndex,
@@ -1028,7 +1062,6 @@ impl<
         StateId,
         Bearer,
         Tx,
-        TxInputs,
         Ctx,
         TxErr,
         PositionIndex,
@@ -1060,25 +1093,13 @@ impl<
 }
 
 #[async_trait]
-impl<
-        GaugeId,
-        StateId,
-        Bearer,
-        Tx,
-        TxInputs,
-        Ctx,
-        PositionIndex,
-        OnChainIndex,
-        FundingIndex,
-        TxSubmit,
-        Verifier,
-    > BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, Error>
+impl<GaugeId, StateId, Bearer, Tx, Ctx, PositionIndex, OnChainIndex, FundingIndex, TxSubmit, Verifier>
+    BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, Error>
     for Executor<
         GaugeId,
         StateId,
         Bearer,
         Tx,
-        TxInputs,
         Ctx,
         Error,
         PositionIndex,
@@ -1093,7 +1114,6 @@ where
         Into<OutputRef> + Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned + 'static,
     Bearer: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     Tx: Send + Clone + CanonicalHash<Hash = TransactionHash>,
-    TxInputs: Send + Clone,
     PositionIndex: Accounts<StateId> + Clone + Send,
     OnChainIndex: GaugeIndex<GaugeId, StateId, Bearer>
         + HarvestOrderIndex<StateId, Bearer>
@@ -1103,17 +1123,17 @@ where
         + Sync,
     FundingIndex: FundingRepo + Clone + Send + Sync,
     TxSubmit: Clone + Network<Tx, RejectReasons> + Send,
-    Verifier: RemoteVerifier<PartiallySignedTx<SerializableSignedTxBuilder, TxInputs>, Tx> + Send,
+    Verifier: RemoteVerifier<PartiallySignedTx<SerializableSignedTxBuilder, CardanoTxInputs>, Tx> + Send,
     HarvestingFlow<StateId, Bearer, Ctx, PositionIndex, OnChainIndex>: BatchExecutor<
         TaskId,
         Harvesting<StateId>,
-        HarvestFlowEntityUpdates<StateId, Bearer, SerializableSignedTxBuilder, TxInputs>,
+        HarvestFlowEntityUpdates<StateId, Bearer, SerializableSignedTxBuilder, CardanoTxInputs>,
         Error,
     >,
     BufferingFlow<GaugeId, StateId, Bearer, Ctx, OnChainIndex, FundingIndex>: BatchExecutor<
         TaskId,
         GaugeBuffering<GaugeId>,
-        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SerializableSignedTxBuilder, TxInputs>,
+        BufferingFlowEntityUpdates<StateId, GaugeId, Bearer, SerializableSignedTxBuilder, CardanoTxInputs>,
         Error,
     >,
     Ctx: Send
@@ -1156,15 +1176,15 @@ where
                 let (typed_result, resolved_tx, executed_tasks) = match flow {
                     Flow::Harvesting(mut hf) => {
                         let res = hf.execute(verifier_key_hash).await?;
-                        let resolved_tx = res.output.resolved_tx.clone();
+                        let cosign_request = TxCosignRequest::Harvest(res.output.resolved_tx.clone());
                         let typed_res = TypedExecutionUpdate::Harvesting(res.output);
-                        (typed_res, resolved_tx, res.executed_tasks)
+                        (typed_res, cosign_request, res.executed_tasks)
                     }
                     Flow::Buffering(mut bf) => {
                         let res = bf.execute(verifier_key_hash).await?;
-                        let resolved_tx = res.output.resolved_tx.clone();
+                        let cosign_request = TxCosignRequest::GaugeBuffering(res.output.resolved_tx.clone());
                         let typed_res = TypedExecutionUpdate::Buffering(res.output);
-                        (typed_res, resolved_tx, res.executed_tasks)
+                        (typed_res, cosign_request, res.executed_tasks)
                     }
                 };
 

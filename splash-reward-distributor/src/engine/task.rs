@@ -36,7 +36,7 @@ impl From<FarmId> for TaskId {
 
 impl From<OutputRef> for TaskId {
     fn from(oref: OutputRef) -> Self {
-        todo!()
+        blake2b256(oref.to_string().as_bytes()).into()
     }
 }
 

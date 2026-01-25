@@ -1,6 +1,6 @@
 use crate::accounts::{AccountReward, Accounts};
 use crate::engine::resolved_tx::PartiallySignedCardanoTx;
-use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, UnconfirmedRewardTxIndex};
+use crate::entity_index::{AuthManagerIndex, HarvestOrderIndex, HarvestOrderSpend, UnconfirmedRewardTxIndex};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::certs::Credential;
 use cml_chain::crypto::utils::make_vkey_witness;
@@ -12,7 +12,9 @@ use log::{error, info, trace, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
+use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::circular_filter::CircularFilter;
 use spectrum_offchain::domain::Has;
@@ -27,6 +29,7 @@ use splash_dao_offchain::protocol_config::{
 };
 use splash_dao_offchain::routines::slot_to_epoch;
 use splash_dao_offchain::GenesisEpochStartTime;
+use splash_yf_offchain::entities::buffer_wallet::BufferWalletConfig;
 use splash_yf_offchain::entities::gauge::GaugeWithdrawals;
 use splash_yf_offchain::entities::{BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease};
 use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
@@ -68,14 +71,13 @@ impl HttpVerifier {
 
 #[async_trait::async_trait]
 pub trait RemoteVerifier<PartialTx, Tx> {
-    async fn try_approve(&self, tx: &PartialTx) -> Result<Tx, VerifierRejection>;
+    async fn try_approve(&self, cosign_request: &TxCosignRequest) -> Result<Tx, VerifierRejection>;
 }
 
 #[async_trait::async_trait]
 impl RemoteVerifier<PartiallySignedCardanoTx, Transaction> for HttpVerifier {
-    async fn try_approve(&self, tx: &PartiallySignedCardanoTx) -> Result<Transaction, VerifierRejection> {
+    async fn try_approve(&self, cosign_request: &TxCosignRequest) -> Result<Transaction, VerifierRejection> {
         let url = format!("http://{}/cosign", self.verification_url);
-        let cosign_request = TxCosignRequest::GaugeBuffering(tx.clone());
         let tx_bytes = rmp_serde::to_vec_named(&cosign_request).unwrap();
         let response = self
             .client
@@ -88,7 +90,7 @@ impl RemoteVerifier<PartiallySignedCardanoTx, Transaction> for HttpVerifier {
         match response {
             Ok(response) => {
                 trace!("response: {:?}", response);
-                use cml_chain::{Deserialize, Serialize};
+                use cml_chain::Deserialize;
                 let cosigned_tx_hex: String = response
                     .json()
                     .await
@@ -286,8 +288,16 @@ where
                         } = vkeys.values().next().unwrap();
 
                         let authorized_signers = ctx.select::<AuthorizedExecutors>().0;
-                        vkey.verify(tx_hash.to_raw_bytes(), ed25519_signature)
-                            && authorized_signers.contains(vkey)
+                        trace!("verifying vkey with tx hash: {}", tx_hash.to_hex());
+                        let valid_signature = vkey.verify(tx_hash.to_raw_bytes(), ed25519_signature);
+                        let is_authorized = authorized_signers.contains(vkey);
+                        if !valid_signature || !is_authorized {
+                            warn!(
+                                "Invalid TX signature: valid_signature: {}, is_authorized: {}",
+                                valid_signature, is_authorized
+                            );
+                        }
+                        valid_signature && is_authorized
                     } else {
                         false
                     }
@@ -298,12 +308,13 @@ where
                 }
 
                 let tx_view = to_tx_view_partially_resolved(tx, current_slot);
+                let parse_result = OnChainEvent::try_from_ledger(&tx_view, ctx);
                 if let Some(OnChainEvent::BotHarvestingAction {
                     payouts,
                     buffer_wallet_update,
                     buffer_wallet_withdrawn_amount: BufferWalletSplashTokenDecrease(bw_withdrawn_amount),
                     ..
-                }) = OnChainEvent::try_from_ledger(&tx_view, ctx)
+                }) = parse_result
                 {
                     let current_epoch = Epoch::from(
                         slot_to_epoch(
@@ -315,6 +326,7 @@ where
                     );
 
                     let mut total_payout = 0;
+                    let mut merkle_leaves = vec![];
                     for (order, SplashPayout(payout)) in &payouts {
                         total_payout += *payout;
                         if order.issued_at.1 != current_epoch {
@@ -324,20 +336,18 @@ where
                             );
                             return None;
                         }
-                        let last_harvested_epoch = self
+                        let epoch_start = self
                             .index
                             .last_epoch_harvested(order.account_key)
                             .await
+                            .map(|e| e.next())
                             .unwrap_or(Epoch::from(0));
                         if let Some(AccountReward {
-                            accumulated_amount: amount,
+                            amount,
                             latest_epoch_inclusive,
                         }) = self
                             .position_index
-                            .query_account_reward(
-                                &Credential::new_pub_key(order.account_key),
-                                last_harvested_epoch,
-                            )
+                            .query_account_reward(&Credential::new_pub_key(order.account_key), epoch_start)
                             .await
                         {
                             if amount != *payout {
@@ -347,15 +357,16 @@ where
                                 );
                                 return None;
                             }
-                            if current_epoch > latest_epoch_inclusive.next() {
-                                info!(
-                                    "lp-indexer chain tip (epoch = {}) lags current epoch ({})",
-                                    latest_epoch_inclusive.next(),
-                                    current_epoch,
-                                );
-                                return None;
-                            }
+                            let spend = HarvestOrderSpend {
+                                amount,
+                                epoch_start,
+                                epoch_end: latest_epoch_inclusive,
+                                user: order.account_key,
+                                reward_address: order.reward_receiver.to_address(self.network_id),
+                            };
+                            merkle_leaves.push(spend.hash());
                         } else {
+                            info!("Account reward not found for account key: {}", order.account_key);
                             return None;
                         }
                     }
@@ -368,13 +379,74 @@ where
                         return None;
                     }
 
+                    let consumed_bw_output_ref = buffer_wallet_update.consumed?;
+                    // Find buffer wallet input in transaction view
+                    let bw_input_output = tx_view
+                        .inputs
+                        .iter()
+                        .find_map(|(tx_input, timed_output)| {
+                            let output_ref = OutputRef::new(tx_input.transaction_id, tx_input.index);
+                            if output_ref == consumed_bw_output_ref {
+                                timed_output.as_ref().map(|to| &to.output)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap()
+                        .clone();
+                    let bw_input_datum = bw_input_output
+                        .datum()
+                        .and_then(|datum| datum.into_pd())
+                        .and_then(BufferWalletConfig::try_from_pd)
+                        .unwrap();
+
+                    let merkle_tree_root_hash_digest = bw_input_datum.merkle_tree_root_hash_digest;
+                    let mut last_confirmed_merkle_tree = self.index.last_confirmed_merkle_tree().await?.tree;
+                    // Verify the merkle tree root hash digest
+                    let confirmed_merkle_tree_root_hash_digest =
+                        last_confirmed_merkle_tree.root().unwrap_or([0; 32]);
+
+                    if confirmed_merkle_tree_root_hash_digest.to_vec() != merkle_tree_root_hash_digest {
+                        warn!("Input Merkle tree root hash digest mismatch: confirmed_merkle_tree_root_hash_digest: {}, merkle_tree_root_hash_digest: {}",
+                         hex::encode(confirmed_merkle_tree_root_hash_digest),
+                         hex::encode(merkle_tree_root_hash_digest));
+                        return None;
+                    }
+
+                    // Confirm digest of BW output's datum
+                    last_confirmed_merkle_tree.append(&mut merkle_leaves);
+                    last_confirmed_merkle_tree.commit();
+                    let output_merkle_tree_root_hash_digest = last_confirmed_merkle_tree.root().unwrap();
+
+                    let bw_output_datum = tx_view.outputs[0]
+                        .datum()
+                        .and_then(|datum| datum.into_pd())
+                        .and_then(BufferWalletConfig::try_from_pd)
+                        .unwrap();
+                    if bw_output_datum.merkle_tree_root_hash_digest != output_merkle_tree_root_hash_digest {
+                        warn!("Output Merkle tree root hash digest mismatch: bw_output_datum: {}, confirmed_merkle_tree_root_hash_digest: {}",
+                         hex::encode(bw_output_datum.merkle_tree_root_hash_digest),
+                         hex::encode(output_merkle_tree_root_hash_digest));
+                        return None;
+                    }
+
                     let consumed_buffer_wallet_tx_hash = buffer_wallet_update.consumed?.tx_hash();
                     if self.unconfirmed_harvest_tx_index.try_add_tx(
                         consumed_buffer_wallet_tx_hash,
                         tx_hash,
                         payouts.iter().map(|(order, _)| order.account_key).collect(),
                     ) {
-                        return Some(self.prover.prove(tx.tx.clone().into()));
+                        let mut ss_builder = tx.tx.clone();
+                        let sk = ctx.select::<PrivateKey>();
+                        let signature = make_vkey_witness(&tx_hash, &sk);
+                        ss_builder.witness_set.add_vkey(signature);
+
+                        let signed_tx_builder: SignedTxBuilder = ss_builder.into();
+                        let tx = self.prover.prove(signed_tx_builder);
+                        assert_eq!(tx.canonical_hash(), tx_hash);
+                        return Some(tx);
+                    } else {
+                        info!("Failed to add harvest tx to unconfirmed harvest tx index");
                     }
                 }
             }
@@ -474,15 +546,14 @@ fn to_tx_view_partially_resolved(
         .iter()
         .zip(built_tx.body.inputs)
         .map(|(cardano_tx_input, input)| {
-            // TODO: address hard-coding of slot.
+            // Note: a slot is only provided here in the case of a HarvestOrder. No other on-chain
+            // entities require a slot and so it is safe to set a dummy value.
+            let slot = cardano_tx_input.issued_at.map(|slot| slot.0).unwrap_or(1000);
+
             let timed_output = Some(TimedOutput {
                 output: cardano_tx_input.tx_output.clone(),
-                slot: 1000,
+                slot,
             });
-            //let timed_output = cardano_tx_input.issued_at.map(|slot| TimedOutput {
-            //    output: cardano_tx_input.tx_output.clone(),
-            //    slot: slot.0,
-            //});
 
             (input, timed_output)
         })

@@ -91,7 +91,10 @@ use splash_dao_offchain::{
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
 };
-use splash_yf_offchain::entities::{buffer_wallet::BufferWalletConfig, harvest_order::HarvestOrderDatum};
+use splash_yf_offchain::entities::{
+    buffer_wallet::BufferWalletConfig,
+    harvest_order::{HarvestOrder, HarvestOrderAction, HarvestOrderDatum},
+};
 use std::ops::Index;
 use user_simulator::{create_ve_metadata, user_simulator};
 
@@ -147,8 +150,8 @@ async fn main() {
                 serde_json::from_str(&s).expect("Invalid voting_escrow settings file");
             make_voting_escrow_order(&ve_settings, &mut op_inputs).await;
         }
-        Command::ExtendDeposit => {
-            //
+        Command::MakeHarvestOrder => {
+            make_harvest_order(&op_inputs).await;
         }
         Command::CastVote { ve_identifier_hex } => {
             let id = VotingEscrowId::from(
@@ -1919,7 +1922,7 @@ enum Command {
         #[arg(long)]
         assets_json_path: String,
     },
-    ExtendDeposit,
+    MakeHarvestOrder,
     CastVote {
         #[arg(long)]
         ve_identifier_hex: String,

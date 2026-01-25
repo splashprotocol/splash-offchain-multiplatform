@@ -366,6 +366,9 @@ where
                 .collect();
             queue.batch_execute(commands).await;
         }
+        Err(ExecutorError::NoHarvestOrderFound) => {
+            trace!("No harvest order found, skipping execution");
+        }
         Err(_) => (),
     }
     ControlFlow::Continue(())

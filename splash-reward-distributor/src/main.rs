@@ -210,6 +210,7 @@ async fn run_reward_bot(args: AppArgs) {
         dao_protocol_deployment.smart_farm.hash,
         dao_protocol_deployment.mint_wpauth_token.hash,
         dao_protocol_deployment.perm_manager.hash,
+        dao_protocol_deployment.harvest_order.hash,
     ]);
 
     let mempool_index_handle = tokio::spawn(update_index_from_mempool_dropped_tx(
@@ -308,6 +309,7 @@ async fn run_verifier(args: AppArgs) {
         dao_protocol_deployment.smart_farm.hash,
         dao_protocol_deployment.mint_wpauth_token.hash,
         dao_protocol_deployment.perm_manager.hash,
+        dao_protocol_deployment.harvest_order.hash,
     ]);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
 
