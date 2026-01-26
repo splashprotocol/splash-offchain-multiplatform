@@ -223,11 +223,7 @@ pub async fn user_simulator<'a>(
                                 .await
                             {
                                 if let Some((_, order_output)) =
-                                    results.iter().find(|(order, tx_unspent_output)| {
-                                        let blacklisted_tx_hash = TransactionHash::from_hex("591c5b344b56bfa4ce030cb133781c01870e902fe32bbde07cc9a3db330af174").unwrap();
-
-                                       tx_unspent_output.input.transaction_id != blacklisted_tx_hash && order.datum.ve_state == ve_datum
-                                    })
+                                    results.iter().find(|(order, _)| order.datum.ve_state == ve_datum)
                                 {
                                     println!(
                                         "Waiting for bot to process wpoll {:?} vote for VE {}",
@@ -236,7 +232,6 @@ pub async fn user_simulator<'a>(
                                     );
                                     order_output.clone()
                                 } else {
-                                    println!("Creating new WPoll vote order #1");
                                     create_wpoll_vote_onchain_order(
                                         voting_escrow_id,
                                         ve_identifier_token_name,
@@ -248,7 +243,6 @@ pub async fn user_simulator<'a>(
                                     .unwrap()
                                 }
                             } else {
-                                println!("Creating new WPoll vote order #2");
                                 create_wpoll_vote_onchain_order(
                                     voting_escrow_id,
                                     ve_identifier_token_name,
