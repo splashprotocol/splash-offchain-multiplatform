@@ -1,6 +1,8 @@
 mod config;
 mod handler;
 mod index;
+mod restart;
+mod rollback;
 mod server;
 
 use crate::server::build_api_server;
@@ -13,6 +15,8 @@ use futures::FutureExt;
 use spectrum_streaming::run_stream;
 
 use crate::config::AppConfig;
+use crate::restart::{determine_restart_mode, RestartMode};
+use crate::rollback::rollback_blocks;
 use async_primitives::beacon::Beacon;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
@@ -22,10 +26,12 @@ use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::mempool_stream;
 use cml_crypto::TransactionHash;
 use futures::channel::mpsc;
+use log::warn;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -49,12 +55,60 @@ async fn main() {
     let raw_config = std::fs::File::open(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_reader(raw_config).expect("Invalid configuration file");
 
-    let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
+    if config.chain_sync.replay_from_point.is_some() {
+        warn!("════════════════════════════════════");
+        warn!("⚠  DEPRECATED CONFIGURATION");
+        warn!("════════════════════════════════════");
+        warn!("'replayFromPoint' is no longer used");
+        warn!("Automatic rollback is now configured via 'autoRollbackBlocks'");
+        warn!("Please remove 'replayFromPoint' from config");
+        warn!("════════════════════════════════════");
+    }
+
+    let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(
+        config.chain_sync.db_path.clone(),
+    )));
+    let db = RocksDB::new(config.index_path.clone());
+    let startup_complete = Arc::new(AtomicBool::new(false));
+
+    let restart_mode = determine_restart_mode(
+        Arc::clone(&chain_sync_cache),
+        config.chain_sync.starting_point.clone(),
+        config.chain_sync.auto_rollback_blocks,
+    )
+    .await;
+
+    let resume_point = match restart_mode {
+        RestartMode::FreshStart { from } => {
+            log::info!("Fresh start from {:?}", from);
+            from
+        }
+        RestartMode::RollbackAndResume {
+            current_point,
+            rollback_blocks: n_blocks,
+        } => {
+            log::info!("Rolling back {} blocks from {:?}", n_blocks, current_point);
+            match rollback_blocks(&db, Arc::clone(&chain_sync_cache), current_point, n_blocks).await {
+                Ok(rolled_back_point) => {
+                    log::info!("Rollback complete - resuming from {:?}", rolled_back_point);
+                    rolled_back_point
+                }
+                Err(e) => {
+                    log::error!("Rollback failed: {}", e);
+                    log::error!("This is critical - manual intervention may be required");
+                    panic!("Rollback failed: {}", e);
+                }
+            }
+        }
+    };
+
+    startup_complete.store(true, Ordering::Release);
+
     let chain_sync = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path.clone(),
         config.node.magic,
-        config.chain_sync.starting_point,
+        resume_point,
     )
     .await
     .expect("ChainSync initialization failed");
@@ -82,7 +136,7 @@ async fn main() {
         chain_sync_cache,
         chain_sync_stream(chain_sync, state_synced.clone()),
         config.chain_sync.disable_rollbacks_until,
-        config.chain_sync.replay_from_point,
+        None,
         rollback_in_progress,
     ))
     .await
@@ -96,8 +150,9 @@ async fn main() {
     )
     .map(|ev| ev.map(TxViewMut::from));
 
-    let db = RocksDB::new(config.index_path);
     let handler = TxHandler::new(Tracing::attach(db.clone()));
+
+    let startup_complete_for_server = Arc::clone(&startup_complete);
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(forward_with_ref(confirmed_txs_snd, succinct_tx)),
@@ -112,7 +167,7 @@ async fn main() {
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
     let bind_addr = SocketAddr::new(ip_addr, args.port);
-    let server = build_api_server(db, state_synced.clone(), bind_addr)
+    let server = build_api_server(db, state_synced.clone(), startup_complete_for_server, bind_addr)
         .await
         .expect("Error setting up api server");
 

@@ -13,6 +13,8 @@ use std::fmt::Display;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -80,10 +82,20 @@ pub struct Asset {
 
 pub struct Service<R>(PhantomData<R>);
 
-async fn get_utxos<R>(req: web::Json<GetTxOsRequest>, db: Data<R>) -> impl Responder
+async fn get_utxos<R>(
+    req: web::Json<GetTxOsRequest>,
+    db: Data<R>,
+    startup_complete: Data<Arc<AtomicBool>>,
+) -> impl Responder
 where
     R: UtxoResolver + 'static,
 {
+    if !startup_complete.load(Ordering::Acquire) {
+        return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+            "error": "Service is starting up",
+            "message": "Rollback in progress - please retry in a moment"
+        }));
+    }
     trace!("Received request: {:?}", req);
     let scope = (Credential::new_pub_key(req.pkh), CredentialKind::Payment);
     let utxos = db.get_utxos(Some(scope), req.query, req.offset, req.limit).await;
@@ -101,7 +113,10 @@ fn get_utxos_service<R: UtxoResolver + 'static>() -> actix_web::Resource {
     )
 }
 
-async fn healthcheck(state_synced: Data<Beacon>) -> impl Responder {
+async fn healthcheck(state_synced: Data<Beacon>, startup_complete: Data<Arc<AtomicBool>>) -> impl Responder {
+    if !startup_complete.load(Ordering::Acquire) {
+        return HttpResponse::ServiceUnavailable().finish();
+    }
     if state_synced.read() {
         HttpResponse::Ok().finish()
     } else {
@@ -116,6 +131,7 @@ fn healthcheck_service() -> actix_web::Resource {
 pub async fn build_api_server<R>(
     db: R,
     state_synced: Beacon,
+    startup_complete: Arc<AtomicBool>,
     bind_addr: SocketAddr,
 ) -> Result<Server, io::Error>
 where
@@ -131,6 +147,7 @@ where
             .wrap(cors)
             .app_data(Data::new(db.clone()))
             .app_data(Data::new(state_synced.clone()))
+            .app_data(Data::new(startup_complete.clone()))
             .service(healthcheck_service())
             .service(get_utxos_service::<R>())
     })

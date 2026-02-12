@@ -73,7 +73,7 @@ async fn apply_tx<Index>(
         .await;
 }
 
-async fn unapply_tx<Index>(
+pub async fn unapply_tx<Index>(
     index: &Index,
     TxViewMut {
         hash,
