@@ -41,9 +41,8 @@ use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot, DaoOrder, DaoOrderB
 use crate::entities::Snapshot;
 use crate::funding::FundingRepo;
 use crate::protocol_config::{
-    GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    NotOutputRefNorSlotNumber, OperatorCreds, PermManagerAuthPolicy, ProtocolConfig, SplashPolicy,
-    VEFactoryAuthPolicy,
+    GTAuthPolicy, NotOutputRefNorSlotNumber, OperatorCreds, PermManagerAuthPolicy, ProtocolConfig,
+    SplashPolicy, VEFactoryAuthPolicy,
 };
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::actions::InflationActions;
@@ -72,7 +71,7 @@ use pallas_network::miniprotocols::localtxsubmission::{
     ApplyTxError, ConwayLedgerFailure, ConwayUtxoWPredFailure, TxValidationError, UtxoFailure,
 };
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::time::slot_to_time_millis;
+use spectrum_cardano_lib::time::{posix_to_slot, slot_to_time_millis};
 use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::backlog::ResilientBacklog;
@@ -232,7 +231,6 @@ where
             eliminate_wpoll,
         } = self.read_state().await;
         if let Some((wp_state, eliminated_epoch)) = eliminate_wpoll {
-            trace!("Eliminating wpoll for epoch {}", eliminated_epoch);
             self.try_eliminate_poll(wp_state).await;
         }
         match previous_epoch_state {
@@ -352,10 +350,7 @@ where
                 EpochRoutineState::DistributionInProgress(_) => unreachable!(),
                 EpochRoutineState::Eliminated => unreachable!(),
             },
-            Some(EpochRoutineState::PendingEliminatePoll(state)) => {
-                error!("eliminating wpoll of previous epoch");
-                self.try_eliminate_poll(state).await
-            }
+            Some(EpochRoutineState::PendingEliminatePoll(state)) => self.try_eliminate_poll(state).await,
             Some(EpochRoutineState::WeightingInProgress(_)) => unreachable!(),
             Some(EpochRoutineState::PendingCreatePoll(_)) => unreachable!(),
             Some(EpochRoutineState::Uninitialized) => unreachable!(),
@@ -533,7 +528,10 @@ impl<
                     let ve_id = onchain_order.order.datum.ve_identifier_token_name;
                     let ve_bundle = self.voting_escrow.read(VotingEscrowId(ve_id)).await?.erased();
                     let ve_version = ve_bundle.0.get().version;
-                    assert_eq!(order_version, ve_version);
+                    if order_version != ve_version {
+                        trace!("DaoOrder::WPollVote: voting order version mismatch: order_version: {}, ve_version: {}", order_version, ve_version);
+                        return None;
+                    }
                     info!("WPOLL voting order with VE_identifier {}", ve_id);
                     Some(NextPendingOrder::Voting {
                         weighting_poll,
@@ -565,7 +563,10 @@ impl<
                     let ve_factory_bundle = self.ve_factory.read(VEFactoryId).await.map(|v| v.erased())?;
                     let ve_bundle = self.voting_escrow.read(VotingEscrowId(ve_id)).await?.erased();
                     let ve_version = ve_bundle.0.get().version;
-                    // assert_eq!(order_version, ve_version);
+                    if order_version != ve_version {
+                        trace!("DaoOrder::ExtendVE: extend order version mismatch: order_version: {}, ve_version: {}", order_version, ve_version);
+                        return None;
+                    }
                     Some(NextPendingOrder::ExtendVotingEscrow {
                         onchain_order,
                         ve_bundle,
@@ -586,7 +587,11 @@ impl<
                         AnyMod::Predicted(ref traced) => traced.state.0 .0.get().version,
                     };
 
-                    assert_eq!(order_version, ve_version);
+                    if order_version != ve_version {
+                        trace!("DaoOrder::RedeemVE: redeem order version mismatch: order_version: {}, ve_version: {}", order_version, ve_version);
+                        return None;
+                    }
+
                     let ve_prev_state_id = match &traced_ve {
                         AnyMod::Confirmed(traced) => traced.prev_state_id,
                         AnyMod::Predicted(traced) => traced.prev_state_id,
@@ -1528,7 +1533,6 @@ impl<
             let lovelaces_input_value = funding_boxes.total_lovelaces();
             if lovelaces_input_value >= 3_000_000 && wp.can_be_eliminated(self.conf.genesis_time, time_millis)
             {
-                info!("Eliminating wpoll @ epoch {}", epoch);
                 let (signed_tx, funding_box_changes) = self
                     .actions
                     .eliminate_wpoll(
@@ -1718,7 +1722,6 @@ impl<
     {
         for epoch in (0..=starting_epoch).rev() {
             if let Some(Either::Right(wp)) = self.weighting_poll(epoch).await {
-                trace!("Checking to eliminate wpoll @epoch {}", epoch);
                 if let PollState::PollExhaustedAndReadyToEliminate =
                     wp.as_erased().0.get().state(genesis, now_millis)
                 {
@@ -2421,13 +2424,13 @@ impl Display for TimedOutputRef {
 
 pub struct ProvideTimedOref<'a, Cx>(pub &'a Cx, pub TimedOutputRef);
 
-impl<'a, Cx> Has<TimedOutputRef> for ProvideTimedOref<'a, Cx> {
+impl<Cx> Has<TimedOutputRef> for ProvideTimedOref<'_, Cx> {
     fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
         self.1
     }
 }
 
-impl<'a, Cx, T> Has<T> for ProvideTimedOref<'a, Cx>
+impl<Cx, T> Has<T> for ProvideTimedOref<'_, Cx>
 where
     Cx: Has<T>,
     T: NotOutputRefNorSlotNumber,
@@ -2444,25 +2447,25 @@ pub struct ProcessLedgerEntityContext<'a, D> {
     pub metadata: Option<Metadata>,
 }
 
-impl<'a, D> Has<OutputRef> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<OutputRef> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.timed_output_ref.output_ref
     }
 }
 
-impl<'a, D> Has<TimedOutputRef> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<TimedOutputRef> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
         self.timed_output_ref
     }
 }
 
-impl<'a, D> Has<CurrentEpoch> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<CurrentEpoch> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
         self.current_epoch
     }
 }
 
-impl<'a, D> Has<Option<Metadata>> for ProcessLedgerEntityContext<'a, D> {
+impl<D> Has<Option<Metadata>> for ProcessLedgerEntityContext<'_, D> {
     fn select<U: IsEqual<Option<Metadata>>>(&self) -> Option<Metadata> {
         self.metadata.clone()
     }
@@ -2518,6 +2521,17 @@ pub fn time_millis_to_epoch(time_millis: u64, genesis_time: GenesisEpochStartTim
 pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime, network_id: NetworkId) -> CurrentEpoch {
     let time_millis = slot_to_time_millis(slot, network_id);
     time_millis_to_epoch(time_millis, genesis_time)
+}
+
+pub fn last_slot_of_epoch(
+    epoch: CurrentEpoch,
+    genesis_time: GenesisEpochStartTime,
+    network_id: NetworkId,
+) -> u64 {
+    let start_time = u64::from(genesis_time);
+    let next_epoch = (epoch.0 + 1) as u64;
+    let end_time_posix = (start_time + next_epoch * EPOCH_LEN - 1) / 1000;
+    posix_to_slot(end_time_posix, network_id)
 }
 
 pub enum EpochRoutineState<Out> {

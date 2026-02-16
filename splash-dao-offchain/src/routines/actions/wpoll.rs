@@ -21,7 +21,7 @@ use log::trace;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_offchain::domain::event::{Predicted, Traced};
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, DeployedValidator};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -57,12 +57,7 @@ use crate::entities::onchain::wpoll_vote_order::{
     WPollVoteAction, WPollVoteOnchainOrder, WPollVoteOrderBundle,
 };
 use crate::entities::Snapshot;
-use crate::protocol_config::{
-    GTAuthPolicy, InflationBoxRefScriptOutput, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy, PollFactoryRefScriptOutput, Reward,
-    SplashPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
-    WPollVoteOrderScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
-};
+use crate::protocol_config::{GTAuthPolicy, OperatorCreds, PermManagerAuthPolicy, Reward, SplashPolicy};
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
 };
@@ -82,27 +77,20 @@ where
     Ctx: Send
         + Sync
         + Clone
-        + Has<InflationBoxRefScriptOutput>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>
         + Has<SplashPolicy>
-        + Has<PollFactoryRefScriptOutput>
         + Has<OperatorCreds>
-        + Has<MintWPAuthPolicy>
-        + Has<MintWPAuthRefScriptOutput>
-        + Has<MintVEIdentifierPolicy>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
-        + Has<WeightingPowerPolicy>
-        + Has<WeightingPowerRefScriptOutput>
-        + Has<WPollVoteOrderScriptHash>
-        + Has<WPollVoteOrderRefScriptOutput>
         + Has<GTAuthPolicy>
         + Has<NetworkId>
         + Has<Collateral>
-        + Has<Reward>
-        + Has<VotingEscrowScriptHash>
-        + Has<VotingEscrowRefScriptOutput>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+        + Has<Reward>,
 {
     async fn create_wpoll(
         &self,
@@ -124,10 +112,11 @@ where
         tx_builder.set_validity_start_interval(current_slot.0);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
-        let inflation_script_hash = self
+        let inflation_deployed_validator = self
             .ctx
-            .select::<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>()
-            .script_hash;
+            .select::<DeployedValidator<{ ProtocolValidator::Inflation as u8 }>>();
+
+        let inflation_script_hash = inflation_deployed_validator.hash;
         let inflation_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(inflation_script_hash),
             cml_chain::plutus::PlutusData::Integer(BigInteger::from(0)),
@@ -140,7 +129,7 @@ where
         .plutus_script_inline_datum(inflation_script, RequiredSigners::from(vec![]))
         .unwrap();
 
-        tx_builder.add_reference_input(self.ctx.select::<InflationBoxRefScriptOutput>().0.clone());
+        tx_builder.add_reference_input(inflation_deployed_validator.reference_utxo);
 
         let (next_inflation_box, emission_rate) = inflation_box.get().release_next_tranche();
         let mut inflation_box_out = inflation_box_in.clone();
@@ -159,8 +148,8 @@ where
 
         let wp_factory_script_hash = self
             .ctx
-            .select::<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>()
-            .script_hash;
+            .select::<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>()
+            .hash;
 
         let factory_redeemer = FactoryRedeemer {
             successor_ix: 2,
@@ -178,7 +167,11 @@ where
         .plutus_script_inline_datum(wp_factory_script, RequiredSigners::from(vec![]))
         .unwrap();
 
-        tx_builder.add_reference_input(self.ctx.select::<PollFactoryRefScriptOutput>().0.clone());
+        tx_builder.add_reference_input(
+            self.ctx
+                .select::<DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>>()
+                .reference_utxo,
+        );
 
         let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(emission_rate);
         let mut factory_out = factory_in;
@@ -245,7 +238,10 @@ where
             inflation_box_in_ix: inflation_box_in_ix as u32,
         };
 
-        let wp_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
+        let wp_auth_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>();
+        let wp_auth_policy = wp_auth_deployed_validator.hash;
         let mint_wp_auth_token_witness =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wp_auth_policy), mint_action.into_pd());
         let OperatorCreds(_operator_pkh, _operator_addr) = self.ctx.select::<OperatorCreds>();
@@ -260,7 +256,7 @@ where
         );
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-        tx_builder.add_reference_input(self.ctx.select::<MintWPAuthRefScriptOutput>().0.clone());
+        tx_builder.add_reference_input(wp_auth_deployed_validator.reference_utxo);
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
@@ -409,9 +405,17 @@ where
         tx_builder.set_validity_start_interval(current_slot.0);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
-        let mint_weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
-        let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
-        let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        let mint_wp_auth_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>();
+
+        let weighting_power_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>();
+
+        let mint_weighting_power_ref_input = weighting_power_deployed_validator.reference_utxo;
+        let wpoll_auth_ref_input = mint_wp_auth_deployed_validator.reference_utxo;
+        let wpoll_script_hash = mint_wp_auth_deployed_validator.hash;
 
         enum T {
             PermManager,
@@ -426,8 +430,8 @@ where
         // Need to determine the index of `perm_manager` within `reference_inputs`
         let mut indexed_ref_inputs = vec![
             (perm_manager_unspent_input, T::PermManager),
-            (mint_weighting_power_ref_script, T::Other),
-            (wpoll_auth_ref_script, T::Other),
+            (mint_weighting_power_ref_input, T::Other),
+            (wpoll_auth_ref_input, T::Other),
         ];
         indexed_ref_inputs.sort_by_key(|(input, _)| input.input.clone());
         let perm_manager_input_ix = indexed_ref_inputs
@@ -501,17 +505,19 @@ where
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), mint_action.into_pd());
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(name.clone(), -1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-        tx_builder.add_mint(wp_auth_minting_policy).unwrap();
+
+        let mut sorted_mints = vec![];
 
         // Burn weighting_power tokens -------------------------------------------------------------
 
         let dsd = DaoScriptData::global();
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
-            dsd.mint_wp_auth_token.burn_ex_units.clone(),
-        );
 
-        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+        sorted_mints.push((
+            wp_auth_minting_policy,
+            dsd.mint_wp_auth_token.burn_ex_units.clone(),
+        ));
+
+        let mint_weighting_power_policy = weighting_power_deployed_validator.hash;
 
         // If there exists weighting power, burn it.
         if let Some(weighting_power) = weighting_poll.get().weighting_power {
@@ -533,16 +539,26 @@ where
             let mint_weighting_power_builder_result =
                 SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
                     .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-            tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
 
             change_output_creator.burn_token(crate::create_change_output::Token {
                 policy_id: mint_weighting_power_policy,
                 asset_name: mint_weighting_power_token_name,
                 quantity: weighting_power,
             });
-            tx_builder.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
+
+            sorted_mints.push((
+                mint_weighting_power_builder_result,
                 dsd.mint_weighting_power.burn_ex_units.clone(),
+            ));
+        }
+
+        sorted_mints.sort_by(|(t0, _), (t1, _)| t0.policy_id.cmp(&t1.policy_id));
+
+        for (ix, (mint, ex_units)) in sorted_mints.into_iter().enumerate() {
+            tx_builder.add_mint(mint).unwrap();
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Mint, ix as u64),
+                ex_units.clone(),
             );
         }
 
@@ -561,7 +577,8 @@ where
             DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone(),
         );
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + ELIMINATE_WPOLL_FEE_DELTA;
+        let original_min_fee = tx_builder.min_fee(true).unwrap();
+        let estimated_tx_fee = original_min_fee + ELIMINATE_WPOLL_FEE_DELTA;
         let change_output =
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();
@@ -722,9 +739,9 @@ where
 
         let dsd = DaoScriptData::global();
 
-        let order_ex_units = dsd.wpoll_vote_order.ex_units.clone();
-        let ve_ex_units = dsd.voting_escrow.ex_units.clone();
-        let wp_ex_units = dsd.mint_wp_auth_token.mint_ex_units.clone();
+        let order_ex_units = Some(dsd.wpoll_vote_order.ex_units.clone());
+        let ve_ex_units = Some(dsd.voting_escrow.ex_units.clone());
+        let wp_ex_units = Some(dsd.mint_wp_auth_token.mint_ex_units.clone());
 
         let mut typed_inputs = vec![
             (T::Order, order_output_ref, order_ex_units),
@@ -771,20 +788,35 @@ where
         //dbg!(&ve_amt);
         //voting_escrow_out.set_amount(ve_amt);
 
-        let voting_escrow_ref_script = self.ctx.select::<VotingEscrowRefScriptOutput>().0;
-        let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
-        let weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
-        let wpoll_vote_order_ref_script = self.ctx.select::<WPollVoteOrderRefScriptOutput>().0;
+        let voting_escrow_order_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>>();
+
+        let voting_escrow_ref_input = voting_escrow_order_deployed_validator.reference_utxo;
+        let wpoll_auth_ref_input = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .reference_utxo;
+
+        let weighting_power_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>();
+        let weighting_power_ref_input = weighting_power_deployed_validator.reference_utxo;
+
+        let wpoll_vote_order_deployed_validator = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>>();
+        let wpoll_vote_order_ref_input = wpoll_vote_order_deployed_validator.reference_utxo;
 
         let reference_inputs = vec![
-            voting_escrow_ref_script,
-            wpoll_auth_ref_script,
-            weighting_power_ref_script,
-            wpoll_vote_order_ref_script,
+            voting_escrow_ref_input,
+            wpoll_auth_ref_input,
+            weighting_power_ref_input,
+            wpoll_vote_order_ref_input,
         ];
 
         // order input -----------------------------------------------------------------------------
-        let order_script_hash = self.ctx.select::<WPollVoteOrderScriptHash>().0;
+        let order_script_hash = wpoll_vote_order_deployed_validator.hash;
         let order_action = WPollVoteAction::CastVote {
             voting_escrow_input_ix,
             wpoll_input_ix,
@@ -803,7 +835,7 @@ where
         .unwrap();
 
         // voting_escrow input ---------------------------------------------------------------------
-        let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
+        let voting_escrow_script_hash = voting_escrow_order_deployed_validator.hash;
 
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::Governance,
@@ -826,7 +858,10 @@ where
         .unwrap();
 
         // weighting_poll input --------------------------------------------------------------------
-        let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        let weighting_poll_script_hash = self
+            .ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .hash;
         let weighting_poll_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(weighting_poll_script_hash),
             weighting_poll::PollAction::Vote.into_pd(),
@@ -849,7 +884,7 @@ where
             .collect::<Vec<_>>();
 
         // -----------------------------------------------------------------------------------------
-        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+        let mint_weighting_power_policy = weighting_power_deployed_validator.hash;
 
         let weighting_power_asset_name = compute_epoch_asset_name(weighting_poll.get().epoch);
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;

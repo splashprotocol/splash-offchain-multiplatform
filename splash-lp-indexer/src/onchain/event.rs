@@ -1,45 +1,61 @@
-use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
-use crate::tx_view::TxViewPartiallyResolved;
+use crate::onchain::GaugeWeight;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
+use cml_crypto::Ed25519KeyHash;
 use derive_more::Display;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
+use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
+use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, Token};
+use spectrum_offchain::display::display_tuple;
+use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
 use spectrum_offchain_cardano::data::PoolId;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use splash_dao_offchain::deployment::ProtocolValidator;
+use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
+use splash_dao_offchain::entities::onchain::permission_manager::PermManagerSnapshot;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
+use splash_dao_offchain::entities::onchain::weighting_poll::WeightingPollSnapshot;
+use splash_dao_offchain::protocol_config::{
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    WPFactoryAuthPolicy,
+};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
+use splash_dao_offchain::GenesisEpochStartTime;
+use splash_yf_offchain::events::OnChainEvent as RewardOnChainEvent;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
+use splash_yf_offchain::Epoch;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
+use type_equalities::IsEqual;
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
-    MultipleHarvest(MultipleAccountsHarvest),
-    FarmCreated(FarmCreated),
-    PollFactory(PollFactoryEvents),
-    PoolCreated(PoolCreated),
+    Gauge(GaugeCreated),
+    Pool(PoolCreated),
+    WeightingPoll(WeightingPollOutput),
+    PermManager(PermManagerUpdate),
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum OnChainEvent {
-    Account(AccountEvent),
-    FarmEvent(FarmEvent),
-    PoolEvent(PoolEvent),
+    Account(PositionEvent),
+    Gauge(GaugeWeighted),
+    Pool(PoolCreated),
+    PermManagerUpdate(SuspendedPools),
+    NewWeightingPoll(ActivePools),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for StatelessOnChainEvent
@@ -53,67 +69,47 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
+        + Has<GenesisEpochStartTime>
+        + Has<BufferWalletAuthPolicy>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
         + Has<WPFactoryAuthPolicy>
-        + Has<FarmAuthPolicy>
-        + Has<HarvestLimits>,
+        + Has<SplashPolicy>
+        + Has<OperatorCreds>
+        + Has<NetworkId>
+        + Has<MinLovelacePerHarvest>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         PositionEvent::try_from_ledger(repr, ctx)
             .map(StatelessOnChainEvent::Position)
-            .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
-            .or_else(|| PollFactoryEvents::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactory))
+            .or_else(|| GaugeCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Gauge))
+            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Pool))
             .or_else(|| {
-                MultipleAccountsHarvest::try_from_ledger(repr, ctx)
-                    .map(StatelessOnChainEvent::MultipleHarvest)
+                WeightingPollOutput::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::WeightingPoll)
             })
-            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated))
+            .or_else(|| PermManagerUpdate::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PermManager))
     }
 }
 
 impl OnChainEvent {
-    pub fn slot(&self) -> Option<Slot> {
+    pub fn pool_id(&self) -> Option<PoolId> {
         match self {
-            OnChainEvent::FarmEvent(FarmEvent::FarmActivated(event)) => Some(event.slot),
-            _ => None,
-        }
-    }
-
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            OnChainEvent::Account(dr) => dr.pool_id(),
-            OnChainEvent::FarmEvent(fe) => fe.pool_id(),
-            OnChainEvent::PoolEvent(fe) => fe.pool_id(),
+            OnChainEvent::Account(dr) => Some(dr.pool_id()),
+            OnChainEvent::Gauge(fe) => Some(fe.pool_id),
+            OnChainEvent::Pool(fe) => Some(fe.pool_id),
+            OnChainEvent::PermManagerUpdate(_) => None,
+            OnChainEvent::NewWeightingPoll(_) => None,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum AccountEvent {
-    Position(PositionEvent),
-    Harvest(Harvest),
-}
-
-impl AccountEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            AccountEvent::Position(d) => d.pool_id(),
-            AccountEvent::Harvest(h) => h.pool_id,
-        }
-    }
-    pub fn account(&self) -> Credential {
-        match self {
-            AccountEvent::Position(d) => d.account(),
-            AccountEvent::Harvest(h) => h.account.clone(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display, Clone)]
 pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -132,7 +128,8 @@ impl PositionEvent {
             PositionEvent::Redeem(r) => r.account.clone(),
         }
     }
-    pub fn lp_supply(&self) -> u64 {
+    /// Total LP supply of the pool after the event has been applied.
+    pub fn resulting_pool_lp_supply(&self) -> u64 {
         match self {
             PositionEvent::Deposit(d) => d.lp_supply,
             PositionEvent::Redeem(r) => r.lp_supply,
@@ -156,6 +153,11 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         if let Some(pool_diff) = PoolDiff::try_from_ledger(repr, ctx) {
             let (plus_sign, diff) = pool_diff.lp_diff;
+            trace!(
+                "pool diff found for pool policy_id: {} asset_name: {}",
+                pool_diff.pool_id.0 .0.to_hex(),
+                hex::encode(pool_diff.pool_id.0 .1.as_bytes()),
+            );
             if diff != 0 {
                 if let Some(account) =
                     find_lp_recv(pool_diff.lp_asset.into_token().unwrap(), pool_diff.pool_id, repr)
@@ -176,7 +178,11 @@ where
                             lp_supply: pool_diff.lp_supply,
                         })
                     });
+                } else {
+                    trace!("no account found for pool diff");
                 }
+            } else {
+                trace!("poll_diff == 0");
             }
         }
         None
@@ -206,7 +212,9 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
-            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+            maybe_utxo
+                .as_ref()
+                .and_then(|TimedOutput { output, .. }| AnyPool::try_from_ledger(output, ctx))
         });
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
         if let (Some(pin), Some(pout)) = (pool_in, pool_out) {
@@ -236,11 +244,13 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Deposit {
     pub pool_id: PoolId,
     pub account: Credential,
+    /// Amount of LP minted by the deposit.
     pub lp_mint: u64,
+    /// Total LP supply of the pool after the deposit.
     pub lp_supply: u64,
 }
 
@@ -275,11 +285,13 @@ fn find_lp_recv(
     })
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Redeem {
     pub pool_id: PoolId,
     pub account: Credential,
+    /// Amount of LP burned by the redeem.
     pub lp_burned: u64,
+    /// Total LP supply of the pool after the redeem.
     pub lp_supply: u64,
 }
 
@@ -295,13 +307,13 @@ impl Display for Redeem {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Harvest {
+pub struct AccountPoolHarvested {
     pub pool_id: PoolId,
     pub account: Credential,
     pub harvested_till: cml_chain::Slot,
 }
 
-impl Display for Harvest {
+impl Display for AccountPoolHarvested {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let account = hex::encode(self.account.to_raw_bytes());
         write!(
@@ -312,59 +324,77 @@ impl Display for Harvest {
     }
 }
 
+/// Batch of harvest orders have been executed on-chain.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct MultipleAccountsHarvest {
+pub struct BatchHarvestExecuted {
     pub accounts: Vec<Credential>,
     pub harvested_till: Slot,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultipleAccountsHarvest
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for BatchHarvestExecuted
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> + Has<HarvestLimits>,
+    Cx: Has<PermManagerAuthPolicy>
+        + Has<GenesisEpochStartTime>
+        + Has<SplashPolicy>
+        + Has<PermManagerAuthPolicy>
+        + Has<BufferWalletAuthPolicy>
+        + Has<MinLovelacePerHarvest>
+        + Has<OperatorCreds>
+        + Has<NetworkId>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<FarmFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        repr.outputs.iter().find_map(|output| {
-            let correct_lovelace_value = output.value().coin as u64
-                >= (repr.signers.len() as u64
-                    * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
-            if test_address(output.address(), ctx) && correct_lovelace_value {
-                let accounts = repr
-                    .signers
-                    .clone()
-                    .into_iter()
-                    .map(Credential::new_pub_key)
-                    .collect();
-                Some(MultipleAccountsHarvest {
-                    accounts,
-                    harvested_till: Slot(repr.slot),
+        let reward_event = RewardOnChainEvent::try_from_ledger(repr, ctx)?;
+
+        if let RewardOnChainEvent::BotHarvestingAction { payouts, .. } = reward_event {
+            let mut most_recent_slot = 0;
+            let accounts: Vec<_> = payouts
+                .iter()
+                .map(|(harvest_order, _)| {
+                    let issued_at = harvest_order.issued_at.0 .0;
+                    if issued_at > most_recent_slot {
+                        most_recent_slot = issued_at;
+                    }
+                    Credential::new_pub_key(harvest_order.account_key)
                 })
-            } else {
-                None
+                .collect();
+
+            if !accounts.is_empty() {
+                return Some(Self {
+                    accounts,
+                    harvested_till: Slot(most_recent_slot),
+                });
             }
-        })
+        }
+        None
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FarmCreated {
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[display("FarmCreated ( farm_id = {}, pool_id = {})", farm_id, pool_id)]
+pub struct GaugeCreated {
     pub farm_id: FarmId,
     pub pool_id: PoolId,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for GaugeCreated
 where
-    Cx: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
+    Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let farms_in_inputs: HashSet<_> =
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| {
+                    .and_then(|TimedOutput { output, .. }| {
                         let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        SmartFarmSnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        SmartFarmSnapshot::try_from_ledger(output, &ProvideTimedOref(ctx, oref))
                     })
                     .map(|farm| farm.get().farm_id)
             }));
@@ -379,7 +409,7 @@ where
                 None
             }
         });
-        new_farms.next().map(|sm| FarmCreated {
+        new_farms.next().map(|sm| GaugeCreated {
             farm_id: sm.farm_id,
             pool_id: sm.pool_id,
         })
@@ -394,16 +424,16 @@ pub enum PollFactoryEvents {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryEvents
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
+    Cx: Has<DeployedScriptInfo<{ DaoProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let factory_in_inputs: HashSet<_> =
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| {
+                    .and_then(|TimedOutput { output, .. }| {
                         let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        PollFactorySnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        PollFactorySnapshot::try_from_ledger(output, &ProvideTimedOref(ctx, oref))
                     })
                     .map(|farm| farm.get().stable_id)
             }));
@@ -432,43 +462,63 @@ pub struct PollFactoryUpdated {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum FarmEvent {
-    FarmActivated(FarmActivated),
-    FarmDeactivated(FarmDeactivated),
-}
-
-impl FarmEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            FarmEvent::FarmActivated(a) => a.pool_id,
-            FarmEvent::FarmDeactivated(d) => d.pool_id,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("FarmActivated ( pool_id = {}, slot = {})", pool_id, slot)]
-pub struct FarmActivated {
+#[display(
+    "GaugeWeighted ( pool_id = {}, weight = {}, epoch = {})",
+    pool_id,
+    weight,
+    epoch
+)]
+pub struct GaugeWeighted {
     pub pool_id: PoolId,
-    pub slot: Slot,
+    pub weight: GaugeWeight,
+    pub epoch: Epoch,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-#[display("FarmDeactivated ( pool_id = {})", pool_id)]
-pub struct FarmDeactivated {
-    pub pool_id: PoolId,
+#[display("WeightingPollOutput (distribution = {}, total_poll_weight = {:?}, epoch = {})", display_vec(&distribution.iter().map(|x| display_tuple(*x)).collect::<Vec<_>>()), total_poll_weight, epoch)]
+pub struct WeightingPollOutput {
+    /// Note that farms in the distribution are guarateed to be active by the WP Factory.
+    pub distribution: Vec<(FarmId, u64)>,
+    /// Total number of voting tokens used in the poll. Note: this field is None if no votes have
+    /// been cast yet, which is the case for newly-created weighting polls.
+    pub total_poll_weight: Option<u64>,
+    pub epoch: Epoch,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
-pub enum PoolEvent {
-    PoolCreated(PoolCreated),
-}
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollOutput
+where
+    Cx: Has<GenesisEpochStartTime>
+        + Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<NetworkId>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+            let output_ref = OutputRef::new(repr.hash, ix as u64);
+            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
 
-impl PoolEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            PoolEvent::PoolCreated(d) => d.pool_id,
-        }
+            let ctx = WPollCtx {
+                splash_policy: ctx.select::<SplashPolicy>(),
+                timed_output_ref,
+                epoch_start_time: ctx.select::<GenesisEpochStartTime>(),
+                script_info: ctx
+                    .select::<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>(),
+                network_id: ctx.select::<NetworkId>(),
+            };
+
+            WeightingPollSnapshot::try_from_ledger(output, &ctx).map(|wp_snapshot| {
+                let wp = wp_snapshot.get();
+
+                // Note: if this field in `WeightingPoll` is None then it means voting hasn't
+                // occurred.
+                let total_poll_weight = wp.weighting_power;
+                Self {
+                    distribution: wp.distribution.clone(),
+                    epoch: Epoch::from(wp.epoch as u64),
+                    total_poll_weight,
+                }
+            })
+        })
     }
 }
 
@@ -494,7 +544,9 @@ where
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
-            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+            maybe_utxo
+                .as_ref()
+                .and_then(|TimedOutput { output, .. }| AnyPool::try_from_ledger(output, ctx))
         });
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
         if let (None, Some(pout)) = (pool_in, pool_out) {
@@ -509,5 +561,125 @@ where
             });
         }
         None
+    }
+}
+
+struct WPollCtx {
+    splash_policy: SplashPolicy,
+    epoch_start_time: GenesisEpochStartTime,
+    timed_output_ref: TimedOutputRef,
+    script_info: DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>,
+    network_id: NetworkId,
+}
+
+impl Has<SplashPolicy> for WPollCtx {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+        self.splash_policy.clone()
+    }
+}
+
+impl Has<TimedOutputRef> for WPollCtx {
+    fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
+        self.timed_output_ref
+    }
+}
+
+impl Has<GenesisEpochStartTime> for WPollCtx {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+        self.epoch_start_time
+    }
+}
+
+impl Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>> for WPollCtx {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }> {
+        self.script_info
+    }
+}
+
+impl Has<NetworkId> for WPollCtx {
+    fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+        self.network_id
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// List of active pools for an epoch as obtained by first extracting all active farms from
+/// `weighting_poll` distribution field, and then mapping each farm to its corresponding pool.
+pub struct ActivePools(pub Epoch, pub Vec<PoolId>);
+
+impl Display for ActivePools {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ActivePools({:?})", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// List of suspended pools obtained by first extracting all suspended farms from `perm_manager`,
+/// and then mapping each farm to its corresponding pool.
+pub struct SuspendedPools(pub Vec<PoolId>);
+
+impl Display for SuspendedPools {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SuspendedPools({:?})", self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct PermManagerUpdate {
+    pub authorized_executors: Vec<Ed25519KeyHash>,
+    pub suspended_farms: Vec<FarmId>,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PermManagerUpdate
+where
+    Cx: Has<PermManagerAuthPolicy> + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+            let output_ref = OutputRef::new(repr.hash, ix as u64);
+            let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
+
+            let ctx = PermManagerCtx {
+                timed_output_ref,
+                script_info: ctx.select::<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>(),
+                auth_policy: ctx.select::<PermManagerAuthPolicy>(),
+            };
+
+            PermManagerSnapshot::try_from_ledger(output, &ctx).map(|perm_manager_snapshot| {
+                let perm_manager = perm_manager_snapshot.get();
+                Self {
+                    authorized_executors: perm_manager.datum.authorized_executors.clone(),
+                    suspended_farms: perm_manager.datum.suspended_farms.clone(),
+                }
+            })
+        })
+    }
+}
+
+struct PermManagerCtx {
+    timed_output_ref: TimedOutputRef,
+    auth_policy: PermManagerAuthPolicy,
+    script_info: DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>,
+}
+
+impl Has<TimedOutputRef> for PermManagerCtx {
+    fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
+        self.timed_output_ref
+    }
+}
+
+impl Has<PermManagerAuthPolicy> for PermManagerCtx {
+    fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
+        self.auth_policy.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>> for PermManagerCtx {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }> {
+        self.script_info
     }
 }

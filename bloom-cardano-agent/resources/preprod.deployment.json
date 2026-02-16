@@ -14,6 +14,36 @@
       "steps": 80000000
     }
   },
+  "instantOrder": {
+    "hash": "96f5c1bee23481335ff4aece32fe1dfa1aa40a944a66d2d6edc9a9a5",
+    "referenceUtxo": {
+      "txHash": "77fc5b1688a79dd5b9bdba5981b7403b519690dda4f1471fffa78151bbefe0f5",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 210000,
+      "steps": 80000000
+    },
+    "marginalCost": {
+      "mem": 210000,
+      "steps": 80000000
+    }
+  },
+  "instantOrderWitness": {
+    "hash": "96f5c1bee23481335ff4aece32fe1dfa1aa40a944a66d2d6edc9a9a5",
+    "referenceUtxo": {
+      "txHash": "77fc5b1688a79dd5b9bdba5981b7403b519690dda4f1471fffa78151bbefe0f5",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 210000,
+      "steps": 80000000
+    },
+    "marginalCost": {
+      "mem": 210000,
+      "steps": 80000000
+    }
+  },
   "limitOrder": {
     "hash": "464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02",
     "referenceUtxo": {

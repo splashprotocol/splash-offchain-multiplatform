@@ -39,8 +39,8 @@ pub struct FarmFactoryId;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FarmFactory {
-    last_farm_id: i64,
-    farm_seed_data: Vec<u8>,
+    pub last_farm_id: i64,
+    pub farm_seed_data: Vec<u8>,
 }
 
 impl Stable for FarmFactory {

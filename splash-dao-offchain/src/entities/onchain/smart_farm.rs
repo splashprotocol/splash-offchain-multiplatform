@@ -1,7 +1,7 @@
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::weighting_poll::Farm;
 use crate::entities::Snapshot;
-use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use crate::protocol_config::PermManagerAuthPolicy;
 use crate::routines::TimedOutputRef;
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::transaction::TransactionOutput;
@@ -12,6 +12,7 @@ use cml_chain::{
 };
 use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
+use log::trace;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -156,7 +157,6 @@ impl IntoPlutusData for Action {
 impl<C> TryFromLedger<TransactionOutput, C> for SmartFarmSnapshot
 where
     C: Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>
         + Has<TimedOutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
 {
@@ -166,7 +166,9 @@ where
             let conf = SmartFarmConfig::try_from_pd(repr.datum()?.into_pd()?)?;
             if ctx.select::<PermManagerAuthPolicy>().0 == conf.perm_manager_auth_policy {
                 let value = repr.value();
-                let farm_auth_policy = ctx.select::<FarmAuthPolicy>().0;
+                let farm_auth_policy = ctx
+                    .select::<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>()
+                    .script_hash;
                 for (policy_id, by_names) in value.multiasset.iter() {
                     if *policy_id == farm_auth_policy && by_names.len() == 1 {
                         let (farm_name, quantity) = by_names.front()?;

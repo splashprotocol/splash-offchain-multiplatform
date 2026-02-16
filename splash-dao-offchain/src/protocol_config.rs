@@ -1,17 +1,18 @@
 use cml_chain::address::Address;
-use cml_chain::assets::AssetName;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
+use cml_chain::transaction::NativeScript;
 use cml_chain::PolicyId;
 use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use spectrum_cardano_lib::collateral::Collateral;
-use spectrum_cardano_lib::{NetworkId, Token};
+use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::{has_deployed_script_info, has_deployed_validator};
 use std::ops::Index;
 use type_equalities::IsEqual;
 
-use crate::deployment::{IssuedAsset, ProtocolDeployment, ProtocolTokens, ProtocolValidator};
+use crate::deployment::{IssuedAsset, ProtocolDeployment, ProtocolTokens, ProtocolValidator::*};
 use crate::entities::onchain::weighting_poll::WeightingPollId;
 use crate::time::ProtocolEpoch;
 use crate::GenesisEpochStartTime;
@@ -36,9 +37,6 @@ impl ProtocolConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct InflationBoxRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct InflationAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
@@ -46,33 +44,6 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 
 #[derive(Debug, Clone)]
 pub struct SplashPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct PollFactoryRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct MintWPAuthPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct MintWPAuthRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct MintVEIdentifierPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct MintVEIdentifierRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct MintVECompositionPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct MintVECompositionRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct FarmAuthPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct FarmAuthRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
 pub struct FarmFactoryAuthPolicy(pub PolicyId);
@@ -84,58 +55,13 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
-pub struct VEFactoryScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct VEFactoryRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct WPollVoteOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct WPollVoteOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct ExtendVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct RedeemVotingEscrowOrderScriptHash(pub ScriptHash);
-
-#[derive(Debug, Clone)]
-pub struct RedeemVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct VotingEscrowScriptHash(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct WeightingPowerPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct WeightingPowerRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct PermManagerBoxRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
-pub struct GovProxyRefScriptOutput(pub TransactionUnspentOutput);
-
-#[derive(Debug, Clone)]
 pub struct EDaoMSigAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct PermManagerAuthPolicy(pub PolicyId);
+
+#[derive(Debug, Clone)]
+pub struct BufferWalletAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct GTAuthPolicy(pub PolicyId);
@@ -146,19 +72,17 @@ pub struct GTBuiltPolicy(pub IssuedAsset);
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
 
+#[derive(Clone)]
 pub struct OperatorCreds(pub Ed25519KeyHash, pub Address);
 
 pub trait NotOutputRefNorSlotNumber {}
 
 impl NotOutputRefNorSlotNumber for OperatorCreds {}
 impl NotOutputRefNorSlotNumber for SplashPolicy {}
-impl NotOutputRefNorSlotNumber for FarmAuthPolicy {}
 impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
 impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
-impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
-impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
-impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
+impl NotOutputRefNorSlotNumber for BufferWalletAuthPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
@@ -190,75 +114,9 @@ impl Has<SplashPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<InflationBoxRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<InflationBoxRefScriptOutput>>(&self) -> InflationBoxRefScriptOutput {
-        InflationBoxRefScriptOutput(self.deployed_validators.inflation.reference_utxo.clone())
-    }
-}
-
 impl Has<InflationAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<InflationAuthPolicy>>(&self) -> InflationAuthPolicy {
         InflationAuthPolicy(self.tokens.inflation_auth.policy_id)
-    }
-}
-
-impl Has<PollFactoryRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<PollFactoryRefScriptOutput>>(&self) -> PollFactoryRefScriptOutput {
-        PollFactoryRefScriptOutput(self.deployed_validators.wp_factory.reference_utxo.clone())
-    }
-}
-
-impl Has<MintWPAuthPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
-        MintWPAuthPolicy(self.deployed_validators.mint_wpauth_token.hash)
-    }
-}
-
-impl Has<MintWPAuthRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MintWPAuthRefScriptOutput>>(&self) -> MintWPAuthRefScriptOutput {
-        MintWPAuthRefScriptOutput(self.deployed_validators.mint_wpauth_token.reference_utxo.clone())
-    }
-}
-
-impl Has<MintVEIdentifierPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
-        MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
-    }
-}
-
-impl Has<MintVEIdentifierRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MintVEIdentifierRefScriptOutput>>(&self) -> MintVEIdentifierRefScriptOutput {
-        MintVEIdentifierRefScriptOutput(self.deployed_validators.mint_identifier.reference_utxo.clone())
-    }
-}
-
-impl Has<MintVECompositionPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
-    }
-}
-
-impl Has<MintVECompositionRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MintVECompositionRefScriptOutput>>(&self) -> MintVECompositionRefScriptOutput {
-        MintVECompositionRefScriptOutput(
-            self.deployed_validators
-                .mint_ve_composition_token
-                .reference_utxo
-                .clone(),
-        )
-    }
-}
-
-impl Has<FarmAuthPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
-        // Note that this policy is a multivalidator with `smart_farm`
-        FarmAuthPolicy(self.deployed_validators.smart_farm.hash)
-    }
-}
-
-impl Has<FarmAuthRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<FarmAuthRefScriptOutput>>(&self) -> FarmAuthRefScriptOutput {
-        FarmAuthRefScriptOutput(self.deployed_validators.smart_farm.reference_utxo.clone())
     }
 }
 
@@ -280,106 +138,6 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<VEFactoryScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<VEFactoryScriptHash>>(&self) -> VEFactoryScriptHash {
-        VEFactoryScriptHash(self.deployed_validators.ve_factory.hash)
-    }
-}
-
-impl Has<VEFactoryRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<VEFactoryRefScriptOutput>>(&self) -> VEFactoryRefScriptOutput {
-        VEFactoryRefScriptOutput(self.deployed_validators.ve_factory.reference_utxo.clone())
-    }
-}
-
-impl Has<MakeVotingEscrowOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<MakeVotingEscrowOrderScriptHash>>(&self) -> MakeVotingEscrowOrderScriptHash {
-        MakeVotingEscrowOrderScriptHash(self.deployed_validators.make_ve_order.hash)
-    }
-}
-
-impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<MakeVotingEscrowOrderRefScriptOutput>>(
-        &self,
-    ) -> MakeVotingEscrowOrderRefScriptOutput {
-        MakeVotingEscrowOrderRefScriptOutput(self.deployed_validators.make_ve_order.reference_utxo.clone())
-    }
-}
-
-impl Has<WPollVoteOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<WPollVoteOrderScriptHash>>(&self) -> WPollVoteOrderScriptHash {
-        WPollVoteOrderScriptHash(self.deployed_validators.wpoll_vote_order.hash)
-    }
-}
-
-impl Has<WPollVoteOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<WPollVoteOrderRefScriptOutput>>(&self) -> WPollVoteOrderRefScriptOutput {
-        WPollVoteOrderRefScriptOutput(self.deployed_validators.wpoll_vote_order.reference_utxo.clone())
-    }
-}
-
-impl Has<ExtendVotingEscrowOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<ExtendVotingEscrowOrderScriptHash>>(&self) -> ExtendVotingEscrowOrderScriptHash {
-        ExtendVotingEscrowOrderScriptHash(self.deployed_validators.extend_ve_order.hash)
-    }
-}
-
-impl Has<ExtendVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<ExtendVotingEscrowOrderRefScriptOutput>>(
-        &self,
-    ) -> ExtendVotingEscrowOrderRefScriptOutput {
-        ExtendVotingEscrowOrderRefScriptOutput(
-            self.deployed_validators.extend_ve_order.reference_utxo.clone(),
-        )
-    }
-}
-
-impl Has<RedeemVotingEscrowOrderScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<RedeemVotingEscrowOrderScriptHash>>(&self) -> RedeemVotingEscrowOrderScriptHash {
-        RedeemVotingEscrowOrderScriptHash(self.deployed_validators.redeem_ve_order.hash)
-    }
-}
-
-impl Has<RedeemVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<RedeemVotingEscrowOrderRefScriptOutput>>(
-        &self,
-    ) -> RedeemVotingEscrowOrderRefScriptOutput {
-        RedeemVotingEscrowOrderRefScriptOutput(
-            self.deployed_validators.redeem_ve_order.reference_utxo.clone(),
-        )
-    }
-}
-
-impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
-        VotingEscrowRefScriptOutput(self.deployed_validators.voting_escrow.reference_utxo.clone())
-    }
-}
-
-impl Has<VotingEscrowScriptHash> for ProtocolConfig {
-    fn select<U: IsEqual<VotingEscrowScriptHash>>(&self) -> VotingEscrowScriptHash {
-        VotingEscrowScriptHash(self.deployed_validators.voting_escrow.hash)
-    }
-}
-
-impl Has<WeightingPowerPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<WeightingPowerPolicy>>(&self) -> WeightingPowerPolicy {
-        WeightingPowerPolicy(self.deployed_validators.weighting_power.hash)
-    }
-}
-
-impl Has<WeightingPowerRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<WeightingPowerRefScriptOutput>>(&self) -> WeightingPowerRefScriptOutput {
-        WeightingPowerRefScriptOutput(self.deployed_validators.weighting_power.reference_utxo.clone())
-    }
-}
-
-impl Has<PermManagerBoxRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
-        PermManagerBoxRefScriptOutput(self.deployed_validators.perm_manager.reference_utxo.clone())
-    }
-}
-
 impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<EDaoMSigAuthPolicy>>(&self) -> EDaoMSigAuthPolicy {
         EDaoMSigAuthPolicy(self.tokens.edao_msig.policy_id)
@@ -392,9 +150,9 @@ impl Has<PermManagerAuthPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
-    fn select<U: IsEqual<GovProxyRefScriptOutput>>(&self) -> GovProxyRefScriptOutput {
-        GovProxyRefScriptOutput(self.deployed_validators.gov_proxy.reference_utxo.clone())
+impl Has<BufferWalletAuthPolicy> for ProtocolConfig {
+    fn select<U: IsEqual<BufferWalletAuthPolicy>>(&self) -> BufferWalletAuthPolicy {
+        BufferWalletAuthPolicy(self.tokens.buffer_wallet.policy_id)
     }
 }
 
@@ -429,116 +187,159 @@ impl Has<OperatorCreds> for ProtocolConfig {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.gov_proxy)
-    }
-}
+has_deployed_validator!(GovProxy, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .gov_proxy
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.mint_wpauth_token)
-    }
-}
+has_deployed_script_info!(GovProxy, ProtocolConfig, |ctx: &ProtocolConfig| {
+    (&ctx.deployed_validators.gov_proxy).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.mint_identifier)
-    }
-}
+has_deployed_validator!(WeightingPower, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .weighting_power
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.mint_ve_composition_token)
-    }
-}
+has_deployed_script_info!(WeightingPower, ProtocolConfig, |ctx: &ProtocolConfig| {
+    (&ctx.deployed_validators.weighting_power).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.voting_escrow)
-    }
-}
+has_deployed_validator!(MintWpAuthPolicy, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .mint_wpauth_token
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.inflation)
-    }
-}
+has_deployed_script_info!(MintWpAuthPolicy, ProtocolConfig, |ctx: &ProtocolConfig| {
+    (&ctx.deployed_validators.mint_wpauth_token).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.perm_manager)
-    }
-}
+has_deployed_validator!(MintIdentifier, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .mint_identifier
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.wp_factory)
-    }
-}
+has_deployed_script_info!(MintIdentifier, ProtocolConfig, |ctx: &ProtocolConfig| {
+    (&ctx.deployed_validators.mint_identifier).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.smart_farm)
-    }
-}
+has_deployed_validator!(MintVeCompositionToken, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .mint_ve_composition_token
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
-    }
-}
+has_deployed_script_info!(MintVeCompositionToken, ProtocolConfig, |ctx: &ProtocolConfig| {
+    (&ctx.deployed_validators.mint_ve_composition_token).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.make_ve_order)
-    }
-}
+has_deployed_validator!(VotingEscrow, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .voting_escrow
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
-    }
-}
+has_deployed_script_info!(VotingEscrow, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .voting_escrow)
+    .into());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.wpoll_vote_order)
-    }
-}
+has_deployed_validator!(Inflation, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .inflation
+    .clone());
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.redeem_ve_order)
-    }
-}
+has_deployed_script_info!(Inflation, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .inflation)
+    .into());
+
+has_deployed_validator!(PermManager, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .perm_manager
+    .clone());
+
+has_deployed_script_info!(PermManager, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .perm_manager)
+    .into());
+
+has_deployed_validator!(WpFactory, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .wp_factory
+    .clone());
+
+has_deployed_script_info!(WpFactory, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .wp_factory)
+    .into());
+
+has_deployed_validator!(SmartFarm, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .smart_farm
+    .clone());
+
+has_deployed_script_info!(SmartFarm, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .smart_farm)
+    .into());
+
+has_deployed_validator!(VeFactory, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .ve_factory
+    .clone());
+
+has_deployed_script_info!(VeFactory, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .ve_factory)
+    .into());
+
+has_deployed_validator!(MakeVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .make_ve_order
+    .clone());
+
+has_deployed_script_info!(MakeVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .make_ve_order)
+    .into());
+
+has_deployed_validator!(ExtendVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .extend_ve_order
+    .clone());
+
+has_deployed_script_info!(ExtendVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .extend_ve_order)
+    .into());
+
+has_deployed_validator!(WPollVoteOrder, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .wpoll_vote_order
+    .clone());
+
+has_deployed_script_info!(WPollVoteOrder, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .wpoll_vote_order)
+    .into());
+
+has_deployed_validator!(RedeemVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .redeem_ve_order
+    .clone());
+
+has_deployed_script_info!(RedeemVeOrder, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .redeem_ve_order)
+    .into());
+
+has_deployed_validator!(BufferWallet, ProtocolConfig, |ctx: &ProtocolConfig| ctx
+    .deployed_validators
+    .buffer_wallet
+    .clone());
+
+has_deployed_script_info!(BufferWallet, ProtocolConfig, |ctx: &ProtocolConfig| (&ctx
+    .deployed_validators
+    .buffer_wallet)
+    .into());
 
 pub const TX_FEE_CORRECTION: u64 = 1000;

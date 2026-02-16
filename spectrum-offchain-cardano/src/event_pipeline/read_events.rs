@@ -1,12 +1,12 @@
-use crate::tx_view::{TxView, TxViewPartiallyResolved};
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
-use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_chain::transaction::Transaction;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{stream, StreamExt};
+use spectrum_cardano_lib::tx_view::{TimedOutput, TxView, TxViewPartiallyResolved};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::persistent_index::PersistentIndex;
@@ -20,7 +20,7 @@ pub async fn read_events<Out, Cx, Index>(
 ) -> BlockEvents<Out>
 where
     Out: TryFromLedger<TxViewPartiallyResolved, Cx>,
-    Index: PersistentIndex<OutputRef, TransactionOutput>,
+    Index: PersistentIndex<OutputRef, TimedOutput>,
 {
     let (txs, slot) = match &mut block {
         BlockEvents::RollForward {
@@ -30,14 +30,14 @@ where
             events, block_slot, ..
         } => (events.drain(0..), block_slot),
     };
-
+    let slot = *slot;
     let events = stream::iter(txs)
         .map(TxView::from)
         .then(|tx| async move {
-            index_utxos(&tx, index, utxo_filter).await;
+            index_utxos(&tx, index, slot, utxo_filter).await;
             tx
         })
-        .then(|tx| TxViewPartiallyResolved::resolve(tx, index, *slot))
+        .then(|tx| TxViewPartiallyResolved::resolve(tx, index, slot))
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -46,15 +46,20 @@ where
     block.map(|_| events)
 }
 
-async fn index_utxos<Index: PersistentIndex<OutputRef, TransactionOutput>>(
+async fn index_utxos<Index: PersistentIndex<OutputRef, TimedOutput>>(
     tx: &TxView,
     index: &Index,
+    slot: u64,
     utxo_filter: &HashSet<ScriptHash>,
 ) {
     for (ix, o) in tx.outputs.iter().enumerate() {
         if test_address(o.address(), utxo_filter) {
             let oref = OutputRef::new(tx.hash, ix as u64);
-            index.insert(oref, o.clone()).await;
+            let timed_output = TimedOutput {
+                output: o.clone(),
+                slot,
+            };
+            index.insert(oref, timed_output).await;
         }
     }
 }

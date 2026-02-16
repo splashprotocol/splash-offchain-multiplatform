@@ -16,6 +16,8 @@ bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
+splash-yf-offchain = { version = "1.0.0", path = "../splash-yf-offchain" }
+splash-reward-distributor = { version = "1.0.0", path = "../splash-reward-distributor" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
@@ -40,10 +42,18 @@ clap = { version = "4.0", features = ["derive"] }
 either = "1.9.0"
 hex = "0.4.3"
 tempfile = "3.10.1"
-derive_more = "2.0.1"
+derive_more = { version = "2.0.1", features = ["full"] }
 rand = "0.8.5"
 
 [dev-dependencies]
 rocksdb = "0.22.*"
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 splash-testing = { version = "1.0.0", path = "../splash-testing" }
+
+[features]
+default = []
+enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]
+enable_test_8_hour_epoch = ["splash-dao-offchain/test_8_hour_epoch"]
+
+[profile.release]
+overflow-checks = true

@@ -11,7 +11,7 @@ use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo, DeployedValidator};
 use uplc_pallas_codec::utils::Int;
 
 use spectrum_cardano_lib::plutus_data::{
@@ -31,9 +31,7 @@ use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::Snapshot;
-use crate::protocol_config::{
-    GTAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WeightingPowerPolicy,
-};
+use crate::protocol_config::{GTAuthPolicy, PermManagerAuthPolicy, SplashPolicy};
 use crate::routines::actions::compute_epoch_asset_name;
 use crate::routines::{slot_to_epoch, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
@@ -60,11 +58,13 @@ pub struct WeightingPollId(pub ProtocolEpoch);
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
+    /// Note that farms in the distribution are guarateed to be active by the WP Factory.
     pub distribution: Vec<(FarmId, u64)>,
     pub emission_rate: TaggedAmount<Splash>,
     /// Note: weighting power is not determined until vote stage. If this field is None then no
     /// votes have currently been cast for the current epoch.
     pub weighting_power: Option<u64>,
+    pub remaining_splash_emission: TaggedAmount<Splash>,
     pub eliminated: bool,
 }
 
@@ -83,17 +83,22 @@ where
     Ctx: Has<SplashPolicy>
         + Has<GenesisEpochStartTime>
         + Has<PermManagerAuthPolicy>
-        + Has<MintWPAuthPolicy>
-        + Has<WeightingPowerPolicy>
+        + Has<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>
         + Has<GTAuthPolicy>
         + Has<NetworkId>,
 {
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
+        let wp_auth_policy = ctx
+            .select::<DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+            .hash;
+        let weighting_power_policy = ctx
+            .select::<DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>>()
+            .hash;
         let datum = create_datum(
             &self,
             ctx.select::<GenesisEpochStartTime>(),
-            ctx.select::<WeightingPowerPolicy>().0,
+            weighting_power_policy,
             ctx.select::<PermManagerAuthPolicy>().0,
         );
 
@@ -234,8 +239,8 @@ impl<C> TryFromLedger<TransactionOutput, C> for WeightingPollSnapshot
 where
     C: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
-        + Has<MintWPAuthPolicy>
         + Has<NetworkId>
+        + Has<SplashPolicy>
         + Has<TimedOutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -253,7 +258,9 @@ where
             let network_id = ctx.select::<NetworkId>();
             let current_epoch = slot_to_epoch(slot.0, genesis_time_millis, network_id);
             let distribution = distribution.into_iter().map(|f| (f.id, f.weight)).collect();
-            let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
+            let wp_auth_policy = ctx
+                .select::<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>()
+                .script_hash;
 
             for epoch in 0..=current_epoch.0 {
                 // wp_auth_token and weighting_power tokens have same asset name
@@ -264,14 +271,24 @@ where
                             value.multiasset.get(&weighting_power_policy, &token_asset_name);
 
                         trace!(
-                            "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
+                            "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}, value: {:?}",
                             epoch,
-                            weighting_power
+                            weighting_power,
+                            value
+                        );
+                        let splash_asset_name =
+                            cml_chain::assets::AssetName::try_from(SPLASH_NAME.as_bytes().to_vec()).unwrap();
+                        let remaining_splash_emission = TaggedAmount::new(
+                            value
+                                .multiasset
+                                .get(&ctx.select::<SplashPolicy>().0, &splash_asset_name)
+                                .unwrap_or_default(),
                         );
                         let weighting_poll = WeightingPoll {
                             epoch,
                             distribution,
                             emission_rate: TaggedAmount::new(emission_rate),
+                            remaining_splash_emission,
                             weighting_power,
                             eliminated: false,
                         };

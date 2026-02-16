@@ -1,14 +1,10 @@
 use cml_core::Slot;
 
-use bloom_offchain::execution_engine::liquidity_book;
-use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::config::ExplorerConfig;
-use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-
-use spectrum_offchain_cardano::data::pool::PoolValidation;
+use splash_yf_offchain::settings::MinLovelacePerHarvest;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,10 +16,11 @@ pub struct AppConfig {
     pub utxo_index_db_path: String,
     pub accounts_db_path: String,
     pub gauges_db_path: String,
-    pub confirmation_delay_blocks: u64,
+    pub confirmation_delay_slots: u64,
     pub events_export_topic: String,
     pub bootstrap_servers: String,
     pub harvest_limits: HarvestLimits,
+    pub splash_policy_id_hex: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -38,5 +35,5 @@ pub struct ChainSyncConfig {
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HarvestLimits {
-    pub minimal_lovelace_per_single_harvest: u64,
+    pub minimal_lovelace_per_single_harvest: MinLovelacePerHarvest,
 }

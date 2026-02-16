@@ -1,7 +1,6 @@
 use crate::{
     constants::EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES,
     deployment::{DaoScriptData, ProtocolValidator},
-    protocol_config::MintVECompositionPolicy,
     routines::TimedOutputRef,
 };
 use cml_chain::{

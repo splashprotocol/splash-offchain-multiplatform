@@ -104,7 +104,8 @@ pub fn operator_creds_base_address(
         .derive(0x80000000);
     let payment_key = account_key.derive(0).derive(0).to_raw_key();
     let stake_key = account_key.derive(2).derive(0).to_raw_key();
-
+    use cml_crypto::RawBytesEncoding;
+    println!("payment_key: {}", payment_key.to_public().to_raw_hex());
     let payment_key_hash = payment_key.to_public().hash();
     let stake_key_hash = stake_key.to_public().hash();
 
@@ -136,16 +137,25 @@ pub fn operator_creds_base_address(
 
 #[cfg(test)]
 mod tests {
+    use bip39::Mnemonic;
     use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
     use cml_chain::certs::{Credential, StakeCredential};
     use cml_chain::genesis::network_info::NetworkInfo;
+    use cml_crypto::chain_core::property::FromStr;
+    use cml_crypto::chain_crypto::bech32::Bech32;
+    use cml_crypto::chain_crypto::derive::from_bip39_entropy;
     use cml_crypto::Bip32PrivateKey;
+    use cml_crypto::RawBytesEncoding;
+    use spectrum_cardano_lib::NetworkId;
+
+    use crate::creds::operator_creds_base_address;
 
     #[test]
     fn gen_operator_creds() {
-        let network = NetworkInfo::mainnet().network_id();
+        let network = NetworkInfo::preprod().network_id();
 
         let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
+
         let operator_pk_main = operator_prv_bip32.to_public();
 
         let child_pkh_1 = operator_pk_main.derive(1).unwrap().to_raw_key().hash();
@@ -180,6 +190,11 @@ mod tests {
         ));
 
         println!("operator_prv_bip32: {}", operator_prv_bip32.to_bech32());
+        println!("operator_pk_main: {}", operator_pk_main.to_raw_key().to_bech32());
+        println!(
+            "operator_pk_main hash: {}",
+            operator_pk_main.to_raw_key().hash().to_hex()
+        );
         println!("operator pkh (main): {}", pkh_main);
         println!("stake pkh (1): {}", child_pkh_1);
         println!("stake pkh (2): {}", child_pkh_2);
@@ -204,5 +219,24 @@ mod tests {
         );
 
         assert_eq!(1, 1);
+    }
+
+    //#[test]
+    //fn gen_operator_creds_base_address() {
+    //    let network = NetworkInfo::preprod().network_id().into();
+    //    let phrase = "put_your_phrase_here";
+    //    gen_standard_wallet_from_mnemonic(phrase, network);
+    //}
+
+    fn gen_standard_wallet_from_mnemonic(phrase: &str, network_id: NetworkId) {
+        let entropy = Mnemonic::from_str(phrase).unwrap().to_entropy();
+        let seed = from_bip39_entropy(&entropy, b"");
+        let operator_prv_bip32 = Bip32PrivateKey::from_bech32(seed.to_bech32_str().as_str()).unwrap();
+        let operator_sk_raw = operator_prv_bip32.to_bech32();
+        println!("operator_sk_raw: {}", operator_sk_raw);
+        let (addr, _reward_addr, _payment_cred, operator_cred, _payment_key) =
+            operator_creds_base_address(&operator_sk_raw, network_id);
+        println!("main addr: {}", addr.to_bech32(None).unwrap());
+        println!("pub_key_hash: {}", operator_cred.0.to_hex());
     }
 }

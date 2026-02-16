@@ -12,7 +12,7 @@ use std::{
 use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork, Maestro, UTxOInfo};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
-    address::Address,
+    address::{Address, BaseAddress},
     assets::MultiAsset,
     auxdata::{AuxiliaryData, ConwayFormatAuxData},
     builders::{
@@ -27,7 +27,7 @@ use cml_chain::{
     certs::StakeCredential,
     crypto::utils::make_vkey_witness,
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
-    transaction::{DatumOption, Transaction, TransactionInput, TransactionOutput},
+    transaction::{DatumOption, NativeScript, Transaction, TransactionInput, TransactionOutput},
     utils::BigInteger,
     Coin, PolicyId, Serialize, Value,
 };
@@ -36,7 +36,11 @@ use cml_crypto::{
 };
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use num_rational::Ratio;
-use spectrum_cardano_lib::types::TryFromPData;
+use rs_merkle::{algorithms::Keccak256, MerkleTree};
+use spectrum_cardano_lib::{
+    address::{InlineCredential, PlutusAddress, PlutusCredential},
+    types::TryFromPData,
+};
 use spectrum_cardano_lib::{
     collateral::Collateral,
     hash::hash_transaction_canonical,
@@ -87,6 +91,10 @@ use splash_dao_offchain::{
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
 };
+use splash_yf_offchain::entities::{
+    buffer_wallet::BufferWalletConfig,
+    harvest_order::{HarvestOrder, HarvestOrderAction, HarvestOrderDatum},
+};
 use std::ops::Index;
 use user_simulator::{create_ve_metadata, user_simulator};
 
@@ -133,7 +141,7 @@ async fn main() {
             deploy(&mut op_inputs, config, existing_splash_policy_id).await;
         }
         Command::CreateFarm => {
-            create_initial_farms(&op_inputs).await;
+            create_initial_farms(&op_inputs, PoolId::random()).await;
         }
         Command::MakeVotingEscrow { assets_json_path } => {
             let s = std::fs::read_to_string(assets_json_path)
@@ -142,8 +150,8 @@ async fn main() {
                 serde_json::from_str(&s).expect("Invalid voting_escrow settings file");
             make_voting_escrow_order(&ve_settings, &mut op_inputs).await;
         }
-        Command::ExtendDeposit => {
-            //
+        Command::MakeHarvestOrder => {
+            make_harvest_order(&op_inputs).await;
         }
         Command::CastVote { ve_identifier_hex } => {
             let id = VotingEscrowId::from(
@@ -395,7 +403,8 @@ async fn deploy<'a>(
                 }
             }
         };
-        // --------
+
+        // -----------------------------------------------------------------------------------------
         let dsd = DaoScriptData::global();
         let d = DeployedValidators {
             inflation: DeployedValidatorRef {
@@ -500,6 +509,12 @@ async fn deploy<'a>(
                 cost: (&dsd.redeem_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
+            buffer_wallet: DeployedValidatorRef {
+                hash: reference_input_script_hashes.buffer_wallet,
+                reference_utxo: make_ref_utxo(2, 7),
+                cost: (&dsd.buffer_wallet.ex_units).into(),
+                marginal_cost: None,
+            },
         };
 
         deployment_progress.deployed_validators = Some(d);
@@ -523,12 +538,13 @@ async fn deploy<'a>(
 
     op_inputs.deployment_progress = deployment_progress;
 
-    for ix in 0..deployment_config.num_initial_farms {
+    for (ix, farm) in deployment_config.initial_farms.iter().enumerate() {
         println!(
             "FARM {} -----------------------------------------------------------------------",
             ix
         );
-        create_initial_farms(op_inputs).await;
+        let pool_id = PoolId::from(Token(farm.policy_id, farm.asset_name.clone().into()));
+        create_initial_farms(op_inputs, pool_id).await;
     }
     deployment_config
 }
@@ -577,6 +593,7 @@ async fn create_dao_entities(
         minted_tokens.factory_auth.clone(),
         minted_tokens.inflation_auth.clone(),
         minted_tokens.wp_factory_auth.clone(),
+        minted_tokens.buffer_wallet.clone(),
         splash_built_policy,
     ];
     let utxos = collect_utxos(addr, 5_000_000, required_tokens.clone(), &collateral, explorer).await;
@@ -627,6 +644,7 @@ async fn create_dao_entities(
     tx_builder.add_reference_input(protocol_deployment.ve_factory.reference_utxo);
     tx_builder.add_reference_input(protocol_deployment.gov_proxy.reference_utxo);
     tx_builder.add_reference_input(protocol_deployment.perm_manager.reference_utxo);
+    tx_builder.add_reference_input(protocol_deployment.buffer_wallet.reference_utxo);
 
     // Need to track input coin to
     let mut input_coin = 0;
@@ -699,7 +717,7 @@ async fn create_dao_entities(
 
     // wp_factory ----------------------------------------------------------------------------------
 
-    let active_farms = (0..deployment_config.num_initial_farms)
+    let active_farms = (0..deployment_config.initial_farms.len() as u32)
         .map(|farm_id| {
             let name = spectrum_cardano_lib::AssetName::from(compute_farm_name(farm_id));
             FarmId(name)
@@ -775,7 +793,7 @@ async fn create_dao_entities(
     );
 
     let perm_manager_datum = PermManagerDatum {
-        authorized_executors: deployment_params.authorized_executors.clone(),
+        authorized_executors: deployment_params.dao_authorized_executors.clone(),
         suspended_farms: vec![],
     };
 
@@ -786,6 +804,31 @@ async fn create_dao_entities(
     );
     output_coin += perm_manager_out.output.amount().coin;
     tx_builder.add_output(perm_manager_out).unwrap();
+
+    // buffer_wallet --------------------------------------------------------------------------------
+    let mut buffer_wallet_assets = MultiAsset::default();
+    buffer_wallet_assets.set(
+        minted_tokens.buffer_wallet.policy_id,
+        minted_tokens.buffer_wallet.asset_name.clone(),
+        1_u64,
+    );
+    let mut merkle_tree = MerkleTree::<Keccak256>::new();
+    let mut leaves = vec![[0; 32]];
+    merkle_tree.append(&mut leaves);
+    merkle_tree.commit();
+    let merkle_tree_root_hash_digest = merkle_tree.root().unwrap().to_vec();
+
+    let buffer_wallet_datum = BufferWalletConfig {
+        authorized_executors: deployment_params.buffer_wallet_authorized_executors.clone(),
+        merkle_tree_root_hash_digest,
+    };
+    let buffer_wallet_out = make_output(
+        protocol_deployment.buffer_wallet.hash,
+        DatumOption::new_datum(buffer_wallet_datum.into_pd()),
+        buffer_wallet_assets,
+    );
+    output_coin += buffer_wallet_out.output.amount().coin;
+    tx_builder.add_output(buffer_wallet_out).unwrap();
 
     tx_builder
         .add_collateral(InputBuilderResult::from(collateral))
@@ -828,10 +871,7 @@ async fn create_dao_entities(
     println!("TX confirmed");
 }
 
-async fn make_voting_escrow_order(
-    ve_settings: &VotingEscrowSettings,
-    op_inputs: &mut OperationInputs,
-) -> Owner {
+async fn make_voting_escrow_order(ve_settings: &VotingEscrowSettings, op_inputs: &OperationInputs) -> Owner {
     let OperationInputs {
         explorer,
         addr,
@@ -951,6 +991,96 @@ async fn make_voting_escrow_order(
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
     owner
+}
+
+async fn make_harvest_order(op_inputs: &OperationInputs) {
+    let OperationInputs {
+        explorer,
+        addr,
+        deployment_progress,
+        dao_parameters,
+        collateral,
+        owner_pub_key,
+        prover,
+        network_id,
+        ..
+    } = op_inputs;
+
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let Address::Base(BaseAddress {
+        payment: StakeCredential::PubKey {
+            hash: payment_key_hash,
+            ..
+        },
+        stake: StakeCredential::PubKey {
+            hash: stake_key_hash, ..
+        },
+        ..
+    }) = addr
+    else {
+        panic!("Only work with BaseAddress");
+    };
+
+    let reward_receiver = PlutusAddress {
+        payment_cred: PlutusCredential::PubKey(*payment_key_hash),
+        stake_cred: Some(InlineCredential::from(PlutusCredential::PubKey(*stake_key_hash))),
+    };
+
+    let harvest_order_datum = HarvestOrderDatum {
+        account_key: owner_pub_key.hash(),
+        reward_receiver,
+        distribution_agent_key: dao_parameters.buffer_wallet_authorized_executors[0],
+    };
+
+    let utxos = collect_utxos(addr, 10_000_000, vec![], collateral, explorer).await;
+
+    let mut change_output_creator = ChangeOutputCreator::default();
+    let mut tx_builder = constant_tx_builder();
+    tx_builder.add_reference_input(protocol_deployment.harvest_order.reference_utxo);
+
+    // Add inputs --------------------------------------------------------
+    for utxo in utxos {
+        println!("add_input coin: {}", utxo.utxo_info.value().coin);
+        change_output_creator.add_input(&utxo);
+        tx_builder.add_input(utxo).unwrap();
+    }
+
+    let datum = DatumOption::new_datum(harvest_order_datum.into_pd());
+    let harvest_order_output = TransactionOutputBuilder::new()
+        .with_address(script_address(
+            protocol_deployment.harvest_order.hash,
+            *network_id,
+        ))
+        .with_data(datum)
+        .next()
+        .unwrap()
+        .with_value(Value::from(2_000_000))
+        .build()
+        .unwrap();
+    change_output_creator.add_output(&harvest_order_output);
+    tx_builder.add_output(harvest_order_output).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+    let actual_fee = estimated_tx_fee + 310_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+    tx_builder.add_output(change_output).unwrap();
+    tx_builder
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
+        .unwrap();
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
 }
 
 async fn create_wpoll_vote_onchain_order(
@@ -1306,7 +1436,7 @@ async fn create_redeem_voting_escrow_onchain_order(
     OutputRef::new(tx_hash, 0)
 }
 
-async fn create_initial_farms(op_inputs: &OperationInputs) {
+async fn create_initial_farms(op_inputs: &OperationInputs, pool_id: PoolId) {
     let OperationInputs {
         explorer,
         addr,
@@ -1451,7 +1581,6 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     smart_farm_assets.set(protocol_deployment.smart_farm.hash, mint_farm_auth_asset_name, 1);
     let perm_manager_auth_policy = deployment_config.minted_deployment_tokens.perm_auth.policy_id;
 
-    let pool_id = PoolId::random();
     let smart_farm_datum_pd = SmartFarmConfig {
         perm_manager_auth_policy,
         pool_id,
@@ -1791,7 +1920,7 @@ enum Command {
         #[arg(long)]
         assets_json_path: String,
     },
-    ExtendDeposit,
+    MakeHarvestOrder,
     CastVote {
         #[arg(long)]
         ve_identifier_hex: String,

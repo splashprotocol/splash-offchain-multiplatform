@@ -2,34 +2,36 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        90336103,
-        "b5e26950bb89be23d7df7b62252fbc3293aba4bc3c7eacbad6ccb5ec639cca40"
+        112718665,
+        "e234cbd35302854b99c12962c8b6a7e5599da3918b09dee6442e9e2f1bcb4760"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        90336103,
-        "b5e26950bb89be23d7df7b62252fbc3293aba4bc3c7eacbad6ccb5ec639cca40"
+        112718665,
+        "e234cbd35302854b99c12962c8b6a7e5599da3918b09dee6442e9e2f1bcb4760"
       ]
     },
     "disableRollbacksUntil": 90336103,
-    "dbPath": "state"
+    "dbPath": "state/lp-indexer"
   },
   "node": {
-    "path": "",
+    "path": "/data/cardano-node-preprod-10-1-4/ipc/node.socket",
     "magic": 1
   },
   "networkId": 0,
+  "genesisEpochStartTime": 1723349688000,
   "explorer": {
-    "maestroKeyPath": ""
+    "maestroKeyPath": "splash-lp-indexer/resources/preprod.maestro.key"
   },
   "utxoIndexDbPath": "index/utxo",
   "accountsDbPath": "index/accounts",
   "gaugesDbPath": "index/gauges",
-  "confirmationDelayBlocks": 6,
-  "bootstrapServers": "0.0.0.0:19094",
+  "confirmationDelaySlots": 200,
+  "bootstrapServers": "127.0.0.1:19094",
   "eventsExportTopic": "events_export",
   "harvestLimits": {
     "minimalLovelacePerSingleHarvest": 1000000
-  }
+  },
+  "splashPolicyIdHex": "352127c4aa7c1c12adf687262380d8f80d3b7e4e10da5d61dc7a81c8"
 }

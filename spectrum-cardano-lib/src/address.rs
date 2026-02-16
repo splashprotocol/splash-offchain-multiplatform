@@ -7,6 +7,8 @@ use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash};
+use derive_more::derive::From;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PlutusCredential {

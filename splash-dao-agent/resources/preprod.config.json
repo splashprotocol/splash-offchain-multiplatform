@@ -2,21 +2,21 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        92125980,
-        "b4b4d40e4525269602470c0da8ffe7cddbcd0a1c898261ce19ca1e7121d80eae"
+        112718665,
+        "e234cbd35302854b99c12962c8b6a7e5599da3918b09dee6442e9e2f1bcb4760"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        92125980,
-        "b4b4d40e4525269602470c0da8ffe7cddbcd0a1c898261ce19ca1e7121d80eae"
+        112718665,
+        "e234cbd35302854b99c12962c8b6a7e5599da3918b09dee6442e9e2f1bcb4760"
       ]
     },
     "disableRollbacksUntil": 74410411,
-    "dbPath": "state"
+    "dbPath": "state/dao-bot"
   },
   "node": {
-    "path": "/Users/tling/node-external/node.socket",
+    "path": "/data/cardano-node-preprod-10-1-4/ipc/node.socket",
     "magic": 1
   },
   "maestroKeyPath": "splash-dao-agent/resources/preprod.maestro.key",

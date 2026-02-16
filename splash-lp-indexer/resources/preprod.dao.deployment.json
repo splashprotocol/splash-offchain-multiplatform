@@ -1,155 +1,164 @@
 {
   "inflation": {
-    "hash": "b2ae8d94c41de484cbf5c30f5a9ee74a9057dfb02f1dd4bf62b07f33",
+    "hash": "b9353add5f22f1f559c6b71a6bb4f70aeab16773a4b7663f8bf948a8",
     "referenceUtxo": {
-      "txHash": "72f8439fc0bb72f888293515e008f9c38a72f3d240f86c6ac68376f284331f9b",
+      "txHash": "c8a2319c6367828045a652653ab555caf702de2f6fa5d25193ee16d2d04d3b75",
       "outputIndex": 0
     },
-    "cost": { "mem": 1600000, "steps": 460000000 },
+    "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "voting_escrow": {
-    "hash": "227790a8db41112c6bb14a542c8e08d19322b1b5b0503e67fc293164",
+    "hash": "752299f67b7df92e7b378bff016c556e8db590f220a81c1d12980837",
     "referenceUtxo": {
-      "txHash": "72f8439fc0bb72f888293515e008f9c38a72f3d240f86c6ac68376f284331f9b",
+      "txHash": "c8a2319c6367828045a652653ab555caf702de2f6fa5d25193ee16d2d04d3b75",
       "outputIndex": 1
     },
     "cost": { "mem": 2000000, "steps": 500000000 },
     "marginalCost": null
   },
   "farm_factory": {
-    "hash": "aad3f6f08a26048b07c5d53f9f07411962a8841b350c314ecbf5e6ce",
+    "hash": "c2d9117eb6a0f51839f7dba0ff9ea60286e72c9f3b2312b29de808a8",
     "referenceUtxo": {
-      "txHash": "72f8439fc0bb72f888293515e008f9c38a72f3d240f86c6ac68376f284331f9b",
+      "txHash": "c8a2319c6367828045a652653ab555caf702de2f6fa5d25193ee16d2d04d3b75",
       "outputIndex": 2
     },
     "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "wp_factory": {
-    "hash": "14e3dc8b0b152e31f4b0ece7fcb8d538bc0b017a5b75584245ac78d7",
+    "hash": "780f7739977fa3356105d980154c8f65f04d6fefc6a62e9d10e8fee3",
     "referenceUtxo": {
-      "txHash": "72f8439fc0bb72f888293515e008f9c38a72f3d240f86c6ac68376f284331f9b",
+      "txHash": "c8a2319c6367828045a652653ab555caf702de2f6fa5d25193ee16d2d04d3b75",
       "outputIndex": 3
     },
-    "cost": { "mem": 960000, "steps": 305000000 },
+    "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "ve_factory": {
-    "hash": "db6050f98887359ed3fae914dbac615bceb47755b4181275030611ad",
+    "hash": "3023c36c69ae0deb4453f5a789af8da588236099c31e7fa87dfa30d0",
     "referenceUtxo": {
-      "txHash": "72f8439fc0bb72f888293515e008f9c38a72f3d240f86c6ac68376f284331f9b",
+      "txHash": "c8a2319c6367828045a652653ab555caf702de2f6fa5d25193ee16d2d04d3b75",
       "outputIndex": 4
     },
     "cost": { "mem": 700000, "steps": 300000000 },
     "marginalCost": null
   },
   "gov_proxy": {
-    "hash": "f327100fbd4320c1cebb535d09aa6d486cb7a5bd327b4bc3baedb0f8",
+    "hash": "7be63863070a7ea61fdd40e1b1731815a4ff6af4b120934413c08cb3",
     "referenceUtxo": {
-      "txHash": "53b92c52e460381bfe640299d37735c3c905555359e3030cb40d9fd627824bd8",
+      "txHash": "841fdf4d432e7d56675f7aeea940f41c223e60c38b5bf796f0cc636f68a307d8",
       "outputIndex": 0
     },
     "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "perm_manager": {
-    "hash": "bce96f6c202a99e58e4d3079b93df0a2b35fef1982570dae0498d573",
+    "hash": "4c707513868476c22f76e1785051bc3343e9a021aa0cb447afb1aa0e",
     "referenceUtxo": {
-      "txHash": "53b92c52e460381bfe640299d37735c3c905555359e3030cb40d9fd627824bd8",
+      "txHash": "841fdf4d432e7d56675f7aeea940f41c223e60c38b5bf796f0cc636f68a307d8",
       "outputIndex": 1
     },
     "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "mint_wpauth_token": {
-    "hash": "d11d87b0ed9748291b048a23ea3a6371ac69d46e029b0ad4bce3a86c",
+    "hash": "fa659b676068fa9caab58280d4330bdc2f48452b43217b85be0e0e55",
     "referenceUtxo": {
-      "txHash": "53b92c52e460381bfe640299d37735c3c905555359e3030cb40d9fd627824bd8",
+      "txHash": "841fdf4d432e7d56675f7aeea940f41c223e60c38b5bf796f0cc636f68a307d8",
       "outputIndex": 2
     },
-    "cost": { "mem": 2500000, "steps": 790000000 },
+    "cost": { "mem": 2000000, "steps": 200000000 },
     "marginalCost": null
   },
   "mint_identifier": {
     "hash": "41c0e3b5f560ee53f28f4ca2b07a3f00ca2aafdf161cffd9f2a1ce62",
     "referenceUtxo": {
-      "txHash": "53b92c52e460381bfe640299d37735c3c905555359e3030cb40d9fd627824bd8",
+      "txHash": "841fdf4d432e7d56675f7aeea940f41c223e60c38b5bf796f0cc636f68a307d8",
       "outputIndex": 3
     },
     "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "mint_ve_composition_token": {
-    "hash": "f1cbced6b1031fdf8e22c23ece32eccd1adcb287535ff719ded36779",
+    "hash": "82ae20bdd4a6ac854775497e002c9224c5c973c5740a589b0294de62",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 0
     },
     "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "weighting_power": {
-    "hash": "19ba4136bdcb2bf5822951808f78bcc59eea5287d553ba5e1361a0f7",
+    "hash": "e7a08c95db9baee283555038028306968d3e4f39c9a20d289ddf7db7",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 1
     },
     "cost": { "mem": 2000000, "steps": 500000000 },
     "marginalCost": null
   },
   "smart_farm": {
-    "hash": "278dce1b47da9cb4642bafb2e0e3379c3b4ae67525e61d1d129f3e09",
+    "hash": "b46eabd2b66626457af870b0b023eb8012d096a4fca7460dbf474189",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 2
     },
     "cost": { "mem": 500000, "steps": 200000000 },
     "marginalCost": null
   },
   "make_ve_order": {
-    "hash": "7359961ea8ea7d79f998735bce6cc3a29672436d67a060c523aa2023",
+    "hash": "e2d9653f7f365f35bf4695c3f1a16f853b5b8e12d1c7352a20cd80b4",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 3
     },
     "cost": { "mem": 700000, "steps": 300000000 },
     "marginalCost": null
   },
   "extend_ve_order": {
-    "hash": "a450d922a0379c8d6aef67818a087151ce0f9fa29f4cc6de7d26801d",
+    "hash": "4123df223ab455969b039b7fe8590830b8b203485d0ada0e3411e290",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 4
     },
     "cost": { "mem": 700000, "steps": 300000000 },
     "marginalCost": null
   },
   "harvest_order": {
-    "hash": "c058ed3400fb537d7dcf58cdc07effa62b1d8a870189fd5527b3f7b1",
+    "hash": "7bc3ab1f9bb629428f7e08de5316aa2f1cfe005f3ad33e1dd1ee3b71",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 5
     },
     "cost": { "mem": 1000000, "steps": 10000000 },
     "marginalCost": null
   },
   "redeem_ve_order": {
-    "hash": "b4a949cde398f5a9e0ef3f838bb86d0df32706efce5aa7da571dc1c6",
+    "hash": "5020eda0ea60093c144b07e689b3d71b42bd38c12b41f2edb6b7eb64",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
       "outputIndex": 6
     },
     "cost": { "mem": 700000, "steps": 300000000 },
     "marginalCost": null
   },
   "wpoll_vote_order": {
-    "hash": "abbe562e4d077ea840a483dc33ef9e09ed65b390a8dc6bc178e3043e",
+    "hash": "c6aec5806e12ee809a9a863e7751b9e17bb3a868f9aae010100e647f",
     "referenceUtxo": {
-      "txHash": "53b92c52e460381bfe640299d37735c3c905555359e3030cb40d9fd627824bd8",
+      "txHash": "841fdf4d432e7d56675f7aeea940f41c223e60c38b5bf796f0cc636f68a307d8",
       "outputIndex": 4
     },
-    "cost": { "mem": 1200000, "steps": 360000000 },
+    "cost": { "mem": 3000000, "steps": 200000000 },
+    "marginalCost": null
+  },
+  "buffer_wallet": {
+    "hash": "e65ec277519f301f715032cfc245614c477e526294493440401d6090",
+    "referenceUtxo": {
+      "txHash": "bf7b0d5ae98fb86a0687dcc4f686d294d781ca31c239932d97689727ead11fc9",
+      "outputIndex": 7
+    },
+    "cost": { "mem": 1000000, "steps": 10000000 },
     "marginalCost": null
   }
 }

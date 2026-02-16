@@ -15,13 +15,14 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::Coin;
 use cml_crypto::{blake2b256, RawBytesEncoding, ScriptHash};
+use log::trace;
 use serde::Serialize;
 use spectrum_offchain::domain::event::{Predicted, Traced};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_cardano_lib::{ex_units, NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::IntoLedger;
 use uplc::PlutusData;
@@ -321,29 +322,29 @@ pub enum WitnessError {
     CannotDecodeRedeemer,
 }
 
-pub(crate) struct DaoTxBlueprint {
-    reference_inputs: Vec<TransactionUnspentOutput>,
-    sorted_inputs: Vec<(InputBuilderResult, ExUnits)>,
-    outputs: Vec<SingleOutputBuilderResult>,
-    sorted_mints: Vec<(
+pub struct DaoTxBlueprint {
+    pub reference_inputs: Vec<TransactionUnspentOutput>,
+    pub sorted_inputs: Vec<(InputBuilderResult, Option<ExUnits>)>,
+    pub outputs: Vec<SingleOutputBuilderResult>,
+    pub sorted_mints: Vec<(
         MintBuilderResult,
         crate::create_change_output::Token,
         bool,
         ExUnits,
     )>,
-    withdrawal: Option<(WithdrawalBuilderResult, ExUnits)>,
-    fee_buffer: u64,
-    operator_address: Address,
+    pub withdrawal: Option<(WithdrawalBuilderResult, ExUnits)>,
+    pub fee_buffer: u64,
+    pub operator_address: Address,
 }
 
-pub(crate) struct BlueprintEstimates {
-    estimated_fee: u64,
-    change_output: SingleOutputBuilderResult,
-    tx_builder: TransactionBuilder,
+pub struct BlueprintEstimates {
+    pub estimated_fee: u64,
+    pub change_output: SingleOutputBuilderResult,
+    pub tx_builder: TransactionBuilder,
 }
 
 impl DaoTxBlueprint {
-    fn compute_estimated_fee_and_change_output(&self) -> BlueprintEstimates {
+    pub fn compute_estimated_fee_and_change_output(&self) -> BlueprintEstimates {
         let mut txb = constant_tx_builder();
         let mut change_output_creator = ChangeOutputCreator::default();
 
@@ -354,10 +355,12 @@ impl DaoTxBlueprint {
         for (ix, (input, ex_units)) in self.sorted_inputs.iter().enumerate() {
             change_output_creator.add_input(input);
             txb.add_input(input.clone()).unwrap();
-            txb.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                ex_units.clone(),
-            );
+            if let Some(ex_units) = ex_units {
+                txb.set_exunits(
+                    RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
+                    ex_units.clone(),
+                );
+            }
         }
 
         for (ix, (mint, minted_token, is_mint, ex_units)) in self.sorted_mints.iter().enumerate() {
@@ -383,7 +386,9 @@ impl DaoTxBlueprint {
             txb.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Reward, 0), ex_units.clone());
         }
 
-        let estimated_fee = txb.min_fee(true).unwrap() + self.fee_buffer;
+        let tx_min_fee = txb.min_fee(true).unwrap();
+        trace!("tx_min_fee: {}", tx_min_fee);
+        let estimated_fee = tx_min_fee + self.fee_buffer;
         let change_output =
             change_output_creator.create_change_output(estimated_fee, self.operator_address.clone());
 
@@ -394,7 +399,11 @@ impl DaoTxBlueprint {
         }
     }
 
-    fn build(&self, actual_fee: u64, change_output: Option<SingleOutputBuilderResult>) -> TransactionBuilder {
+    pub fn build(
+        &self,
+        actual_fee: u64,
+        change_output: Option<SingleOutputBuilderResult>,
+    ) -> TransactionBuilder {
         let mut txb = constant_tx_builder();
         let mut change_output_creator = ChangeOutputCreator::default();
 
@@ -405,10 +414,12 @@ impl DaoTxBlueprint {
         for (ix, (input, ex_units)) in self.sorted_inputs.iter().enumerate() {
             change_output_creator.add_input(input);
             txb.add_input(input.clone()).unwrap();
-            txb.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                ex_units.clone(),
-            );
+            if let Some(ex_units) = ex_units {
+                txb.set_exunits(
+                    RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
+                    ex_units.clone(),
+                );
+            }
         }
 
         for (ix, (mint, minted_token, is_mint, ex_units)) in self.sorted_mints.iter().enumerate() {

@@ -3,17 +3,16 @@ use cml_chain::{plutus::ExUnits, utils::BigInteger};
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{NetworkId, Token};
 use spectrum_offchain::domain::Has;
-use spectrum_offchain_cardano::deployment::{
-    DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script,
+use spectrum_offchain_cardano::{
+    deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script},
+    has_deployed_script_info,
 };
 use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{
-        GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy,
-    },
+    protocol_config::{GTAuthPolicy, SplashPolicy, VEFactoryAuthPolicy},
     GenesisEpochStartTime,
 };
 
@@ -36,6 +35,7 @@ pub struct DeployedValidators {
     pub harvest_order: DeployedValidatorRef,
     pub redeem_ve_order: DeployedValidatorRef,
     pub wpoll_vote_order: DeployedValidatorRef,
+    pub buffer_wallet: DeployedValidatorRef,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -76,6 +76,7 @@ pub struct ProtocolTokens {
     pub edao_msig: IssuedAsset,
     pub inflation_auth: IssuedAsset,
     pub gt: IssuedAsset,
+    pub buffer_wallet: IssuedAsset,
 }
 
 #[derive(serde::Deserialize)]
@@ -108,6 +109,7 @@ pub struct DaoScriptData {
     pub redeem_voting_escrow_witness: ScriptBytesAndCosts,
     pub proxy_order_witness: ScriptBytesAndCosts,
     pub harvest_order: ScriptBytesAndCosts,
+    pub buffer_wallet: ScriptBytesAndCosts,
 }
 
 impl DaoScriptData {
@@ -153,6 +155,7 @@ pub enum ProtocolValidator {
     HarvestOrder = 114,
     WPollVoteOrder = 115,
     RedeemVeOrder = 116,
+    BufferWallet = 117,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -169,6 +172,7 @@ pub struct ProtocolScriptHashes {
     pub mint_ve_composition_token: DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
     pub weighting_power: DeployedScriptInfo<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
+    pub buffer_wallet: DeployedScriptInfo<{ ProtocolValidator::BufferWallet as u8 }>,
     pub make_ve_order: DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>,
     pub extend_ve_order: DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>,
     pub harvest_order: DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>,
@@ -191,6 +195,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             mint_ve_composition_token: DeployedScriptInfo::from(&deployment.mint_ve_composition_token),
             weighting_power: DeployedScriptInfo::from(&deployment.weighting_power),
             smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
+            buffer_wallet: DeployedScriptInfo::from(&deployment.buffer_wallet),
             make_ve_order: DeployedScriptInfo::from(&deployment.make_ve_order),
             extend_ve_order: DeployedScriptInfo::from(&deployment.extend_ve_order),
             harvest_order: DeployedScriptInfo::from(&deployment.harvest_order),
@@ -214,6 +219,7 @@ pub struct ProtocolDeployment {
     pub mint_ve_composition_token: DeployedValidator<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
     pub weighting_power: DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
+    pub buffer_wallet: DeployedValidator<{ ProtocolValidator::BufferWallet as u8 }>,
     pub make_ve_order: DeployedValidator<{ ProtocolValidator::MakeVeOrder as u8 }>,
     pub extend_ve_order: DeployedValidator<{ ProtocolValidator::ExtendVeOrder as u8 }>,
     pub harvest_order: DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>,
@@ -240,6 +246,7 @@ impl ProtocolDeployment {
             )
             .await,
             weighting_power: DeployedValidator::unsafe_pull(validators.weighting_power, explorer).await,
+            buffer_wallet: DeployedValidator::unsafe_pull(validators.buffer_wallet, explorer).await,
             make_ve_order: DeployedValidator::unsafe_pull(validators.make_ve_order, explorer).await,
             extend_ve_order: DeployedValidator::unsafe_pull(validators.extend_ve_order, explorer).await,
             harvest_order: DeployedValidator::unsafe_pull(validators.harvest_order, explorer).await,
@@ -257,7 +264,7 @@ pub struct DeploymentProgress {
     pub minted_deployment_tokens: Option<ProtocolTokens>,
     pub deployed_validators: Option<DeployedValidators>,
     pub genesis_epoch_start_time: Option<u64>,
-    pub num_initial_farms: u32,
+    pub initial_farms: Vec<IssuedAsset>,
 }
 
 pub async fn write_deployment_to_disk(deployment_config: &DeploymentProgress, deployment_json_path: &str) {
@@ -267,6 +274,7 @@ pub async fn write_deployment_to_disk(deployment_config: &DeploymentProgress, de
         .unwrap();
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct CompleteDeployment {
     pub lq_tokens: ExternallyMintedToken,
     pub splash_tokens: ExternallyMintedToken,
@@ -275,7 +283,7 @@ pub struct CompleteDeployment {
     pub deployed_validators: DeployedValidators,
     pub genesis_epoch_start_time: u64,
     pub network_id: NetworkId,
-    pub num_initial_farms: u32,
+    pub initial_farms: Vec<IssuedAsset>,
 }
 
 impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
@@ -284,27 +292,9 @@ impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
     }
 }
 
-impl Has<MintVEIdentifierPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
-        MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
-    }
-}
-
-impl Has<MintVECompositionPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
-    }
-}
-
 impl Has<NetworkId> for CompleteDeployment {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
-    }
-}
-
-impl Has<MintWPAuthPolicy> for CompleteDeployment {
-    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
-        MintWPAuthPolicy(self.deployed_validators.mint_wpauth_token.hash)
     }
 }
 
@@ -320,53 +310,49 @@ impl Has<GenesisEpochStartTime> for CompleteDeployment {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.mint_wpauth_token)
+impl Has<SplashPolicy> for CompleteDeployment {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+        SplashPolicy(self.splash_tokens.policy_id)
     }
 }
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
-    }
-}
+use ProtocolValidator::*;
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.voting_escrow)
-    }
-}
+has_deployed_script_info!(
+    MintVeCompositionToken,
+    CompleteDeployment,
+    |ctx: &CompleteDeployment| { (&ctx.deployed_validators.mint_ve_composition_token).into() }
+);
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
-    }
-}
+has_deployed_script_info!(MintIdentifier, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.mint_identifier).into()
+});
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.wpoll_vote_order)
-    }
-}
+has_deployed_script_info!(
+    MintWpAuthPolicy,
+    CompleteDeployment,
+    |ctx: &CompleteDeployment| { (&ctx.deployed_validators.mint_wpauth_token).into() }
+);
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>> for CompleteDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.redeem_ve_order)
-    }
-}
+has_deployed_script_info!(VeFactory, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.ve_factory).into()
+});
+
+has_deployed_script_info!(VotingEscrow, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.voting_escrow).into()
+});
+
+has_deployed_script_info!(ExtendVeOrder, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.extend_ve_order).into()
+});
+
+has_deployed_script_info!(WPollVoteOrder, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.wpoll_vote_order).into()
+});
+
+has_deployed_script_info!(RedeemVeOrder, CompleteDeployment, |ctx: &CompleteDeployment| {
+    (&ctx.deployed_validators.redeem_ve_order).into()
+});
 
 impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
     type Error = ();
@@ -380,7 +366,7 @@ impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
                 minted_deployment_tokens: Some(minted_deployment_tokens),
                 deployed_validators: Some(deployed_validators),
                 genesis_epoch_start_time: Some(genesis_epoch_start_time),
-                num_initial_farms,
+                initial_farms,
             } => Ok(Self {
                 lq_tokens,
                 splash_tokens,
@@ -389,7 +375,7 @@ impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
                 deployed_validators,
                 genesis_epoch_start_time,
                 network_id,
-                num_initial_farms,
+                initial_farms,
             }),
             _ => Err(()),
         }

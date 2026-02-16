@@ -1,5 +1,6 @@
 use crate::OutputRef;
 use cml_chain::transaction::TransactionOutput;
+use serde::{Deserialize, Serialize};
 use spectrum_offchain::domain::Has;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
