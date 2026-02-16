@@ -2,7 +2,6 @@ use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
 use crate::fifo::Fifo;
-use crate::seq::with_sequencing;
 use crate::snek_handler_context::{SnekHandlerContext, SnekHandlerContextProto};
 use crate::snek_protocol_deployment::{
     SnekDeployedValidators, SnekProtocolDeployment, SnekProtocolScriptHashes,
@@ -130,22 +129,6 @@ async fn main() {
             .await
             .expect("MempoolSync initialization failed");
 
-    let (ledger_clock_upgrades_snd_1, ledger_clock_upgrades_recv_p1) =
-        mpsc::channel(config.event_feed_buffer_size);
-    let (ledger_clock_upgrades_snd_2, ledger_clock_upgrades_recv_p2) =
-        mpsc::channel(config.event_feed_buffer_size);
-    let (ledger_clock_upgrades_snd_3, ledger_clock_upgrades_recv_p3) =
-        mpsc::channel(config.event_feed_buffer_size);
-    let (ledger_clock_upgrades_snd_4, ledger_clock_upgrades_recv_p4) =
-        mpsc::channel(config.event_feed_buffer_size);
-
-    let ledger_clock_upgrades_snd = ChannelGroupUnordered::new([
-        ledger_clock_upgrades_snd_1,
-        ledger_clock_upgrades_snd_2,
-        ledger_clock_upgrades_snd_3,
-        ledger_clock_upgrades_snd_4,
-    ]);
-
     let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
     let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
     let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
@@ -227,7 +210,6 @@ async fn main() {
         executor_cred: operator_paycred,
         scripts: SnekProtocolScriptHashes::from(&protocol_deployment),
         validation_rules,
-        allowed_payment_destinations: allowed_payment_destinations(config.allowed_payment_destinations),
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let general_upd_handler: PairUpdateHandler<
@@ -255,11 +237,6 @@ async fn main() {
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
-        Box::new(try_forward_with(
-            ledger_clock_upgrades_snd,
-            starting_point.get_slot(),
-            try_read_slot_upgrade,
-        )),
         Box::new(forward_with(confirmed_txs_snd, succinct_tx)),
     ];
 
@@ -271,9 +248,12 @@ async fn main() {
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),
-        execution_conf: config
-            .execution
-            .into_lb_config(validation_rules.limit_order.min_cost_per_ex_step.into()),
+        execution_conf: config.execution.into_lb_config(
+            validation_rules
+                .instant_order
+                .min_execution_budget_lovelace
+                .into(),
+        ),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
     };
     let context = ExecutionContext {
@@ -292,14 +272,10 @@ async fn main() {
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
 
-    let upstream_p1 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p1,
+    let upstream_p1 = adapt_events(
         select_partition(pair_upd_recv_p1, config.partitioning.clone())
             .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    );
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -315,14 +291,10 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p2 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p2,
+    let upstream_p2 = adapt_events(
         select_partition(pair_upd_recv_p2, config.partitioning.clone())
             .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -338,14 +310,10 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p3 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p3,
+    let upstream_p3 = adapt_events(
         select_partition(pair_upd_recv_p3, config.partitioning.clone())
             .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -361,14 +329,10 @@ async fn main() {
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
-    let upstream_p4 = adapt_events(with_sequencing(
-        ledger_clock_upgrades_recv_p4,
+    let upstream_p4 = adapt_events(
         select_partition(pair_upd_recv_p4, config.partitioning.clone())
             .buffered_within(config.event_feed_buffering_duration),
-        config.sequencing.session_duration,
-        config.sequencing.session_settlement,
-        config.sequencing.disable,
-    ));
+    );
     let execution_stream_p4 = execution_part_stream(
         state_index,
         multi_book,
@@ -446,13 +410,6 @@ fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
     let (LedgerTxEvent::TxApplied { tx, block_number, .. }
     | LedgerTxEvent::TxUnapplied { tx, block_number, .. }) = tx;
     (tx.hash, block_number)
-}
-
-fn try_read_slot_upgrade(current_slot: u64, tx: &LedgerTxEvent<TxViewMut>) -> Option<(u64, u64)> {
-    match tx {
-        LedgerTxEvent::TxApplied { slot, .. } if *slot > current_slot => Some((*slot, *slot)),
-        _ => None,
-    }
 }
 
 fn adapt_events(

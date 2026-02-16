@@ -1,4 +1,4 @@
-use crate::orders::instant::InstantOrder;
+use crate::orders::instant::{InstantOrder, InstantOrderValidation};
 use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -154,7 +154,7 @@ impl MarketTaker for AdhocOrder {
 }
 
 impl Stable for AdhocOrder {
-    type StableId = <LimitOrder as Stable>::StableId;
+    type StableId = <InstantOrder as Stable>::StableId;
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
     }
@@ -189,24 +189,24 @@ where
         + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<AddedPaymentDestinations>
-        + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
-        + Has<LimitOrderValidation>
+        + Has<InstantOrderValidation>
         + Has<AdhocFeeStructure>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         InstantOrder::try_from_ledger(repr, ctx).and_then(|io| {
             let virtual_input_amount = match (io.input_asset, io.output_asset) {
-                (AssetClass::Native, _) => Some(subtract_adhoc_fee(io.input_amount, ctx.get())),
-                (_, AssetClass::Native) => Some(io.input_amount),
-                _ => None,
-            }?;
-            let adhoc_fee_input = io.input_amount.checked_sub(virtual_input_amount)?;
+                (AssetClass::Native, _) => subtract_adhoc_fee(io.input_amount, ctx.get()),
+                _ => io.input_amount,
+            };
+            // adhoc fee input is only applicable in case of ADA -> TOKEN swap
+            let adhoc_fee_input = if io.input_asset == AssetClass::Native {
+                io.input_amount.checked_sub(virtual_input_amount)?
+            } else {
+                0
+            };
             let has_stake_part = io.redeemer_address.stake_cred.is_some();
-            let is_compliant = ctx
-                .select::<AddedPaymentDestinations>()
-                .complies_with(&ctx.select::<AllowedAdditionalPaymentDestinations>());
-            if has_stake_part && is_compliant {
+            if has_stake_part {
                 Some(Self(
                     InstantOrder {
                         input_amount: virtual_input_amount,
@@ -216,11 +216,10 @@ where
                 ))
             } else {
                 trace!(
-                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_compliant: {}",
+                    "AdhocOrder skipped for UTxO {}, AdhocOrder {} :: has_stake_part: {}",
                     ctx.select::<OutputRef>(),
                     io.beacon,
                     has_stake_part,
-                    is_compliant
                 );
                 None
             }

@@ -21,7 +21,7 @@ cbor_event = "2.4.0"
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
-pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+pallas-network = { git = "https://github.com/txpipe/pallas.git", tag = "v1.0.0-alpha.3" }
 pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"

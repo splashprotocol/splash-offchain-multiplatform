@@ -1,4 +1,4 @@
-import { RoyaltyPoolPoolValidatePool} from "../../plutus.ts";
+import { DoubleRoyaltyPoolPoolValidatePool, RoyaltyPoolPoolValidatePool} from "../../plutus.ts";
 import {
     getCSAndSсript,
     getUtxoWithToken,

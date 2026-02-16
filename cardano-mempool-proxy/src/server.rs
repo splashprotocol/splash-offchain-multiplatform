@@ -4,7 +4,7 @@ use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::Deserialize;
 use futures::StreamExt;
-use log::info;
+use log::{info, trace};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::tx_submission::TxSubmissionChannel;
@@ -27,6 +27,7 @@ where
     Tx: CanonicalHash + Deserialize + Send,
     Tx::Hash: Display,
 {
+    trace!("Got tx submission request");
     let mut bytes = web::BytesMut::new();
     while let Some(item) = body.next().await {
         if let Ok(item) = item {

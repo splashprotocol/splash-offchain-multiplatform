@@ -16,6 +16,11 @@ impl PairId {
     pub fn dummy() -> Self {
         Self(AssetClass::Native, AssetClass::Native)
     }
+
+    /// Access the two AssetClass components of this pair (Base, Quote) in canonical order.
+    pub fn assets(&self) -> (AssetClass, AssetClass) {
+        (self.0, self.1)
+    }
 }
 
 /// Determine side of a trade relatively to canonical pair.

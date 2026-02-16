@@ -1,4 +1,3 @@
-use cardano_explorer::constants::get_network_id;
 use cml_chain::address::{Address, BaseAddress, EnterpriseAddress, RewardAddress};
 use cml_chain::certs::{Credential, StakeCredential};
 use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};

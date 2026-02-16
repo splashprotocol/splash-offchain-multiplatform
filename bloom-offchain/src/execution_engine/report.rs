@@ -15,30 +15,33 @@ pub struct OrderExecution<I, V> {
     mean_price: AbsolutePrice,
     removed_input: u64,
     added_output: u64,
+    fee: u64,
     side: Side,
 }
 
+/// Report of an execution attempt on the liquidity book.
 #[derive(Clone, Debug, Serialize)]
-pub struct ExecutionReportPartial<I, V, Pair, Meta> {
+pub struct ExecutionReport<I, V, TxHash, Pair, Events> {
     pair: Pair,
     executions: Vec<OrderExecution<I, V>>,
-    meta: Meta,
+    events: Events,
+    tx_hash: Option<TxHash>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct ExecutionReport<I, V, TxHash, Pair, Meta> {
-    pair: Pair,
-    executions: Vec<OrderExecution<I, V>>,
-    meta: Meta,
-    tx_hash: TxHash,
-}
+impl<I, V, TxHash, Pair, Events> ExecutionReport<I, V, TxHash, Pair, Events> {
+    pub fn new(pair: Pair, events: Events) -> Self {
+        Self {
+            pair,
+            executions: Vec::new(),
+            events,
+            tx_hash: None,
+        }
+    }
 
-impl<I, V, Pair, Meta> ExecutionReportPartial<I, V, Pair, Meta> {
-    pub fn new<T: MarketTaker + Stable<StableId = I>, M, B: Has<V>>(
+    pub fn with_executions<T: MarketTaker + Stable<StableId = I>, M, B: Has<V>>(
+        &mut self,
         ExecutionRecipe(instructions): &ExecutionRecipe<T, M, B>,
-        pair: Pair,
-        meta: Meta,
-    ) -> Self {
+    ) {
         let mut executions = Vec::with_capacity(instructions.len());
         for instruction in instructions {
             match instruction {
@@ -54,25 +57,17 @@ impl<I, V, Pair, Meta> ExecutionReportPartial<I, V, Pair, Meta> {
                         mean_price: AbsolutePrice::from_price(side, rel_price),
                         added_output: input,
                         removed_input: output,
+                        fee: take.consumed_fee(),
                         side: target.side(),
                     });
                 }
                 Either::Right(_) => {}
             }
         }
-        Self {
-            pair,
-            executions,
-            meta,
-        }
+        self.executions = executions;
     }
 
-    pub fn finalize<TxHash>(self, tx_hash: TxHash) -> ExecutionReport<I, V, TxHash, Pair, Meta> {
-        ExecutionReport {
-            pair: self.pair,
-            executions: self.executions,
-            meta: self.meta,
-            tx_hash,
-        }
+    pub fn finalized(&mut self, tx_hash: TxHash) {
+        self.tx_hash = Some(tx_hash);
     }
 }

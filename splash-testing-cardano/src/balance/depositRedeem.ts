@@ -3,8 +3,8 @@ import { getLucid } from "../lucid.ts";
 import { Asset, BuiltValidator, BuiltValidators } from "../types.ts";
 import { setupWallet } from "../wallet.ts";
 import { PubKeyHash } from "../types.ts";
-import { Data, Datum, Lucid, TxComplete } from "@lucid-evolution/lucid";
-import { StabledepositContract, StableredeemContract } from "../../plutus.ts";
+import { credentialToAddress, Data, Datum, Lucid, LucidEvolution, TxComplete } from "@lucid-evolution/lucid";
+import { DepositDeposit, RedeemRedeem, RoyaltyPoolDepositValidate, RoyaltyPoolRedeemValidate } from "../../plutus.ts";
 import { asUnit } from "../types.ts";
 
 export type DepositConf = {
@@ -28,7 +28,7 @@ function buildDepositDatum(conf: DepositConf): Datum {
     rewardPkh: conf.rewardPkh,
     stakePkh: conf.stakePkh,
     collateralAda: conf.collateralAda,
-  }, StabledepositContract.conf);
+  }, RoyaltyPoolDepositValidate.conf);
 }
 
 export type RedeemConf = {
@@ -50,31 +50,30 @@ function buildRedeemDatum(conf: RedeemConf): Datum {
     exFee: conf.exFee,
     rewardPkh: conf.rewardPkh,
     stakePkh: conf.stakePkh,
-  }, StableredeemContract.conf);
+  }, RoyaltyPoolRedeemValidate.conf);
 }
 
-export function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Promise<TxComplete> {
-  const orderAddress = lucid.utils.credentialToAddress(
+export function deposit(lucid: LucidEvolution, validator: BuiltValidator, conf: DepositConf): Promise<TxComplete> {
+  const orderAddress = credentialToAddress(
+    "Preprod",
     { hash: validator.hash, type: 'Script' },
   );
   const lovelaceTotal = conf.exFee;
   const depositedValue = conf.x[0].policy == ""
     ? { lovelace: lovelaceTotal + conf.x[1], [asUnit(conf.y[0])]: conf.y[1] } : conf.y[0].policy == ""
     ? { lovelace: lovelaceTotal + conf.y[1], [asUnit(conf.x[0])]: conf.x[1] } : { lovelace: lovelaceTotal, [asUnit(conf.x[0])]: conf.x[1], [asUnit(conf.y[0])]: conf.y[1] };
-  const tx = lucid.newTx().payToContract(orderAddress, { inline: buildDepositDatum(conf) }, depositedValue);
+  console.log(`depositedValue: ${depositedValue}`)
+  const tx = lucid.newTx().pay.ToContract(orderAddress, { kind: "inline",  value: buildDepositDatum(conf) }, depositedValue);
   return tx.complete();
 }
 
-export function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf): Promise<TxComplete> {
-  const orderAddress = lucid.utils.credentialToAddress(
+export function redeem(lucid: LucidEvolution, validator: BuiltValidator, conf: RedeemConf): Promise<TxComplete> {
+  const orderAddress = credentialToAddress(
+     "Preprod",
     { hash: validator.hash, type: 'Script' },
   );
-  const lovelaceTotal = conf.exFee;
+  const lovelaceTotal = conf.exFee + 3_000_000n;
   const depositedValue = { lovelace: lovelaceTotal, [asUnit(conf.lq[0])]: conf.lq[1] };
-  const tx = lucid.newTx().payToContract(orderAddress, { inline: buildRedeemDatum(conf) }, depositedValue);
+  const tx = lucid.newTx().pay.ToContract(orderAddress, { kind: "inline",  value: buildRedeemDatum(conf) }, depositedValue);
   return tx.complete();
 }
-
-const lucid = await getLucid();
-await setupWallet(lucid);
-const conf = await getConfig<BuiltValidators>();

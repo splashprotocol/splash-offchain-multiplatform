@@ -2,7 +2,7 @@ mod cond;
 mod session;
 
 use crate::seq::cond::{ConditionalValidation, Id, Validations};
-use crate::seq::session::SessionInProgress;
+use crate::seq::session::{SessionInProgress, SessionRejection};
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use futures::Stream;
@@ -13,7 +13,7 @@ use spectrum_offchain::domain::{SeqState, Stable};
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::raw_bytes::RawBytes;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{btree_map, BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::pin::Pin;
@@ -40,9 +40,16 @@ pub struct WithDeterministicSeq<Ticks, Events, K, T> {
     clock_ticks: Ticks,
     events: Events,
     current_slot: Slot,
+    /// Events that didn't get into an active session. Will be released after the session duration
+    delayed_events: BTreeMap<Slot, Vec<(PairId, Channel<Transition<T>, LedgerCx>)>>,
+    /// Just released events
     pending_events: VecDeque<(PairId, Channel<Transition<T>, LedgerCx>)>,
+    /// Event that is waiting to be processed after pending events
     stashed_event: Option<(PairId, Channel<Transition<T>, LedgerCx>)>,
     completed_sessions: HashSet<PairId>,
+    /// Events for the pairs that haven't triggered a session yet. Will be merged into a session
+    /// when triggered or released if no session is triggered in time.
+    pre_sessions: HashMap<PairId, PreSession<T>>,
     active_sessions: HashMap<PairId, SessionInProgress<K, T>>,
     session_duration: Slot,
     session_settlement: Slot,
@@ -61,10 +68,12 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
             clock_ticks,
             events,
             current_slot: 0,
+            delayed_events: BTreeMap::new(),
             pending_events: VecDeque::new(),
             stashed_event: None,
             completed_sessions: HashSet::new(),
             active_sessions: HashMap::new(),
+            pre_sessions: HashMap::new(),
             session_duration,
             session_settlement,
             disable,
@@ -88,11 +97,36 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
             Some(upgraded_to) => {
                 let mut closed_sessions = vec![];
                 let mut pending_events = vec![];
+
+                // Process active sessions
                 for (pair, sess) in self.active_sessions.iter_mut() {
                     if let Some(released_events) = sess.upgrade(upgraded_to) {
                         info!("Pair {} graduated at {}", pair, upgraded_to);
                         closed_sessions.push(*pair);
                         pending_events.push((*pair, released_events));
+                    }
+                }
+
+                // Release pre-sessions that have reached their release time and were not promoted to sessions
+                let to_release: Vec<_> = self
+                    .pre_sessions
+                    .iter()
+                    .filter(|(_, ps)| ps.release_at <= upgraded_to)
+                    .map(|(pair, _)| *pair)
+                    .collect();
+
+                for pair in to_release {
+                    if let Some(ps) = self.pre_sessions.remove(&pair) {
+                        trace!(
+                            "Releasing {} delayed events for pair {} at slot {}",
+                            ps.events.len(),
+                            pair,
+                            upgraded_to
+                        );
+                        for event in ps.events {
+                            self.pending_events.push_back((pair, event));
+                        }
+                        self.completed_sessions.insert(pair);
                     }
                 }
                 for key in closed_sessions {
@@ -119,34 +153,72 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
     {
         match self.active_sessions.entry(pair) {
             Entry::Vacant(entry) => {
-                if let Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(state))), cx) = event {
-                    if state.is_quasi_permanent() && state.is_initial() {
+                match event {
+                    Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(state))), cx)
+                        if state.is_quasi_permanent() && state.is_initial() =>
+                    {
                         // New session is triggered
                         let session_sealed_at = self.current_slot + self.session_duration;
                         let capped = state.cond(Id::<{ Validations::HypedLaunch as u8 }>);
+                        let mut premature_events = vec![];
+                        if let Some(pre_session) = self.pre_sessions.remove(&pair) {
+                            premature_events.extend(pre_session.events);
+                        }
                         trace!(
-                            "New session {} created at {}, sealed at {}, capped = {}",
+                            "New session {} created at {}, sealed at {}, capped = {}, num_premature_events = {}",
                             pair,
                             self.current_slot,
                             session_sealed_at,
-                            capped
+                            capped,
+                            premature_events.len(),
                         );
                         entry.insert(SessionInProgress::new(
                             Transition::Forward(Ior::Right(state)),
+                            premature_events,
                             cx,
                             session_sealed_at,
                             self.session_settlement,
                             capped,
                         ));
                     }
+                    // Session wasn't triggered, add event to delayed_events
+                    _ => self.suspend_event(pair, event),
                 }
             }
             Entry::Occupied(mut entry) => {
-                if let Err(_) = entry.get_mut().register_event(event) {
-                    trace!("Session trigger was rolled back, discarded session {}", pair);
-                    // Session trigger was rolled back, discard session.
-                    entry.remove();
+                match entry.get_mut().register_event(event) {
+                    Ok(_) => (),
+                    Err(SessionRejection::SessionCancelled) => {
+                        trace!("Session trigger was rolled back, discarded session {}", pair);
+                        // Session trigger was rolled back, discard session.
+                        entry.remove();
+                    }
                 }
+            }
+        }
+    }
+
+    fn suspend_event(&mut self, pair: PairId, event: Channel<Transition<T>, LedgerCx>)
+    where
+        K: Display,
+        T: Stable<StableId = K>,
+    {
+        let release_slot = self.current_slot + self.session_duration * 5;
+        trace!(
+            "Event {} for pair {} suspended until slot {}",
+            event.stable_id(),
+            pair,
+            release_slot
+        );
+        match self.pre_sessions.entry(pair) {
+            Entry::Vacant(v) => {
+                v.insert(PreSession {
+                    events: vec![event],
+                    release_at: release_slot,
+                });
+            }
+            Entry::Occupied(mut o) => {
+                o.get_mut().events.push(event);
             }
         }
     }
@@ -184,12 +256,13 @@ where
             if let Poll::Ready(Some((pair, event))) = Stream::poll_next(Pin::new(&mut self.events), cx) {
                 if let Channel::Ledger(_, lcx) = &event {
                     if self.update_clocks(lcx.slot) {
-                        // Events were released in result of update, stash current event and yield them first.
+                        // Events were released in result of an update, stash current event and yield them first.
                         self.stashed_event.replace((pair, event));
                         continue;
                     }
                 }
                 if self.completed_sessions.contains(&pair) || self.disable {
+                    trace!("Passing event {}", event.stable_id());
                     return Poll::Ready(Some((pair, event)));
                 }
                 self.update_session(pair, event);
@@ -199,6 +272,11 @@ where
         }
         Poll::Pending
     }
+}
+
+struct PreSession<T> {
+    events: Vec<Channel<Transition<T>, LedgerCx>>,
+    release_at: Slot,
 }
 
 #[cfg(test)]
@@ -645,5 +723,149 @@ mod tests {
         assert_eq!(yielded_events.len(), 3);
         let pair_ids: HashSet<_> = yielded_events.iter().map(|(pair_id, _)| pair_id).collect();
         assert!(pair_ids.contains(&pair_id_1));
+    }
+
+    #[tokio::test]
+    async fn delayed_non_triggering_event_is_released_after_delay() {
+        let (mut tick_tx, tick_rx) = mpsc::channel(50);
+        let (mut event_tx, event_rx) = mpsc::channel(50);
+
+        let session_duration = 10;
+        let session_settlement = 5;
+
+        let pair_id = PairId::canonical(
+            AssetClass::Native,
+            AssetClass::Token(Token::from_string_unsafe(
+                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef.",
+            )),
+        );
+
+        let timeout = std::time::Duration::from_millis(100);
+        let mut stream =
+            WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement, false);
+
+        let ids = [42, 43];
+
+        // Send a non-triggering ledger event (Order) at slot 5
+        let state = TestEvent::Order {
+            id: ids[0],
+            init: false,
+        };
+        let event = Channel::Ledger(
+            Confirmed(Transition::Forward(Ior::Right(state))),
+            LedgerCx {
+                slot: 5,
+                block_hash: BlockHeaderHash::from([9u8; 32]),
+            },
+        );
+        event_tx.send((pair_id, event)).await.unwrap();
+
+        // Drive the stream once; it should not yield the delayed event yet
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // Send a non-triggering ledger event (Order) at slot 5
+        let state = TestEvent::Order {
+            id: ids[1],
+            init: false,
+        };
+        let event = Channel::Mempool(Unconfirmed(Transition::Forward(Ior::Right(state))));
+        event_tx.send((pair_id, event)).await.unwrap();
+
+        // Drive the stream once; it should not yield the delayed event yet
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // No session should be created
+        assert!(stream.active_sessions.is_empty());
+
+        // Advance time to just before the release slot (5 + 10 * 5 = 45)
+        tick_tx.send(54).await.unwrap();
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // Still nothing should be yielded
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // Now advance to the release slot
+        tick_tx.send(55).await.unwrap();
+
+        // Collect yielded events
+        let mut yielded = vec![];
+        while let Some((pid, ev)) = tokio::time::timeout(timeout, stream.next()).await.unwrap_or(None) {
+            yielded.push((pid, ev));
+        }
+
+        assert_eq!(yielded.len(), 2);
+        let pair_ids: HashSet<_> = yielded.iter().map(|(_, ev)| ev.stable_id()).collect();
+        assert!(ids.iter().all(|id| pair_ids.contains(id)));
+        // Ensure still no sessions
+        assert!(stream.active_sessions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn delayed_events_in_session_are_released_on_finalization() {
+        let (mut tick_tx, tick_rx) = mpsc::channel(50);
+        let (mut event_tx, event_rx) = mpsc::channel(50);
+
+        let session_duration = 10;
+        let session_settlement = 5;
+
+        let pair_id = PairId::canonical(
+            AssetClass::Native,
+            AssetClass::Token(Token::from_string_unsafe(
+                "cafebabecafebabecafebabecafebabecafebabecafebabecafebabe.",
+            )),
+        );
+
+        let timeout = std::time::Duration::from_millis(100);
+        let mut stream =
+            WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement, false);
+
+        // Before the session starts, send a few mempool events that will be delayed
+        let delayed_ids = [101u64, 102u64];
+        for id in delayed_ids {
+            let cancel_event =
+                Channel::Mempool(Unconfirmed(Transition::Forward(Ior::Right(TestEvent::Order {
+                    id,
+                    init: true,
+                }))));
+            event_tx.send((pair_id, cancel_event)).await.unwrap();
+        }
+
+        // Trigger a session with a confirmed initial Pool event at slot 5
+        let state_open = TestEvent::Pool { id: 1, init: true };
+        let opening_event = Channel::Ledger(
+            Confirmed(Transition::Forward(Ior::Right(state_open))),
+            LedgerCx {
+                slot: 5,
+                block_hash: BlockHeaderHash::from([0u8; 32]),
+            },
+        );
+        event_tx.send((pair_id, opening_event)).await.unwrap();
+
+        // Drive the stream so the session is created
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+        assert!(stream.active_sessions.contains_key(&pair_id));
+
+        // Drive the stream; cancellations should not be yielded yet
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // Advance time close to, but before, finalization (sealed_at = 15, finalize at 20)
+        tick_tx.send(19).await.unwrap();
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+        assert!(stream.active_sessions.contains_key(&pair_id));
+
+        // Now finalize the session
+        tick_tx.send(20).await.unwrap();
+
+        // Collect yielded events after finalization
+        let mut yielded = vec![];
+        while let Some((pid, ev)) = tokio::time::timeout(timeout, stream.next()).await.unwrap_or(None) {
+            yielded.push((pid, ev));
+        }
+
+        // Verify that our delayed cancellation events were released at session finalization
+        let ids_in_yield: HashSet<_> = yielded.iter().map(|(_, ev)| ev.stable_id()).collect();
+        assert!(delayed_ids.iter().all(|id| ids_in_yield.contains(id)));
+        assert!(stream.active_sessions.is_empty());
     }
 }

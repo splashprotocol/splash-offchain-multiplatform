@@ -10,7 +10,7 @@ use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash};
 use derive_more::derive::From;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PlutusCredential {
     PubKey(Ed25519KeyHash),
     Script(ScriptHash),
@@ -68,7 +68,7 @@ impl From<PlutusCredential> for Credential {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, From)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InlineCredential(PlutusCredential);
 
 impl InlineCredential {
@@ -114,7 +114,7 @@ impl IntoPlutusData for InlineCredential {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlutusAddress {
     pub payment_cred: PlutusCredential,
     pub stake_cred: Option<InlineCredential>,

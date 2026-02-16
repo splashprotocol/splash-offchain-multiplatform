@@ -1,23 +1,22 @@
-use bloom_offchain_cardano::event_sink::context::EventContext;
-use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
-use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
-use cml_chain::auxdata::Metadata;
-use type_equalities::IsEqual;
-
 use crate::snek_protocol_deployment::SnekProtocolScriptHashes;
 use crate::snek_validation_rules::SnekValidationRules;
+use bloom_offchain_cardano::event_sink::context::EventContext;
+use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
+use bloom_offchain_cardano::orders::instant::InstantOrderValidation;
+use cml_chain::auxdata::Metadata;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    DegenQuadraticPoolV1, InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1,
+    DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T, InstantOrderV1, InstantOrderWitnessV1,
 };
 use spectrum_offchain_cardano::handler_context::{
-    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
-    ConsumedInputs, Mints, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
+    Mints, ProducedIdentifiers,
 };
+use type_equalities::IsEqual;
 
 #[derive(Copy, Clone, Debug)]
 pub struct SnekHandlerContextProto {
@@ -25,7 +24,6 @@ pub struct SnekHandlerContextProto {
     pub scripts: SnekProtocolScriptHashes,
     pub validation_rules: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
-    pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +38,6 @@ pub struct SnekHandlerContext<I: Copy> {
     pub bounds: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub added_payment_destinations: AddedPaymentDestinations,
-    pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
     pub mints: Option<Mints>,
 }
 
@@ -58,17 +55,8 @@ impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerCo
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             added_payment_destinations: event_ctx.added_payment_destinations,
-            allowed_payment_destinations: ctx_proto.allowed_payment_destinations,
             mints: event_ctx.mints,
         }
-    }
-}
-
-impl<I: Copy> Has<AllowedAdditionalPaymentDestinations> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<AllowedAdditionalPaymentDestinations>>(
-        &self,
-    ) -> AllowedAdditionalPaymentDestinations {
-        self.allowed_payment_destinations
     }
 }
 
@@ -90,9 +78,9 @@ impl<I: Copy> Has<Option<Metadata>> for SnekHandlerContext<I> {
     }
 }
 
-impl<I: Copy> Has<LimitOrderValidation> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
-        self.bounds.limit_order
+impl<I: Copy> Has<InstantOrderValidation> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<InstantOrderValidation>>(&self) -> InstantOrderValidation {
+        self.bounds.instant_order
     }
 }
 
@@ -141,6 +129,14 @@ impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for SnekHa
         &self,
     ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }> {
         self.scripts.degen_fn_pool_v1.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }> {
+        self.scripts.degen_fn_pool_v1_t2t.clone()
     }
 }
 

@@ -15,16 +15,17 @@ use spectrum_cardano_lib::{AssetClass, NetworkId};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
-use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};
-use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool, ConstFnPoolVer};
+use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
+use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPoolVer::V1T2T;
 use spectrum_offchain_cardano::data::quadratic_pool::{QuadraticPool, QuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
-use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
+use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, quadratic_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative,
-    InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolV1, StableFnPoolT2T,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T,
+    GridOrderNative, InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolV1,
+    RoyaltyPoolV1LedgerFixed, RoyaltyPoolV2, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
@@ -256,19 +257,14 @@ where
             FinalizedTxOut(consumed_utxo, in_ref),
         );
         let (residual_order, effect) = match result {
-            Next::Succ(AdhocOrder(next, fee)) => {
-                if let Some(data) = candidate.data_mut() {
-                    instant::unsafe_update_datum(data, next.input_amount, next.fee);
-                }
-                (
-                    candidate.clone(),
-                    ExecutionEff::Updated(consumed_bundle, Bundled(AdhocOrder(next, fee), candidate)),
-                )
-            }
             Next::Term(_) => {
                 candidate.null_datum();
                 candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
                 (candidate, ExecutionEff::Eliminated(consumed_bundle))
+            }
+            // Adhoc orders must always be terminated.
+            Next::Succ(AdhocOrder(_, _)) => {
+                unreachable!()
             }
         };
         let witness = context.select::<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>>();
@@ -371,7 +367,9 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
@@ -434,7 +432,9 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
 {
     fn exec(
         self,
@@ -485,31 +485,8 @@ where
             panic!("ConstFn pool isn't supposed to terminate in result of a trade")
         };
 
-        if transition.ver == FeeSwitch || transition.ver == FeeSwitchV2 {
-            if let Some(data) = produced_out.data_mut() {
-                cfmm_pool::unsafe_update_pd_fee_switch(
-                    data,
-                    transition.treasury_x.untag(),
-                    transition.treasury_y.untag(),
-                );
-            }
-        } else if transition.ver == ConstFnPoolVer::RoyaltyPoolV1 {
-            if let Some(data) = produced_out.data_mut() {
-                cfmm_pool::unsafe_update_pd_royalty(
-                    data,
-                    // royalty pool have the same lp_fee_x and lp_fee_y values
-                    *transition.lp_fee_x.numer(),
-                    *transition.treasury_fee.numer(),
-                    *transition.royalty_fee.numer(),
-                    transition.treasury_x.untag(),
-                    transition.treasury_y.untag(),
-                    transition.royalty_x.untag(),
-                    transition.royalty_y.untag(),
-                    transition.treasury_address,
-                    transition.admin_address,
-                    transition.nonce,
-                );
-            }
+        if let Some(data) = produced_out.data_mut() {
+            transition.unsafe_datum_update(data);
         }
 
         let updated_output = produced_out.clone();
@@ -677,6 +654,7 @@ impl<Ctx> BatchExec<ExecutionState, EffectPreview<QuadraticPool>, Ctx>
     for Magnet<Make<QuadraticPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ DegenQuadraticPoolV1T2T as u8 }>>,
 {
     fn exec(
         self,
@@ -702,6 +680,12 @@ where
         let Next::Succ(transition) = result else {
             panic!("Degen pool isn't supposed to terminate in result of a trade")
         };
+
+        if transition.ver == V1T2T {
+            if let Some(data) = produced_out.data_mut() {
+                quadratic_pool::unsafe_update_t2t_pd(data, transition.accumulated_x_fee);
+            }
+        }
 
         let DeployedValidatorErased {
             reference_utxo,

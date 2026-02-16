@@ -1,36 +1,31 @@
-import { LimitOrderLimitOrder } from "../plutus.ts";
-import { getLucid } from "./lucid.ts";
-import { asUnit } from "./types.ts";
-import { BuiltValidator } from "./types.ts";
-import { Asset, PubKeyHash, Rational} from "./types.ts";
+import {LimitOrderLimitOrder} from "../plutus.ts";
+import {getLucid} from "./lucid.ts";
+import {Asset, asUnit, BuiltValidator, BuiltValidators, PubKeyHash, Rational} from "./types.ts";
 import {
     Address,
     Data,
     Datum,
+    fromHex,
     Lovelace,
     Lucid,
+    LucidEvolution,
+    paymentCredentialOf,
     PolicyId,
-    UTxO,
-    fromHex,
-    toHex,
-    paymentCredentialOf, stakeCredentialOf, TxComplete, LucidEvolution, TxSignBuilder
+    stakeCredentialOf,
+    TxSignBuilder,
+    UTxO
 } from '@lucid-evolution/lucid';
-import { createHash } from "node:crypto";
-import { setupWallet } from "./wallet.ts";
-import { getConfig } from "./config.ts";
-import { BuiltValidators } from "./types.ts";
-import { blake2b } from 'hash-wasm';
-import { hash_blake2b224 } from "https://deno.land/x/lucid@0.10.7/src/core/libs/cardano_multiplatform_lib/cardano_multiplatform_lib.generated.js";
-import { sleep } from "https://deno.land/x/sleep/mod.ts"
-import {
-    coreToUtxo, credentialToAddress,
-    credentialToRewardAddress,
-    getAddressDetails,
-    utxoToCore,
-} from "@lucid-evolution/utils";
+import {createHash} from "node:crypto";
+import {setupWallet} from "./wallet.ts";
+import {getConfig} from "./config.ts";
+import {blake2b} from 'hash-wasm';
+import {credentialToAddress, getAddressDetails,} from "@lucid-evolution/utils";
 
 const sha256 = (input: string) =>
     createHash("sha256").update(input).digest("hex");
+
+const tokenAPolicy = `77cb34f72da105bd0cab41c2a10e2fa2fe97a181e6771a62d0c9673e`;
+const tokenABase16 = `74657374546f6b656e`;
 
 export type LimitOrderConf = {
     input: Asset,
@@ -47,7 +42,7 @@ export type LimitOrderConf = {
 
 function buildLimitOrderDatum(lucid: Lucid, conf: LimitOrderConf, beacon: PolicyId): Datum {
     return Data.to({
-        tag: "00",
+        tag: "01",
         beacon: beacon,
         input: conf.input,
         tradableInput: conf.tradableInput,
@@ -106,12 +101,12 @@ async function main() {
     console.log("My address: ", getAddressDetails(myAddr));
     const txBid = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
+            policy: tokenAPolicy,
+            name: tokenABase16,
         },
         output: {
-            policy: "",
-            name: "",
+            policy: "d2d369761139d53e750ced4b19e7e382118ef9803ba6cd64d70f427e",
+            name: "746f6b656e",
         },
         tradableInput: 100_000n,
         minMarginalOutput: 1_000n,
@@ -127,30 +122,30 @@ async function main() {
     });
     const txBidId = await (await txBid.sign.withWallet().complete()).submit();
     console.log(txBidId);
-    await sleep(120);
-    const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
-        input: {
-            policy: "",
-            name: "",
-        },
-        output: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
-        },
-        tradableInput: 100_000_000n,
-        minMarginalOutput: 1_000n,
-        costPerExStep: 500_000n,
-        basePrice: {
-            num: 1n,
-            denom: 1000n,
-        },
-        fee: 500_000n,
-        redeemerAddr: myAddr,
-        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
-        permittedExecutors: [],
-    });
-    const txAskId = await (await txAsk.sign.withWallet().complete()).submit();
-    console.log(txAskId);
+    // await sleep(120);
+    // const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+    //     input: {
+    //         policy: "",
+    //         name: "",
+    //     },
+    //     output: {
+    //         policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+    //         name: "74657374746f6b656e",
+    //     },
+    //     tradableInput: 100_000_000n,
+    //     minMarginalOutput: 1_000n,
+    //     costPerExStep: 500_000n,
+    //     basePrice: {
+    //         num: 1n,
+    //         denom: 1000n,
+    //     },
+    //     fee: 500_000n,
+    //     redeemerAddr: myAddr,
+    //     cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+    //     permittedExecutors: [],
+    // });
+    // const txAskId = await (await txAsk.sign.withWallet().complete()).submit();
+    // console.log(txAskId);
 }
 
 async function createMToNOrders() {
@@ -206,12 +201,12 @@ async function createMToNOrders() {
     // await sleep(60);
     const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
-            policy: "",
-            name: "",
+            policy: tokenAPolicy,
+            name: tokenABase16,
         },
         output: {
-            policy: "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26",
-            name: "7465737444",
+            policy: "d2d369761139d53e750ced4b19e7e382118ef9803ba6cd64d70f427e",
+            name: "746f6b656e",
         },
         tradableInput: 10_000_000n,
         minMarginalOutput: 1n,

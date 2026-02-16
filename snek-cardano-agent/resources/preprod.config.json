@@ -1,5 +1,15 @@
 {
   "channelBufferSize": 1024,
+  "eventFeedBufferSize": 256000,
+  "eventFeedBufferingDuration": {
+    "secs": 2,
+    "nanos": 0
+  },
+  "sequencing": {
+    "sessionDuration": 60,
+    "sessionSettlement": 20,
+    "disable": true
+  },
   "chainSync": {
     "startingPoint": {
       "Specific": [
@@ -30,7 +40,7 @@
   "operatorKey": "",
   "serviceFeeAddress": "",
   "allowedPaymentDestinations": [],
-  "explorerKeyPath": {
+  "explorer": {
     "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key"
   },
   "execution": {
@@ -45,6 +55,11 @@
       }
     },
     "o2oAllowed": false
+  },
+  "reportingEndpoint": "127.0.0.1:9021",
+  "eventCacheTtl": {
+    "secs": 120,
+    "nanos": 0
   },
   "mempoolBufferingDuration": {
     "secs": 1,

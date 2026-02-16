@@ -1,12 +1,15 @@
-use crate::index::{Txo, TxoQuery, UtxoResolver};
+use crate::index::{CredentialKind, Txo, TxoQuery, UtxoResolver};
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use async_primitives::beacon::Beacon;
 use cml_chain::address::Address;
+use cml_chain::certs::Credential;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
+use log::trace;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use std::fmt::Display;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
@@ -18,6 +21,16 @@ pub struct GetTxOsRequest {
     query: TxoQuery,
     offset: usize,
     limit: usize,
+}
+
+impl Display for GetTxOsRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "GetTxOsRequest {{ pkh: {}, query: {}, offset: {}, limit: {} }}",
+            self.pkh, self.query, self.offset, self.limit
+        )
+    }
 }
 
 #[derive(Clone, serde::Serialize, Debug)]
@@ -71,8 +84,11 @@ async fn get_utxos<R>(req: web::Json<GetTxOsRequest>, db: Data<R>) -> impl Respo
 where
     R: UtxoResolver + 'static,
 {
-    let utxos = db.get_utxos(req.pkh, req.query, req.offset, req.limit).await;
+    trace!("Received request: {:?}", req);
+    let scope = (Credential::new_pub_key(req.pkh), CredentialKind::Payment);
+    let utxos = db.get_utxos(Some(scope), req.query, req.offset, req.limit).await;
     let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
+    trace!("Responding with: {} TXOs", result.len());
     HttpResponse::Ok().json(result)
 }
 

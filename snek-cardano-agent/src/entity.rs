@@ -4,7 +4,7 @@ use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain_cardano::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
-use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
+use bloom_offchain_cardano::orders::instant::InstantOrderValidation;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, SeqState, Stable, Tradable};
@@ -14,7 +14,9 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{DegenQuadraticPoolV1, InstantOrderV1};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T, InstantOrderV1,
+};
 use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
     Mints, ProducedIdentifiers,
@@ -66,10 +68,10 @@ where
         + Has<ConsumedIdentifiers<Token>>
         + Has<ProducedIdentifiers<Token>>
         + Has<AddedPaymentDestinations>
-        + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
-        + Has<LimitOrderValidation>
+        + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>>
+        + Has<InstantOrderValidation>
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>
         + Has<Option<Mints>>,

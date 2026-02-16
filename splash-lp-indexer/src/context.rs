@@ -124,7 +124,15 @@ impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for RuntimeContext {
     }
 }
 
-impl Has<PoolValidation> for RuntimeContext {
+impl Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>> for Context {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }> {
+        (&self.dex_deployment.royalty_pool_ledger_fixed).into()
+    }
+}
+
+impl Has<PoolValidation> for Context {
     fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
         self.pool_validation.clone()
     }

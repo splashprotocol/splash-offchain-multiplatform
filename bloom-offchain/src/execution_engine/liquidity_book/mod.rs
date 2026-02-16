@@ -1,6 +1,6 @@
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
-    ExecutionMeta, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
+    ExecutionEvent, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -35,8 +35,8 @@ pub mod types;
 pub mod weight;
 
 /// Liquidity aggregator.
-pub trait LiquidityBook<Taker, Maker, Meta> {
-    fn attempt(&mut self) -> Option<(MatchmakingRecipe<Taker, Maker>, Meta)>;
+pub trait LiquidityBook<Taker, Maker, Events> {
+    fn attempt(&mut self) -> (Option<MatchmakingRecipe<Taker, Maker>>, Events);
 }
 
 /// TLB API for external events affecting its state.
@@ -124,14 +124,14 @@ where
     }
 }
 
-impl<Taker, Maker, P, U> LiquidityBook<Taker, Maker, ExecutionMeta> for TLB<Taker, Maker, P, U>
+impl<Taker, Maker, P, U> LiquidityBook<Taker, Maker, Vec<ExecutionEvent>> for TLB<Taker, Maker, P, U>
 where
     Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
     P: Display,
 {
-    fn attempt(&mut self) -> Option<(MatchmakingRecipe<Taker, Maker>, ExecutionMeta)> {
+    fn attempt(&mut self) -> (Option<MatchmakingRecipe<Taker, Maker>>, Vec<ExecutionEvent>) {
         let mut optimized_matchmaking = true;
         loop {
             trace!(
@@ -140,10 +140,12 @@ where
                 optimized_matchmaking
             );
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
-            let mut meta = ExecutionMeta::empty();
+            let mut events = vec![];
+            let size_pre_attempt = self.state.size();
+            events.push(ExecutionEvent::LiquidityBookSizePreAttempt(size_pre_attempt));
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
                 if let Some(spot_price) = self.spot_price() {
-                    meta.add_price_point(spot_price);
+                    events.push(ExecutionEvent::SpotPrice(spot_price));
                     let price_range = self.state.allowed_price_range();
                     trace!(
                         "{} spot_price: {}, price_range: {}",
@@ -215,18 +217,21 @@ where
                         }
                     }
                 } else {
+                    events.push(ExecutionEvent::SpotPriceNotAvailable);
                     trace!("{} Spot price is not available", self.pair);
                 }
                 break;
             }
             trace!("{} Raw batch: {}", self.pair, batch);
+            let size_post_attempt = self.state.size();
+            events.push(ExecutionEvent::LiquidityBookSizePostAttempt(size_post_attempt));
             match MatchmakingRecipe::try_from(batch, self.conf) {
                 Ok(ex_recipe) => {
                     trace!("{} Successfully formed a batch {}", self.pair, ex_recipe);
-                    return Some((ex_recipe, meta));
+                    return (Some(ex_recipe), events);
                 }
                 Err(None) => {
-                    trace!("{} Matchmaking attempt failed", self.pair);
+                    trace!("{} Matchmaking attempt failed in liquidity_book", self.pair);
                     self.state.rollback(StashingOption::Unstash);
                 }
                 Err(Some(Either::Left(unsatisfied_takers))) => {
@@ -247,7 +252,7 @@ where
                     continue;
                 }
             }
-            return None;
+            return (None, events);
         }
     }
 }

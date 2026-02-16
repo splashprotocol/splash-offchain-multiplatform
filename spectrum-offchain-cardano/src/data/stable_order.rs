@@ -7,7 +7,8 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem,
     ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
-    RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem,
+    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
@@ -44,8 +45,11 @@ where
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>,
 {
     fn try_run(

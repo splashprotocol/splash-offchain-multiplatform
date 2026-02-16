@@ -1,8 +1,10 @@
-use crate::data::deposit::DepositOrderValidation;
-use crate::data::order::{ClassicalOrder, PoolNft};
+use crate::data::order::OrderType::{RoyaltyConstFnV1, RoyaltyConstFnV2};
+use crate::data::order::{ClassicalOrder, OrderType};
 use crate::data::pool::{CFMMPoolAction, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::RoyaltyPoolV1RoyaltyWithdrawRequest;
+use crate::deployment::ProtocolValidator::{
+    RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2RoyaltyWithdrawRequest,
+};
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -188,6 +190,7 @@ pub struct RoyaltyWithdraw {
     pub raw_data_to_sign: Vec<u8>,
     pub additional_bytes: Vec<u8>,
     pub requestor_address: Address,
+    pub order_type: OrderType,
 }
 
 impl Into<WithdrawData> for RoyaltyWithdraw {
@@ -212,10 +215,21 @@ pub type OnChainRoyaltyWithdraw = ClassicalOrder<OnChainOrderId, RoyaltyWithdraw
 
 impl<Ctx> RequiresValidator<Ctx> for OnChainRoyaltyWithdraw
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>,
+    Ctx: Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
-        ctx.get().erased()
+        match self.order.order_type {
+            RoyaltyConstFnV1 => {
+                let validator: DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }> = ctx.get();
+                validator.erased()
+            }
+            RoyaltyConstFnV2 => {
+                let validator: DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }> = ctx.get();
+                validator.erased()
+            }
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -229,13 +243,24 @@ impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChainRoyaltyWithdraw
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<RoyaltyWithdrawOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
+        let is_royalty_v1_fn_withdraw =
+            test_address::<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }, Ctx>(repr.address(), ctx);
+        let is_royalty_v2_fn_withdraw =
+            test_address::<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }, Ctx>(repr.address(), ctx);
+
+        if is_royalty_v1_fn_withdraw || is_royalty_v2_fn_withdraw {
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = RoyaltyWithdrawRequestConfig::try_from_pd(pd)?;
             let init_ada_value = repr.value().coin;
+            let order_type = if is_royalty_v1_fn_withdraw {
+                RoyaltyConstFnV1
+            } else {
+                RoyaltyConstFnV2
+            };
             let royalty_withdraw = RoyaltyWithdraw {
                 pool_nft: conf.pool_nft,
                 withdraw_royalty_x: conf.withdraw_royalty_x,
@@ -247,6 +272,7 @@ where
                 raw_data_to_sign: conf.raw_data_to_sign,
                 additional_bytes: conf.additional_bytes,
                 requestor_address: repr.address().clone(),
+                order_type,
             };
             let bounds = ctx.select::<RoyaltyWithdrawOrderValidation>();
 

@@ -1,7 +1,6 @@
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 
 use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::redeem::ClassicalOnChainRedeem;
 
 #[derive(Debug, Clone)]
@@ -25,12 +24,6 @@ pub trait RequiresRefScript {
 impl RequiresRefScript for ClassicalOnChainDeposit {
     fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
         ref_scripts.deposit
-    }
-}
-
-impl RequiresRefScript for ClassicalOnChainLimitSwap {
-    fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
-        ref_scripts.swap
     }
 }
 

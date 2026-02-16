@@ -199,6 +199,12 @@ impl From<OutputRef> for TransactionInput {
     }
 }
 
+impl From<OutputRef> for TransactionHash {
+    fn from(OutputRef(hash, ..): OutputRef) -> Self {
+        hash
+    }
+}
+
 impl TryFrom<String> for OutputRef {
     type Error = &'static str;
     fn try_from(value: String) -> Result<Self, Self::Error> {

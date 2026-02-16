@@ -67,8 +67,8 @@ use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
 use isahc::http::header::RETRY_AFTER;
 use log::{error, info, trace};
-use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
-    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
+use pallas_network::miniprotocols::localtxsubmission::{
+    ApplyTxError, ConwayLedgerFailure, ConwayUtxoWPredFailure, TxValidationError, UtxoFailure,
 };
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::time::{posix_to_slot, slot_to_time_millis};
@@ -86,7 +86,7 @@ use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::creds::operator_creds_base_address;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
-use spectrum_offchain_cardano::tx_submission::RejectReasons;
+use spectrum_offchain_cardano::tx_submission::TxRejection;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
@@ -222,7 +222,7 @@ where
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + WPollActions<Bearer> + VoteEscrowActions<Bearer> + Send + Sync,
     Bearer: Send + Sync + std::fmt::Debug + Clone,
-    Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+    Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
 {
     async fn attempt(&mut self) -> Option<ToRoutine> {
         let RoutineState {
@@ -986,7 +986,7 @@ impl<
     ) -> Option<ToRoutine>
     where
         Actions: WPollActions<Bearer> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionWrite<PollFactorySnapshot, Bearer> + Send + Sync,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
@@ -1052,13 +1052,16 @@ impl<
 
                         return None;
                     }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
+                                ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                    UtxoFailure::BadInputsUTxO(_)
+                                ))
                             )
                         }) {
                             info!("`create_wpoll`: Bad/missing input UTxO. Retrying...");
@@ -1069,7 +1072,7 @@ impl<
                             return None;
                         }
                     }
-                    Err(RejectReasons(None)) => {
+                    Err(TxRejection(_)) => {
                         error!("`create_wpoll`: TX submit failed on UNKNOWN error");
                         return None;
                     }
@@ -1090,7 +1093,7 @@ impl<
     where
         Actions: WPollActions<Bearer> + Send + Sync,
         DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
         OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
@@ -1138,7 +1141,10 @@ impl<
                         self.weighting_poll.write_predicted(next_wpoll).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                     }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
                         // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
                         // from the UTxO set then it's possible that another bot has made a TX
@@ -1146,9 +1152,9 @@ impl<
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
+                                ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                    UtxoFailure::BadInputsUTxO(_)
+                                ))
                             )
                         }) {
                             info!("`execute_order`: TX failed on bad/missing input error");
@@ -1163,7 +1169,7 @@ impl<
                                 .await;
                         }
                     }
-                    Err(RejectReasons(None)) => {
+                    Err(TxRejection(_)) => {
                         error!("`execute_order`: TX submit failed on unknown error");
                         self.dao_order_backlog
                             .remove(onchain_order.output_ref.output_ref)
@@ -1191,7 +1197,7 @@ impl<
     where
         Actions: VoteEscrowActions<Bearer> + Send + Sync,
         DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         VEF: StateProjectionWrite<VEFactorySnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
         OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
@@ -1235,7 +1241,10 @@ impl<
                         self.ve_factory.write_predicted(next_ve_factory).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                     }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
                         // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
                         // from the UTxO set then it's possible that another bot has made a TX
@@ -1243,9 +1252,9 @@ impl<
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
+                                ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                    UtxoFailure::BadInputsUTxO(_)
+                                ))
                             )
                         }) {
                             info!("`extend_voting_escrow`: TX failed on bad/missing input error");
@@ -1263,7 +1272,7 @@ impl<
                                 .await;
                         }
                     }
-                    Err(RejectReasons(None)) => {
+                    Err(TxRejection(_)) => {
                         error!("`extend_voting_escrow`: TX submit failed on unknown error");
                         self.dao_order_backlog
                             .remove(onchain_order.output_ref.output_ref)
@@ -1291,7 +1300,7 @@ impl<
     where
         Actions: VoteEscrowActions<Bearer> + Send + Sync,
         DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         VEF: StateProjectionWrite<VEFactorySnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
         OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
@@ -1339,7 +1348,10 @@ impl<
                             .write_predicted(Traced::new(Predicted(next_ve), ve_prev_state_id))
                             .await;
                     }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
                         // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
                         // from the UTxO set then it's possible that another bot has made a TX
@@ -1347,9 +1359,9 @@ impl<
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
+                                ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                    UtxoFailure::BadInputsUTxO(_)
+                                ))
                             )
                         }) {
                             info!("`redeem_voting_escrow`: TX failed on bad/missing input error");
@@ -1367,7 +1379,7 @@ impl<
                                 .await;
                         }
                     }
-                    Err(RejectReasons(None)) => {
+                    Err(TxRejection(_)) => {
                         error!("`redeem_voting_escrow`: TX submit failed on unknown error");
                         self.dao_order_backlog
                             .remove(onchain_order.output_ref.output_ref)
@@ -1397,7 +1409,7 @@ impl<
     ) -> Option<ToRoutine>
     where
         Actions: InflationActions<Bearer> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionWrite<SmartFarmSnapshot, Bearer> + Send + Sync,
         PM: StateProjectionWrite<PermManagerSnapshot, Bearer> + Send + Sync,
@@ -1455,13 +1467,16 @@ impl<
                         self.funding_box.put_predicted(fb).await;
                     }
                 }
-                Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                    error: ApplyTxError(node_errors),
+                    ..
+                })) => {
                     if node_errors.iter().any(|err| {
                         matches!(
                             err,
-                            ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                ConwayUtxoPredFailure::BadInputsUtxo(_)
-                            ),)
+                            ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                UtxoFailure::BadInputsUTxO(_)
+                            ))
                         )
                     }) {
                         info!("`distribute_inflation`: Bad/missing input UTxO. Retrying...");
@@ -1475,7 +1490,7 @@ impl<
                         return None;
                     }
                 }
-                Err(RejectReasons(None)) => {
+                Err(TxRejection(_)) => {
                     error!("`distribute_inflation`: TX submit failed on UNKNOWN error");
                     return None;
                 }
@@ -1497,7 +1512,7 @@ impl<
     ) -> Option<ToRoutine>
     where
         Actions: WPollActions<Bearer> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         FB: FundingRepo + Send + Sync,
         PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     {
@@ -1562,13 +1577,16 @@ impl<
                         }
                         return None;
                     }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
+                                ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                    UtxoFailure::BadInputsUTxO(_)
+                                ))
                             )
                         }) {
                             info!("`eliminate_wpoll`: Bad/missing input UTxO. Retrying...");
@@ -1579,7 +1597,7 @@ impl<
                             return None;
                         }
                     }
-                    Err(RejectReasons(None)) => {
+                    Err(TxRejection(_)) => {
                         error!("`eliminate_wpoll`: TX submit failed on UNKNOWN error");
                         return None;
                     }
@@ -1596,7 +1614,7 @@ impl<
     ) -> Option<ToRoutine>
     where
         Actions: VoteEscrowActions<Bearer> + Send + Sync,
-        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
         DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
         OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
@@ -1648,13 +1666,16 @@ impl<
                         self.ve_factory.write_predicted(next_ve_factory).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                     }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    Err(TxRejection(TxValidationError::ShelleyTxValidationError {
+                        error: ApplyTxError(node_errors),
+                        ..
+                    })) => {
                         if node_errors.iter().any(|err| {
                             matches!(
                                 err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
+                                ConwayLedgerFailure::UtxowFailure(ConwayUtxoWPredFailure::UtxoFailure(
+                                    UtxoFailure::BadInputsUTxO(_)
+                                ))
                             )
                         }) {
                             info!("`make_voting_escrow`: Bad/missing input UTxO. Retrying...");
@@ -1672,7 +1693,7 @@ impl<
                                 .await;
                         }
                     }
-                    Err(RejectReasons(None)) => {
+                    Err(TxRejection(_)) => {
                         error!("`make_voting_escrow`: TX submit failed on UNKNOWN error");
                         self.dao_order_backlog
                             .remove(onchain_order.output_ref.output_ref)
@@ -1798,7 +1819,7 @@ where
         + VoteEscrowActions<TransactionOutput>
         + Send
         + Sync,
-    Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+    Net: Network<Transaction, TxRejection> + Clone + Sync + Send,
 {
     async fn process_ledger_event(&mut self, ev: LedgerTxEvent<TxViewMut>) {
         match ev {

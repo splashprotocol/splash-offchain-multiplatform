@@ -5,9 +5,6 @@ use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
-use cml_crypto::ScriptHash;
-use cml_multi_era::babbage::BabbageTransactionOutput;
-use futures::future::Either::Right;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -25,7 +22,6 @@ use crate::creds::OperatorRewardAddress;
 use crate::data::cfmm_pool::ConstFnPool;
 use crate::data::dao_request::{DAOContext, DAOV1ActionOrderValidation, OnChainDAOActionRequest};
 use crate::data::deposit::{ClassicalOnChainDeposit, DepositOrderValidation};
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderValidation};
 use crate::data::royalty_withdraw_request::{
@@ -36,9 +32,11 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolV1,
-    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T,
-    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw,
+    RoyaltyPoolRoyaltyWithdrawLedgerFixed, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
+    RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2,
+    RoyaltyPoolV2DAO, RoyaltyPoolV2DAOV1Request, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem,
+    RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
@@ -62,7 +60,8 @@ pub enum OrderType {
     ConstFnFeeSwitch,
     ConstFn,
     StableFn,
-    RoyaltyConstFn,
+    RoyaltyConstFnV1,
+    RoyaltyConstFnV2,
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
@@ -105,7 +104,6 @@ impl ClassicalOrderRedeemer {
 
 #[derive(Debug, Clone)]
 pub enum Order {
-    Swap(ClassicalOnChainLimitSwap),
     Deposit(ClassicalOnChainDeposit),
     Redeem(ClassicalOnChainRedeem),
     RoyaltyWithdraw(OnChainRoyaltyWithdraw),
@@ -121,7 +119,6 @@ impl Display for Order {
 impl Weighted for Order {
     fn weight(&self) -> OrderWeight {
         match self {
-            Order::Swap(limit_swap) => OrderWeight::from(limit_swap.order.fee.0),
             Order::Deposit(deposit) => OrderWeight::from(deposit.order.ex_fee),
             Order::Redeem(redeem) => OrderWeight::from(redeem.order.ex_fee),
             Order::RoyaltyWithdraw(_) => OrderWeight::from(0),
@@ -150,7 +147,6 @@ impl SpecializedOrder for Order {
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
-            Order::Swap(swap) => swap.id.into(),
             Order::Deposit(dep) => dep.id.into(),
             Order::Redeem(red) => red.id.into(),
             Order::RoyaltyWithdraw(withdraw) => withdraw.id.into(),
@@ -160,7 +156,6 @@ impl SpecializedOrder for Order {
 
     fn get_pool_ref(&self) -> Self::TPoolId {
         match self {
-            Order::Swap(swap) => swap.pool_id.into(),
             Order::Deposit(dep) => dep.pool_id.into(),
             Order::Redeem(red) => red.pool_id.into(),
             Order::RoyaltyWithdraw(withdraw) => withdraw.pool_id.into(),
@@ -183,20 +178,21 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>
         + Has<RoyaltyWithdrawOrderValidation>
         + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
-        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
-            .map(|swap| Order::Swap(swap))
-            .or_else(|| {
-                ClassicalOnChainDeposit::try_from_ledger(repr, ctx).map(|deposit| Order::Deposit(deposit))
-            })
+        ClassicalOnChainDeposit::try_from_ledger(repr, ctx)
+            .map(|deposit| Order::Deposit(deposit))
             .or_else(|| {
                 ClassicalOnChainRedeem::try_from_ledger(repr, ctx).map(|redeem| Order::Redeem(redeem))
             })
@@ -238,12 +234,21 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
@@ -260,9 +265,6 @@ where
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<Order, FinalizedTxOut>>> {
         let RunClassicalAMMOrderOverPool(pool_bundle) = self;
         match order {
-            Order::Swap(swap) => try_run_order_against_pool(pool_bundle, Bundled(swap, ord_bearer), ctx)
-                .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
-                .map_err(|err| err.map(|Bundled(swap, bundle)| Bundled(Order::Swap(swap), bundle))),
             Order::Deposit(deposit) => {
                 try_run_order_against_pool(pool_bundle, Bundled(deposit.clone(), ord_bearer), ctx)
                     .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))

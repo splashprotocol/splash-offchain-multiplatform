@@ -135,13 +135,8 @@ async function createConfig(
             nonce: 1n
         }
         , RoyaltyPoolDaoV1DummyValidate.conf)
-// d8799f02d8799f581c367c57eb3bbc5361bb6d171450612d0cee0e0c3183a2c969dd5afc3b436e6674ff1a000173181927109fd8799fd87a9f581c3eaf2125c8433f3798465b5fd022d587babb8477d776a4ef41539b09ffffffd8799fd87a9f581cb09d1ccde30a0c65316c8e5dada41ee4d86ca0d0bb5370542693dafaffd87a80ff581cb09d1ccde30a0c65316c8e5dada41ee4d86ca0d0bb5370542693dafa000001ff
-// d8799f02d8799f581c367c57eb3bbc5361bb6d171450612d0cee0e0c3183a2c969dd5afc3b436e6674ff1a000173181927109fd8799fd87a9f581c3eaf2125c8433f3798465b5fd022d587babb8477d776a4ef41539b09ffffffd8799fd87a9f581cb09d1ccde30a0c65316c8e5dada41ee4d86ca0d0bb5370542693dafaffd87a80ff581cb09d1ccde30a0c65316c8e5dada41ee4d86ca0d0bb5370542693dafa000001ff
-    let dataToSignHex = fromHex(dataToSign)
 
-    console.log(`hex: ${dataToSign}`)
-    console.log(`public key: ${toHex(privateKey.to_public().to_raw_bytes())}`)
-    console.log(`public key: ${toHex(privateKey.to_public().to_raw_key().to_raw_bytes())}`)
+    let dataToSignHex = fromHex(dataToSign)
 
     let signature = privateKey.to_raw_key().sign(dataToSignHex).to_hex()
 

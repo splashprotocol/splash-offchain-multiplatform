@@ -3,10 +3,17 @@ use cml_chain::transaction::TransactionOutput;
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::domain::Has;
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use type_equalities::IsEqual;
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FinalizedTxOut(pub TransactionOutput, pub OutputRef);
+
+impl Display for FinalizedTxOut {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "FinalizedTxOut({})", self.1)
+    }
+}
 
 impl Has<OutputRef> for FinalizedTxOut {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {

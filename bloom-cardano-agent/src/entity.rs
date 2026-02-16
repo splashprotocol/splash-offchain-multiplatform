@@ -23,8 +23,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
     ConstFnPoolV2, LimitOrderV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
-    RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2,
+    RoyaltyPoolV2DAOV1Request, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem,
+    RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
@@ -61,9 +62,13 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>
         + Has<RoyaltyWithdrawOrderValidation>
@@ -125,6 +130,8 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<LimitOrderValidation>
