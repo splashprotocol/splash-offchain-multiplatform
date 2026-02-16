@@ -42,7 +42,7 @@ use splash_yf_offchain::entities::buffer_wallet::{
 };
 use splash_yf_offchain::entities::funding_box::ConfirmedFundingBoxChanges;
 use splash_yf_offchain::entities::gauge::{
-    try_extract_gauge, Gauge, GaugeDeposits, GaugeWithdrawals, UpdatedGauges,
+    try_extract_gauge, Gauge, GaugeCharge, GaugeWithdrawals, UpdatedGauges,
 };
 use splash_yf_offchain::entities::harvest_order::{try_extract_harvest_order, HarvestOrder};
 use splash_yf_offchain::events::{OnChainEvent, SplashPayout};
@@ -328,13 +328,39 @@ where
                             indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                         }
                     }
-                    OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => {
-                        for (gauge_update, _) in updated_gauges {
-                            let prev_state_id = gauge_update.consumed;
-                            let (entity, bearer) = gauge_update.created.clone();
-                            let bundled = Bundled(entity, bearer);
-                            indexer.write_confirmed_gauge(bundled, prev_state_id).await;
-                        }
+                    OnChainEvent::CreateBufferWalletAndAuthManager {
+                        buffer_wallet_update,
+                        auth_manager_update,
+                    } => {
+                        assert!(auth_manager_update.consumed.is_none());
+
+                        let (entity, bearer) = auth_manager_update.created.clone();
+                        let bundled = Bundled(entity, bearer);
+                        indexer.write_confirmed_auth_manager(bundled, None).await;
+
+                        assert!(buffer_wallet_update.update.consumed.is_none());
+                        let prev_state_id = None;
+                        let (wallet, bearer) = buffer_wallet_update.update.created.clone();
+                        let entity = BufferWalletWrap {
+                            wallet,
+                            predicted_merkle_tree: None,
+                        };
+                        let bundled = Bundled(entity, bearer);
+                        indexer
+                            .write_confirmed_buffer_wallet(bundled, prev_state_id)
+                            .await;
+                    }
+                    OnChainEvent::CreateGauge(gauge_update) => {
+                        let prev_state_id = gauge_update.consumed;
+                        let (entity, bearer) = gauge_update.created.clone();
+                        let bundled = Bundled(entity, bearer);
+                        indexer.write_confirmed_gauge(bundled, prev_state_id).await;
+                    }
+                    OnChainEvent::ChargeGauges(GaugeCharge { gauge_update, .. }) => {
+                        let prev_state_id = gauge_update.consumed;
+                        let (entity, bearer) = gauge_update.created.clone();
+                        let bundled = Bundled(entity, bearer);
+                        indexer.write_confirmed_gauge(bundled, prev_state_id).await;
                     }
                     OnChainEvent::AuthManagerUpdated(auth_update) => {
                         let prev_state_id = auth_update.consumed;
@@ -404,13 +430,30 @@ where
                             assert_eq!(gauge_update.consumed, prev_state_id);
                         }
                     }
-                    OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => {
-                        for (gauge_update, _) in updated_gauges {
-                            let prev_state_id = indexer
-                                .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)
-                                .await;
-                            assert_eq!(gauge_update.consumed, prev_state_id);
-                        }
+                    OnChainEvent::CreateBufferWalletAndAuthManager {
+                        buffer_wallet_update,
+                        auth_manager_update,
+                    } => {
+                        let prev_state_id = indexer
+                            .remove_auth_manager(auth_manager_update.created.0.state_id)
+                            .await;
+                        assert_eq!(auth_manager_update.consumed, prev_state_id);
+                        let prev_state_id = indexer
+                            .remove_buffer_wallet(buffer_wallet_update.update.created.0.state_id)
+                            .await;
+                        assert_eq!(buffer_wallet_update.update.consumed, prev_state_id);
+                    }
+                    OnChainEvent::CreateGauge(gauge_update) => {
+                        let prev_state_id = indexer
+                            .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)
+                            .await;
+                        assert_eq!(gauge_update.consumed, prev_state_id);
+                    }
+                    OnChainEvent::ChargeGauges(GaugeCharge { gauge_update, .. }) => {
+                        let prev_state_id = indexer
+                            .remove_gauge(gauge_update.created.0.id, gauge_update.created.0.state_id)
+                            .await;
+                        assert_eq!(gauge_update.consumed, prev_state_id);
                     }
                     OnChainEvent::AuthManagerUpdated(auth_update) => {
                         let prev_state_id = indexer.remove_auth_manager(auth_update.created.0.state_id).await;

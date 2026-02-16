@@ -94,6 +94,7 @@ where
                 if let Some(mut initial_tx_ttl_delay) = self.initial_tx_ttl_delay.take() {
                     if Future::poll(Pin::new(&mut initial_tx_ttl_delay), cx).is_pending() {
                         self.initial_tx_ttl_delay = Some(initial_tx_ttl_delay);
+                    } else {
                         return Poll::Ready(None);
                     }
                 }
@@ -102,13 +103,13 @@ where
                 if let Some(mut blocker) = self.blocker.take() {
                     if Future::poll(Pin::new(&mut blocker), cx).is_pending() {
                         self.blocker = Some(blocker);
+                    } else {
                         return Poll::Ready(None);
                     }
                 }
 
                 if !self.state_synced.read() {
                     self.blocker = Some(self.state_synced.once(true));
-                    return Poll::Ready(None);
                 }
 
                 // Then try cosign requests

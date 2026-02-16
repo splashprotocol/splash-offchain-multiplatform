@@ -40,8 +40,9 @@ use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSub
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::collateral::pull_collateral;
+use splash_dao_offchain::constants::DAO_SCRIPT_BYTES;
 use splash_dao_offchain::deployment::{
-    CompleteDeployment as DaoDeployment, DeploymentProgress as DaoDeploymentProgress,
+    CompleteDeployment as DaoDeployment, DaoScriptData, DeploymentProgress as DaoDeploymentProgress,
     ProtocolDeployment as DaoProtocolDeployment,
 };
 use splash_dao_offchain::funding::FundingRepoRocksDB;
@@ -54,6 +55,19 @@ use tracing_subscriber::fmt::Subscriber;
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
     let args = AppArgs::parse();
+
+    let dao_script_bytes_str =
+        std::fs::read_to_string(args.script_bytes_path.clone()).expect("Cannot load script bytes file");
+    let dao_script_bytes: DaoScriptData =
+        serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
+
+    DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();
+
+    println!(
+        "buffer_wallet ex_units: {:?}",
+        DaoScriptData::global().buffer_wallet.ex_units.clone()
+    );
+
     match args.command {
         Command::RewardBot => run_reward_bot(args).await,
         Command::Verifier => run_verifier(args).await,
@@ -131,6 +145,10 @@ async fn run_reward_bot(args: AppArgs) {
 
     let (_op_cred, collateral_addr, _funding_addresses) = operator_creds(&operator_sk, config.network_id);
 
+    println!(
+        "Pulling collateral for address: {}",
+        collateral_addr.clone().address().to_bech32(None).unwrap()
+    );
     let collateral = pull_collateral(collateral_addr, &explorer)
         .await
         .expect("Couldn't retrieve collateral");
@@ -139,16 +157,16 @@ async fn run_reward_bot(args: AppArgs) {
         dao_deployment: dao_protocol_deployment.clone(),
         dao_tokens: dao_deployment.minted_deployment_tokens.clone(),
         min_lovelace_per_harvest: config.harvest_limits.minimal_lovelace_per_single_harvest,
-        splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
+        splash_policy_id: dao_deployment.splash_tokens.policy_id,
         network_id: config.network_id,
         genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
         reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
+        operator_sk,
     };
 
     let ctx = RewardBotRuntimeContext {
         verifier_runtime_context,
-        operator_sk,
         collateral,
     };
 
@@ -179,14 +197,21 @@ async fn run_reward_bot(args: AppArgs) {
 
     let processes = FuturesUnordered::new();
 
-    let engine_handle = tokio::spawn(engine);
+    let engine_handle = tokio::spawn(run_stream(engine));
     processes.push(engine_handle);
 
     let flow_driver_handle = tokio::spawn(flow_driver.run(config.chain_sync.replay_from_point));
     processes.push(flow_driver_handle);
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
+    let filter = HashSet::from([
+        dao_protocol_deployment.buffer_wallet.hash,
+        dao_protocol_deployment.farm_factory.hash,
+        dao_protocol_deployment.smart_farm.hash,
+        dao_protocol_deployment.mint_wpauth_token.hash,
+        dao_protocol_deployment.perm_manager.hash,
+        dao_protocol_deployment.harvest_order.hash,
+    ]);
 
     let mempool_index_handle = tokio::spawn(update_index_from_mempool_dropped_tx(
         failed_txs_recv,
@@ -229,6 +254,8 @@ async fn run_verifier(args: AppArgs) {
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
+
+    println!("authorized executors: {:?}", config.authorized_executors);
 
     let raw_deployment =
         std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
@@ -276,18 +303,26 @@ async fn run_verifier(args: AppArgs) {
 
     let funding_index = FundingRepoRocksDB::new(config.funding_index_db_path);
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
-    let filter = HashSet::from([dao_protocol_deployment.buffer_wallet.hash]);
+    let filter = HashSet::from([
+        dao_protocol_deployment.buffer_wallet.hash,
+        dao_protocol_deployment.farm_factory.hash,
+        dao_protocol_deployment.smart_farm.hash,
+        dao_protocol_deployment.mint_wpauth_token.hash,
+        dao_protocol_deployment.perm_manager.hash,
+        dao_protocol_deployment.harvest_order.hash,
+    ]);
     let (engine_mailbox_snd, engine_mailbox) = mpsc::channel(1024);
 
     let ctx = VerifierRuntimeContext {
         dao_deployment: dao_protocol_deployment,
         dao_tokens: dao_deployment.minted_deployment_tokens.clone(),
         min_lovelace_per_harvest: config.harvest_limits.minimal_lovelace_per_single_harvest,
-        splash_policy_id: ScriptHash::from_hex(&config.splash_policy_id_hex).unwrap(),
+        splash_policy_id: dao_deployment.splash_tokens.policy_id,
         network_id: config.network_id,
         genesis_epoch_start_time: dao_deployment.genesis_epoch_start_time.into(),
         authorized_executors: AuthorizedExecutors(config.authorized_executors),
         reward_tx_ttl: RewardTxTtl(config.reward_tx_ttl_in_slots),
+        operator_sk: config.operator_sk.clone(),
     };
 
     let (voting_order_snd, voting_event_rcv) = mpsc::channel(100);
@@ -367,6 +402,9 @@ struct AppArgs {
     /// Path to the DAO deployment JSON configuration file .
     #[arg(long)]
     dao_deployment_path: String,
+    /// Path to the JSON DAO script bytes file.
+    #[arg(long, short)]
+    script_bytes_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
     validation_rules_path: String,

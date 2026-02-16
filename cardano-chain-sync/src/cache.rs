@@ -93,7 +93,7 @@ impl LedgerCache for LedgerCacheRocksDB {
 
     fn replay<'a>(&self, from_point: Inclusive<Point>) -> impl Stream<Item = LinkedBlock> + Send + 'a {
         let db = self.db.clone();
-        let (mut snd, recv) = mpsc::unbounded();
+        let (mut snd, recv) = mpsc::channel(100);
         spawn_blocking(move || {
             trace!("Replaying blocks from point {:?}", from_point);
             let key = point_key(POINT_PREFIX, &from_point);

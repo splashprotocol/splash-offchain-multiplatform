@@ -8,6 +8,7 @@ use crate::position_db::{
 };
 use async_trait::async_trait;
 use cml_core::Slot;
+use log::trace;
 use tokio::task::spawn_blocking;
 
 #[async_trait]
@@ -43,6 +44,11 @@ impl EventLog for PositionDB {
                         set_suspended_pools(&tx, cfs.suspended_pools, update, block_slot);
                     }
                     OnChainEvent::NewWeightingPoll(active_pools) => {
+                        trace!(
+                            "set_active_pools: epoch: {}, pools: {:?}",
+                            active_pools.0,
+                            active_pools.1
+                        );
                         set_active_pools(&tx, cfs.active_pools, active_pools.0, &active_pools.1);
                     }
                     _ => {

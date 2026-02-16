@@ -11,7 +11,7 @@ use cml_multi_era::utils::MultiEraBlockHeader;
 use cml_multi_era::MultiEraBlock;
 use derive_more::From;
 use either::Either;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures::channel::mpsc::{Receiver, Sender};
 use futures::channel::{mpsc, oneshot};
 use futures::{Sink, SinkExt, StreamExt};
 use log::{info, trace};
@@ -75,18 +75,18 @@ pub fn atomic_block_flow<Upstream, Cache>(
 ) -> (
     AtomicFlow<
         Upstream,
-        UnboundedSender<(
+        Sender<(
             BlockEvents<Either<BabbageTransaction, Transaction>>,
             TransactionHandle,
         )>,
         Cache,
     >,
-    UnboundedReceiver<(
+    Receiver<(
         BlockEvents<Either<BabbageTransaction, Transaction>>,
         TransactionHandle,
     )>,
 ) {
-    let (snd, recv) = mpsc::unbounded();
+    let (snd, recv) = mpsc::channel(1000);
     let flow = AtomicFlow::new(upstream, snd, cache);
     (flow, recv)
 }
@@ -155,6 +155,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
             let (snd, recv) = oneshot::channel();
             downstream.send((applied_txs, snd.into())).await.unwrap();
             recv.await.unwrap();
+            cache_block(cache.clone(), &hdr, blk_bytes).await;
         }
         let mut upstream = upstream.fuse();
         loop {

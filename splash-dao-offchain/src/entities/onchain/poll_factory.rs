@@ -56,6 +56,7 @@ impl PollFactory {
             epoch: next_epoch,
             distribution: self.active_farms.iter().map(|farm| (*farm, 0u64)).collect(),
             emission_rate,
+            remaining_splash_emission: emission_rate,
             weighting_power: None,
             eliminated: false,
         };

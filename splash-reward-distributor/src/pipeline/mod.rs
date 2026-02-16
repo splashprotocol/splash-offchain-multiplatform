@@ -10,6 +10,7 @@ use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::stream::FusedStream;
 use futures::{Sink, SinkExt, Stream, StreamExt};
+use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::tx_view::TimedOutput;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -21,7 +22,7 @@ use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::funding::FundingRepo;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::events::OnChainEvent;
@@ -58,7 +59,10 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<BufferWalletAuthPolicy>
+        + Has<FarmFactoryAuthPolicy>
         + Has<MinLovelacePerHarvest>
         + Has<NetworkId>
         + Has<OperatorCreds>
@@ -76,6 +80,19 @@ pub async fn event_pipeline<U, S, Tx, Cx, Utxos, I, F>(
         let (block, tx_handle) = upstream.select_next_some().await;
         forward_confirmed_txs(&block, confirmed_txs.clone()).await;
         let batch = read_events(block, &context, &utxos, &utxo_filter).await;
+
+        match batch {
+            BlockEvents::RollForward { ref events, .. } => {
+                if !events.is_empty() {
+                    trace!("RollForward: events: {:?}", events);
+                }
+            }
+            BlockEvents::RollBackward { ref events, .. } => {
+                if !events.is_empty() {
+                    trace!("RollBackward: events: {:?}", events);
+                }
+            }
+        }
 
         let genesis_start_time = context.select::<GenesisEpochStartTime>();
         let network_id = context.select::<NetworkId>();

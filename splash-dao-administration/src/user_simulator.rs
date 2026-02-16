@@ -3,8 +3,8 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script};
 use cml_chain::PolicyId;
-use cml_crypto::RawBytesEncoding;
 use cml_crypto::{PrivateKey, ScriptHash};
+use cml_crypto::{RawBytesEncoding, TransactionHash};
 use futures_timer::Delay;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -226,7 +226,8 @@ pub async fn user_simulator<'a>(
                                     results.iter().find(|(order, _)| order.datum.ve_state == ve_datum)
                                 {
                                     println!(
-                                        "Waiting for bot to process wpoll vote for VE {}",
+                                        "Waiting for bot to process wpoll {:?} vote for VE {}",
+                                        order_output,
                                         hex::encode(ve_snapshot.get().ve_identifier_name.as_bytes())
                                     );
                                     order_output.clone()
@@ -260,12 +261,14 @@ pub async fn user_simulator<'a>(
                                 expected_diff,
                             };
 
+                            println!("Confirmed on chain WPoll vote");
                             ve_state = VEState::ConfirmedOnChainWPollVote {
                                 ve_snapshot: ve_snapshot.clone(),
                                 order_datum,
                                 onchain_order_output_ref,
                             };
                         } else if !ve_extended_this_epoch {
+                            println!("Extending VE");
                             let owner = create_extend_voting_escrow_onchain_order(
                                 voting_escrow_id,
                                 ve_identifier_token_name,
@@ -304,6 +307,8 @@ pub async fn user_simulator<'a>(
                                 ve_datum: order_datum.ve_state,
                                 ve_extended_this_epoch: false, // user always votes before extending VE
                             };
+                        } else {
+                            println!("WPoll vote order already processed by bot");
                         }
                     }
                     VEState::ConfirmedOnChainExtendedVE(ref ve_snapshot, ve_datum) => {

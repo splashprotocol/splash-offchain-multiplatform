@@ -4,6 +4,7 @@ use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use cml_crypto::Ed25519KeyHash;
 use derive_more::Display;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::tx_view::{TimedOutput, TxViewPartiallyResolved};
@@ -25,7 +26,8 @@ use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFact
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
 use splash_dao_offchain::entities::onchain::weighting_poll::WeightingPollSnapshot;
 use splash_dao_offchain::protocol_config::{
-    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy, WPFactoryAuthPolicy,
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    WPFactoryAuthPolicy,
 };
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use splash_dao_offchain::GenesisEpochStartTime;
@@ -151,6 +153,11 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         if let Some(pool_diff) = PoolDiff::try_from_ledger(repr, ctx) {
             let (plus_sign, diff) = pool_diff.lp_diff;
+            trace!(
+                "pool diff found for pool policy_id: {} asset_name: {}",
+                pool_diff.pool_id.0 .0.to_hex(),
+                hex::encode(pool_diff.pool_id.0 .1.as_bytes()),
+            );
             if diff != 0 {
                 if let Some(account) =
                     find_lp_recv(pool_diff.lp_asset.into_token().unwrap(), pool_diff.pool_id, repr)
@@ -171,7 +178,11 @@ where
                             lp_supply: pool_diff.lp_supply,
                         })
                     });
+                } else {
+                    trace!("no account found for pool diff");
                 }
+            } else {
+                trace!("poll_diff == 0");
             }
         }
         None
@@ -333,7 +344,10 @@ where
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
-        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<FarmFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let reward_event = RewardOnChainEvent::try_from_ledger(repr, ctx)?;
@@ -474,6 +488,7 @@ pub struct WeightingPollOutput {
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for WeightingPollOutput
 where
     Cx: Has<GenesisEpochStartTime>
+        + Has<SplashPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<NetworkId>,
 {
@@ -483,6 +498,7 @@ where
             let timed_output_ref = TimedOutputRef::new(output_ref, Slot(repr.slot));
 
             let ctx = WPollCtx {
+                splash_policy: ctx.select::<SplashPolicy>(),
                 timed_output_ref,
                 epoch_start_time: ctx.select::<GenesisEpochStartTime>(),
                 script_info: ctx
@@ -549,10 +565,17 @@ where
 }
 
 struct WPollCtx {
+    splash_policy: SplashPolicy,
     epoch_start_time: GenesisEpochStartTime,
     timed_output_ref: TimedOutputRef,
     script_info: DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>,
     network_id: NetworkId,
+}
+
+impl Has<SplashPolicy> for WPollCtx {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+        self.splash_policy.clone()
+    }
 }
 
 impl Has<TimedOutputRef> for WPollCtx {

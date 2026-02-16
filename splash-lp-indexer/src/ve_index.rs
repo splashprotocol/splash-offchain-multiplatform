@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use cml_crypto::RawBytesEncoding;
 use rocksdb::OptimisticTransactionDB;
 use spectrum_offchain_cardano::data::PoolId;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
@@ -38,7 +39,9 @@ impl VoteEscrowIndex for VoteEscrowDB {
     async fn bind_gauge(&self, gauge_id: FarmId, pool_id: PoolId) {
         let db = self.db.clone();
         spawn_blocking(move || {
-            db.put(gauge_id.0.as_bytes(), Vec::from(pool_id)).unwrap();
+            let mut bytes = pool_id.0 .0.to_raw_bytes().to_vec();
+            bytes.extend(pool_id.0 .1.as_bytes());
+            db.put(gauge_id.0.as_bytes(), bytes).unwrap();
         })
         .await
         .unwrap()

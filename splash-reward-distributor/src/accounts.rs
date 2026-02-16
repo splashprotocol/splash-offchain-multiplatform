@@ -8,7 +8,7 @@ use splash_yf_offchain::Epoch;
 
 #[derive(Debug, Deserialize)]
 pub struct AccountReward {
-    pub accumulated_amount: u64,
+    pub amount: u64,
     pub latest_epoch_inclusive: Epoch,
 }
 

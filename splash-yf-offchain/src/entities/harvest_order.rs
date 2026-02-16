@@ -40,10 +40,23 @@ pub struct HarvestOrderCredential(Credential);
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrderDatum {
     /// Key that signs harvest
-    account_key: Ed25519KeyHash,
+    pub account_key: Ed25519KeyHash,
     /// Where the reward should be sent
-    reward_receiver: PlutusAddress,
-    distribution_agent_key: Ed25519KeyHash,
+    pub reward_receiver: PlutusAddress,
+    pub distribution_agent_key: Ed25519KeyHash,
+}
+
+impl IntoPlutusData for HarvestOrderDatum {
+    fn into_pd(self) -> PlutusData {
+        let account_key = PlutusData::new_bytes(self.account_key.to_raw_bytes().to_vec());
+        let reward_receiver = self.reward_receiver.into_pd();
+        let distribution_agent_key =
+            PlutusData::new_bytes(self.distribution_agent_key.to_raw_bytes().to_vec());
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+            0,
+            vec![account_key, reward_receiver, distribution_agent_key],
+        ))
+    }
 }
 
 impl TryFromPData for HarvestOrderDatum {

@@ -11,12 +11,13 @@ use crate::engine::queue::{QueueCmd, StrikeTime, TaskQueue};
 use crate::engine::task::{Task, TaskId};
 use async_primitives::beacon::{Beacon, Once};
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
-use cml_crypto::TransactionHash;
+use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use futures::channel::mpsc::Receiver;
 use futures::{Stream, StreamExt};
+use log::trace;
 use serde::Deserialize;
 use splash_dao_offchain::routines::Slot;
-use splash_yf_offchain::entities::gauge::GaugeDeposits;
+use splash_yf_offchain::entities::gauge::GaugeCharge;
 use splash_yf_offchain::events::OnChainEvent;
 use std::fmt::Debug;
 use std::future::Future;
@@ -26,8 +27,10 @@ use std::task::{Context, Poll};
 use tokio::time::Sleep;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EngineConfig {
     buffering_threshold: u64,
+    verifier_key_hash: Ed25519KeyHash,
 }
 
 pub struct Engine<U, Q, E> {
@@ -71,9 +74,9 @@ impl<U, Q, E> Engine<U, Q, E> {
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q, E> Future for Engine<U, Q, E>
+impl<GaugeId, StateId, Bearer, U, Q, E> Stream for Engine<U, Q, E>
 where
-    GaugeId: Copy + Into<TaskId> + Unpin + Send + 'static,
+    GaugeId: Copy + Debug + Into<TaskId> + Unpin + Send + 'static,
     StateId: Copy + Into<TaskId> + Unpin + Send + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<
@@ -89,15 +92,16 @@ where
         + Send
         + 'static,
 {
-    type Output = ();
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+    type Item = ();
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<()>> {
         loop {
             if let Some(mut task) = self.current_task.as_mut() {
                 if let Poll::Ready(cf) = Future::poll(Pin::new(&mut task), cx) {
                     self.current_task = None;
-                    if cf.is_break() {
-                        break;
-                    }
+                    return Poll::Ready(Some(()));
+                    //if cf.is_break() {
+                    //    break;
+                    //}
                 }
             }
 
@@ -105,20 +109,21 @@ where
             if let Poll::Ready(Some((events, tx))) = Stream::poll_next(Pin::new(&mut self.event_stream), cx) {
                 let conf = self.conf;
                 self.block_on(process_events(queue, events, tx, conf));
-                continue;
+                return Poll::Ready(Some(()));
             }
 
             if let Poll::Ready(Some(tx_hash)) =
                 Stream::poll_next(Pin::new(&mut self.dropped_unconfirmed_tx_hashes_recv), cx)
             {
                 self.block_on(reschedule_tasks_from_dropped_tx(tx_hash, queue));
-                continue;
+                return Poll::Ready(Some(()));
             }
 
             // Wait until initial tx TTL delay is resolved (CompleteDataLoss stressor).
             if let Some(mut initial_tx_ttl_delay) = self.initial_tx_ttl_delay.take() {
                 if Future::poll(Pin::new(&mut initial_tx_ttl_delay), cx).is_pending() {
                     self.initial_tx_ttl_delay = Some(initial_tx_ttl_delay);
+                } else {
                     continue;
                 }
             }
@@ -127,16 +132,22 @@ where
             if let Some(mut blocker) = self.blocker.take() {
                 if Future::poll(Pin::new(&mut blocker), cx).is_pending() {
                     self.blocker = Some(blocker);
-                    continue;
+                } else {
+                    return Poll::Ready(Some(()));
                 }
             }
 
-            if !self.state_synced.read() {
+            if !self.state_synced.read() && self.blocker.is_none() {
                 self.blocker = Some(self.state_synced.once(true));
                 continue;
             }
-            let executor = self.executor.clone();
-            self.block_on(process_tasks(queue, executor));
+
+            if self.current_task.is_none() && self.blocker.is_none() {
+                let executor = self.executor.clone();
+                let verifier_key_hash = self.conf.verifier_key_hash;
+                self.block_on(process_tasks(queue, executor, verifier_key_hash));
+            }
+            break;
         }
         Poll::Pending
     }
@@ -149,7 +160,7 @@ async fn process_events<GaugeId, StateId, Bearer, Q>(
     conf: EngineConfig,
 ) -> ControlFlow<(), ()>
 where
-    GaugeId: Copy + Into<TaskId>,
+    GaugeId: Copy + Into<TaskId> + Debug,
     StateId: Copy + Into<TaskId>,
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
 {
@@ -199,23 +210,23 @@ where
                         .chain(std::iter::once(QueueCmd::ConfirmTx(tx_hash, Slot(block_slot))))
                         .collect(),
                 ),
-                OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => Some(
-                    updated_gauges
-                        .into_iter()
-                        .filter_map(|(gauge_update, _)| {
-                            if gauge_update.created.0.balance >= conf.buffering_threshold {
-                                let gauge_id = gauge_update.created.0.id;
-                                return Some(QueueCmd::Schedule(
-                                    gauge_id.into(),
-                                    Task::new_gauge_buffering(gauge_id),
-                                    StrikeTime::Ready,
-                                ));
-                            }
-                            None
-                        })
-                        .collect(),
-                ),
-                OnChainEvent::AuthManagerUpdated(_) | OnChainEvent::Funding { .. } => None,
+                OnChainEvent::ChargeGauges(GaugeCharge { gauge_update, .. }) => {
+                    Some(if gauge_update.created.0.balance >= conf.buffering_threshold {
+                        let gauge_id = gauge_update.created.0.id;
+                        trace!("Scheduling gauge-buffering for gauge {:?}", gauge_id);
+                        vec![QueueCmd::Schedule(
+                            gauge_id.into(),
+                            Task::new_gauge_buffering(gauge_id),
+                            StrikeTime::Ready,
+                        )]
+                    } else {
+                        vec![]
+                    })
+                }
+                OnChainEvent::AuthManagerUpdated(_)
+                | OnChainEvent::Funding { .. }
+                | OnChainEvent::CreateGauge(_)
+                | OnChainEvent::CreateBufferWalletAndAuthManager { .. } => None,
             })
             .flatten()
             .chain(vec![QueueCmd::AdvanceClocks(block_slot)])
@@ -269,19 +280,18 @@ where
                         .collect(),
                 ),
 
-                OnChainEvent::DepositToGauges(GaugeDeposits(updated_gauges)) => Some(
-                    updated_gauges
-                        .into_iter()
-                        .filter_map(|(gauge_update, _)| {
-                            if gauge_update.created.0.balance >= conf.buffering_threshold {
-                                let task_id = gauge_update.created.0.id.into();
-                                return Some(QueueCmd::Cancel(task_id));
-                            }
-                            None
-                        })
-                        .collect(),
-                ),
-                OnChainEvent::AuthManagerUpdated(_) | OnChainEvent::Funding { .. } => None,
+                OnChainEvent::ChargeGauges(GaugeCharge { gauge_update, .. }) => {
+                    Some(if gauge_update.created.0.balance >= conf.buffering_threshold {
+                        let task_id = gauge_update.created.0.id.into();
+                        vec![QueueCmd::Cancel(task_id)]
+                    } else {
+                        vec![]
+                    })
+                }
+                OnChainEvent::AuthManagerUpdated(_)
+                | OnChainEvent::Funding { .. }
+                | OnChainEvent::CreateGauge(_)
+                | OnChainEvent::CreateBufferWalletAndAuthManager { .. } => None,
             })
             .flatten()
             .chain(vec![QueueCmd::DowngradeClocks(block_slot)])
@@ -292,7 +302,11 @@ where
     ControlFlow::Continue(())
 }
 
-async fn process_tasks<GaugeId, StateId, Q, E>(queue: Q, mut executor: E) -> ControlFlow<(), ()>
+async fn process_tasks<GaugeId, StateId, Q, E>(
+    queue: Q,
+    mut executor: E,
+    verifier_key_hash: Ed25519KeyHash,
+) -> ControlFlow<(), ()>
 where
     Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Clone,
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, TransactionHash, ExecutorError>,
@@ -319,10 +333,11 @@ where
         }
         break;
     }
-    match executor.execute().await {
+    match executor.execute(verifier_key_hash).await {
         Ok(res) => {
             let tx_hash = res.output;
 
+            trace!("Executed tasks: {:?}", res);
             let commands = res
                 .executed_tasks
                 .into_iter()
@@ -334,7 +349,9 @@ where
                 )
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel));
 
+            trace!("Commands: {:?}", commands);
             queue.batch_execute(commands.collect()).await;
+            trace!("Commands executed");
         }
         Err(ExecutorError::TxInputsAlreadySpent { failed_task_ids }) => {
             let commands = failed_task_ids
@@ -348,6 +365,9 @@ where
                 .chain(invalid_tasks.into_iter().map(QueueCmd::Cancel))
                 .collect();
             queue.batch_execute(commands).await;
+        }
+        Err(ExecutorError::NoHarvestOrderFound) => {
+            trace!("No harvest order found, skipping execution");
         }
         Err(_) => (),
     }

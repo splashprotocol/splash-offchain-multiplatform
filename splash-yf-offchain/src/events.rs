@@ -1,13 +1,14 @@
 use crate::entities::auth_manager::AuthManager;
 use crate::entities::buffer_wallet::{BufferWallet, BufferWalletUpdate};
 use crate::entities::funding_box::ConfirmedFundingBoxChanges;
-use crate::entities::gauge::{GaugeDeposits, GaugeWithdrawals, UpdatedGauges};
+use crate::entities::gauge::{Gauge, GaugeCharge, GaugeWithdrawals, UpdatedGauges};
 use crate::entities::harvest_order::{get_consumed_harvest_orders, try_new_harvest_request, HarvestOrder};
 use crate::entities::{
     BufferWalletSplashBalanceChange, BufferWalletSplashTokenDecrease, BufferWalletSplashTokenIncrease,
 };
 use crate::settings::MinLovelacePerHarvest;
 use cml_crypto::TransactionHash;
+use log::trace;
 use serde::de;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -18,7 +19,9 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::constants::SPLASH_NAME;
-use splash_dao_offchain::protocol_config::{BufferWalletAuthPolicy, OperatorCreds, SplashPolicy};
+use splash_dao_offchain::protocol_config::{
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, SplashPolicy,
+};
 use splash_dao_offchain::routines::Slot;
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_dao_offchain::{
@@ -43,7 +46,13 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
         buffer_wallet_deposited_amount: BufferWalletSplashTokenIncrease,
         tx_hash: TransactionHash,
     },
-    DepositToGauges(GaugeDeposits<GaugeId, StateId, Bearer>),
+    CreateGauge(EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>),
+    CreateBufferWalletAndAuthManager {
+        buffer_wallet_update: BufferWalletUpdate<StateId, Bearer>,
+        auth_manager_update: EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>,
+    },
+    /// Gauges are charged by the DAO-bot at the end of each epoch.
+    ChargeGauges(GaugeCharge<GaugeId, StateId, Bearer>),
     AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
     NewHarvestRequest(HarvestOrder<StateId>, Bearer),
     HarvestRequestCancelled(Vec<StateId>),
@@ -62,11 +71,14 @@ where
         + Has<SplashPolicy>
         + Has<OperatorCreds>
         + Has<PermManagerAuthPolicy>
+        + Has<FarmFactoryAuthPolicy>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::FarmFactory as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::BufferWallet as u8 }>>
         + Has<BufferWalletAuthPolicy>
         + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>
-        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>,
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::PermManager as u8 }>>
+        + Has<DeployedScriptInfo<{ DaoProtocolValidator::MintWpAuthPolicy as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, FinalizedTxOut>;
@@ -80,6 +92,14 @@ where
 
         // Make sure to process inputs first for harvest orders
         if let Some(buffer_wallet_update) = BufferWalletUpdate::try_from_ledger(repr, ctx) {
+            if buffer_wallet_update.update.consumed.is_none() {
+                let auth_manager_update = AuthManagerUpdate::try_from_ledger(repr, ctx)?;
+                return Some(OnChainEvent::CreateBufferWalletAndAuthManager {
+                    buffer_wallet_update,
+                    auth_manager_update,
+                });
+            }
+
             let tx_hash = repr.hash;
             if !consumed_harvest_orders.is_empty() {
                 // Batch harvesting tx
@@ -110,9 +130,7 @@ where
                 })
             } else {
                 // gauge-buffering tx
-                let Some(gauge_updates) = UpdatedGauges::try_from_ledger(repr, ctx) else {
-                    unreachable!("Can't update buffer wallet with no harvest orders nor any gauge updates");
-                };
+                let gauge_updates = UpdatedGauges::try_from_ledger(repr, ctx)?;
                 if let UpdatedGauges::Withdrawals(drained_gauges) = gauge_updates {
                     let BufferWalletSplashBalanceChange::Increase(deposited_amount) =
                         buffer_wallet_update.balance_change
@@ -142,10 +160,13 @@ where
         } else if let Some((new_harvest_order, output)) = try_new_harvest_request(repr, ctx) {
             Some(OnChainEvent::NewHarvestRequest(new_harvest_order, output))
         } else if let Some(updated_gauges) = UpdatedGauges::try_from_ledger(repr, ctx) {
-            let UpdatedGauges::Deposits(deposits) = updated_gauges else {
-                unreachable!("Gauge updates are not deposits");
-            };
-            Some(OnChainEvent::DepositToGauges(deposits))
+            match updated_gauges {
+                UpdatedGauges::Create(create_gauge) => Some(OnChainEvent::CreateGauge(create_gauge)),
+                UpdatedGauges::Charge(deposits) => Some(OnChainEvent::ChargeGauges(deposits)),
+                UpdatedGauges::Withdrawals(_) => {
+                    unreachable!("Gauge updates are not deposits");
+                }
+            }
         } else if let Some(updated_auth_manager) = AuthManagerUpdate::try_from_ledger(repr, ctx) {
             Some(OnChainEvent::AuthManagerUpdated(updated_auth_manager))
         } else {

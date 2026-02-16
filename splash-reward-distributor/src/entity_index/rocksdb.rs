@@ -390,11 +390,6 @@ where
 
     async fn write_confirmed_harvest_order(&self, order: Confirmed<Bundled<HarvestOrder<StateId>, Bearer>>) {
         let id = order.0 .0.id;
-        assert!(
-            <IndexerDB as OnChainIndex<Bearer>>::read::<HarvestOrderWrap<StateId>>(self, id)
-                .await
-                .is_none()
-        );
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();

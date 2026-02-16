@@ -1,7 +1,7 @@
 use crate::engine::verifier::AuthorizedExecutors;
 use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::certs::Credential;
-use cml_crypto::{Ed25519KeyHash, ScriptHash};
+use cml_crypto::{Ed25519KeyHash, PrivateKey, ScriptHash};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
@@ -11,7 +11,7 @@ use splash_dao_offchain::deployment::{
     ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens, ProtocolValidator::*,
 };
 use splash_dao_offchain::protocol_config::{
-    BufferWalletAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+    BufferWalletAuthPolicy, FarmFactoryAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
 };
 use splash_dao_offchain::GenesisEpochStartTime;
 use splash_yf_offchain::settings::MinLovelacePerHarvest;
@@ -28,6 +28,7 @@ pub struct VerifierRuntimeContext {
     pub genesis_epoch_start_time: GenesisEpochStartTime,
     pub authorized_executors: AuthorizedExecutors,
     pub reward_tx_ttl: RewardTxTtl,
+    pub operator_sk: String,
 }
 
 has_deployed_validator!(
@@ -39,6 +40,26 @@ has_deployed_script_info!(
     SmartFarm,
     VerifierRuntimeContext,
     |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.smart_farm).into()
+);
+has_deployed_validator!(
+    FarmFactory,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| ctx.dao_deployment.farm_factory.clone()
+);
+has_deployed_script_info!(
+    FarmFactory,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.farm_factory).into()
+);
+has_deployed_validator!(
+    MintWpAuthPolicy,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| ctx.dao_deployment.mint_wpauth_token.clone()
+);
+has_deployed_script_info!(
+    MintWpAuthPolicy,
+    VerifierRuntimeContext,
+    |ctx: &VerifierRuntimeContext| (&ctx.dao_deployment.mint_wpauth_token).into()
 );
 has_deployed_validator!(
     HarvestOrder,
@@ -102,6 +123,12 @@ impl Has<PermManagerAuthPolicy> for VerifierRuntimeContext {
     }
 }
 
+impl Has<FarmFactoryAuthPolicy> for VerifierRuntimeContext {
+    fn select<U: IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
+        FarmFactoryAuthPolicy(self.dao_tokens.factory_auth.policy_id)
+    }
+}
+
 impl Has<GenesisEpochStartTime> for VerifierRuntimeContext {
     fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
         self.genesis_epoch_start_time
@@ -117,12 +144,15 @@ impl Has<AuthorizedExecutors> for VerifierRuntimeContext {
 /// Provide dummy operator credentials here to satisfy trait bounds in `event_pipeline()`
 impl Has<OperatorCreds> for VerifierRuntimeContext {
     fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
-        let dummy_key_hash = Ed25519KeyHash::from([0_u8; 28]);
-        let dummy_address = Address::Enterprise(EnterpriseAddress::new(
-            self.network_id.into(),
-            Credential::new_pub_key(dummy_key_hash),
-        ));
-        OperatorCreds(dummy_key_hash, dummy_address)
+        let (operator_cred, _, funding_addresses) = operator_creds(&self.operator_sk, self.network_id);
+        OperatorCreds(operator_cred.0, funding_addresses.index(0).clone())
+    }
+}
+
+impl Has<PrivateKey> for VerifierRuntimeContext {
+    fn select<U: IsEqual<PrivateKey>>(&self) -> PrivateKey {
+        let bip32_key = cml_crypto::Bip32PrivateKey::from_bech32(self.operator_sk.as_str()).unwrap();
+        bip32_key.to_raw_key()
     }
 }
 
@@ -139,7 +169,6 @@ impl Has<RewardTxTtl> for VerifierRuntimeContext {
 #[derive(Clone)]
 pub struct RewardBotRuntimeContext {
     pub verifier_runtime_context: VerifierRuntimeContext,
-    pub operator_sk: String,
     pub collateral: Collateral,
 }
 
@@ -151,9 +180,20 @@ impl Has<Collateral> for RewardBotRuntimeContext {
 
 impl Has<OperatorCreds> for RewardBotRuntimeContext {
     fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
-        let (operator_cred, _, funding_addresses) =
-            operator_creds(&self.operator_sk, self.verifier_runtime_context.network_id);
+        let (operator_cred, _, funding_addresses) = operator_creds(
+            &self.verifier_runtime_context.operator_sk,
+            self.verifier_runtime_context.network_id,
+        );
         OperatorCreds(operator_cred.0, funding_addresses.index(0).clone())
+    }
+}
+
+impl Has<PrivateKey> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<PrivateKey>>(&self) -> PrivateKey {
+        let bip32_key =
+            cml_crypto::Bip32PrivateKey::from_bech32(self.verifier_runtime_context.operator_sk.as_str())
+                .unwrap();
+        bip32_key.to_raw_key()
     }
 }
 
@@ -166,6 +206,30 @@ has_deployed_script_info!(
     SmartFarm,
     RewardBotRuntimeContext,
     |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.smart_farm).into()
+);
+has_deployed_validator!(
+    FarmFactory,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| ctx.verifier_runtime_context.dao_deployment.farm_factory.clone()
+);
+has_deployed_script_info!(
+    FarmFactory,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.farm_factory).into()
+);
+has_deployed_validator!(
+    MintWpAuthPolicy,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| ctx
+        .verifier_runtime_context
+        .dao_deployment
+        .mint_wpauth_token
+        .clone()
+);
+has_deployed_script_info!(
+    MintWpAuthPolicy,
+    RewardBotRuntimeContext,
+    |ctx: &RewardBotRuntimeContext| (&ctx.verifier_runtime_context.dao_deployment.mint_wpauth_token).into()
 );
 has_deployed_validator!(
     HarvestOrder,
@@ -225,6 +289,12 @@ impl Has<SplashPolicy> for RewardBotRuntimeContext {
 impl Has<PermManagerAuthPolicy> for RewardBotRuntimeContext {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.verifier_runtime_context.dao_tokens.perm_auth.policy_id)
+    }
+}
+
+impl Has<FarmFactoryAuthPolicy> for RewardBotRuntimeContext {
+    fn select<U: IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
+        FarmFactoryAuthPolicy(self.verifier_runtime_context.dao_tokens.factory_auth.policy_id)
     }
 }
 
