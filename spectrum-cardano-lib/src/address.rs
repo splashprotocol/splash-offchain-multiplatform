@@ -69,7 +69,7 @@ impl From<PlutusCredential> for Credential {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InlineCredential(PlutusCredential);
+pub struct InlineCredential(pub PlutusCredential);
 
 impl InlineCredential {
     pub fn script_hash(self) -> Option<ScriptHash> {

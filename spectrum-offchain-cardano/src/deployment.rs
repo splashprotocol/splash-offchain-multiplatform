@@ -626,6 +626,91 @@ impl ProtocolDeployment {
             .await,
         }
     }
+
+    #[cfg(test)]
+    pub fn mock_from_validators(validators: &DeployedValidators) -> Self {
+        use cml_chain::address::Address;
+        use cml_chain::assets::AssetBundle;
+        use cml_chain::transaction::{ConwayFormatTxOut, TransactionInput, TransactionOutput};
+        use cml_chain::Value;
+
+        fn mock_utxo(tx_hash: TransactionHash, output_index: u64) -> TransactionUnspentOutput {
+            let input = TransactionInput {
+                transaction_id: tx_hash,
+                index: output_index,
+                encodings: None,
+            };
+            let output = TransactionOutput::ConwayFormatTxOut(ConwayFormatTxOut {
+                address: Address::from_bech32(
+                    "addr1z8d70g7c58vznyye9guwagdza74x36f3uff0eyk2zwpcpxmha8dg8af2w4umay478pg92nzy3643k89rwd8dyqd5sjgspt95mw",
+                )
+                .unwrap(),
+                amount: Value::new(5_000_000, AssetBundle::new()),
+                datum_option: None,
+                script_reference: None,
+                encodings: None,
+            });
+            TransactionUnspentOutput { input, output }
+        }
+
+        fn mock_validator<const TYP: u8>(v: &DeployedValidatorRef) -> DeployedValidator<TYP> {
+            let reference_utxo = mock_utxo(v.reference_utxo.tx_hash, v.reference_utxo.output_index);
+            DeployedValidator {
+                reference_utxo,
+                hash: v.hash,
+                cost: v.cost,
+                marginal_cost: v.marginal_cost.unwrap_or(ExUnits::empty()),
+            }
+        }
+
+        Self {
+            limit_order_witness: mock_validator(&validators.limit_order_witness),
+            limit_order: mock_validator(&validators.limit_order),
+            instant_order_witness: mock_validator(&validators.instant_order_witness),
+            instant_order: mock_validator(&validators.instant_order),
+            grid_order_native: mock_validator(&validators.grid_order_native),
+            const_fn_pool_v1: mock_validator(&validators.const_fn_pool_v1),
+            const_fn_pool_v2: mock_validator(&validators.const_fn_pool_v2),
+            const_fn_pool_fee_switch: mock_validator(&validators.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_v2: mock_validator(&validators.const_fn_pool_fee_switch_v2),
+            const_fn_pool_fee_switch_bidir_fee: mock_validator(
+                &validators.const_fn_pool_fee_switch_bidir_fee,
+            ),
+            const_fn_pool_swap: mock_validator(&validators.const_fn_pool_swap),
+            const_fn_pool_deposit: mock_validator(&validators.const_fn_pool_deposit),
+            const_fn_pool_redeem: mock_validator(&validators.const_fn_pool_redeem),
+            const_fn_fee_switch_pool_swap: mock_validator(&validators.const_fn_fee_switch_pool_swap),
+            const_fn_fee_switch_pool_deposit: mock_validator(&validators.const_fn_fee_switch_pool_deposit),
+            const_fn_fee_switch_pool_redeem: mock_validator(&validators.const_fn_fee_switch_pool_redeem),
+            balance_fn_pool_v1: mock_validator(&validators.balance_fn_pool_v1),
+            balance_fn_pool_v2: mock_validator(&validators.balance_fn_pool_v2),
+            balance_fn_pool_deposit: mock_validator(&validators.balance_fn_pool_deposit),
+            balance_fn_pool_redeem: mock_validator(&validators.balance_fn_pool_redeem),
+            stable_fn_pool_t2t: mock_validator(&validators.stable_fn_pool_t2t),
+            stable_fn_pool_t2t_deposit: mock_validator(&validators.stable_fn_pool_t2t_deposit),
+            stable_fn_pool_t2t_redeem: mock_validator(&validators.stable_fn_pool_t2t_redeem),
+            royalty_pool: mock_validator(&validators.royalty_pool),
+            royalty_pool_ledger_fixed: mock_validator(&validators.royalty_pool_ledger_fixed),
+            royalty_pool_v2: mock_validator(&validators.royalty_pool_v2),
+            royalty_pool_deposit: mock_validator(&validators.royalty_pool_deposit),
+            royalty_pool_deposit_v2: mock_validator(&validators.royalty_pool_deposit_v2),
+            royalty_pool_redeem: mock_validator(&validators.royalty_pool_redeem),
+            royalty_pool_redeem_v2: mock_validator(&validators.royalty_pool_redeem_v2),
+            royalty_pool_royalty_withdraw_request: mock_validator(&validators.royalty_pool_withdraw_request),
+            royalty_pool_v2_royalty_withdraw_request: mock_validator(
+                &validators.royalty_pool_v2_withdraw_request,
+            ),
+            royalty_pool_dao_request: mock_validator(&validators.royalty_pool_dao_request),
+            royalty_pool_v2_dao_request: mock_validator(&validators.royalty_pool_v2_dao_request),
+            royalty_pool_dao: mock_validator(&validators.royalty_pool_dao_contract),
+            royalty_pool_v2_dao: mock_validator(&validators.royalty_pool_dao_contract_v2),
+            royalty_pool_withdraw: mock_validator(&validators.royalty_pool_withdraw_contract),
+            royalty_pool_withdraw_ledger_fixed: mock_validator(
+                &validators.royalty_pool_withdraw_contract_ledger_fixed,
+            ),
+            royalty_pool_withdraw_v2: mock_validator(&validators.royalty_pool_withdraw_contract_v2),
+        }
+    }
 }
 
 pub trait RequiresValidator<Ctx> {

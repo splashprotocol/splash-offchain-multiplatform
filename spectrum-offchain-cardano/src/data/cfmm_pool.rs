@@ -32,7 +32,9 @@ use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::data::cfmm_pool::classic_pool::ClassicPool;
-use crate::data::cfmm_pool::fee_switch_pool::{unsafe_update_pd_fee_switch, FeeSwitchPool};
+use crate::data::cfmm_pool::fee_switch_pool::{
+    unsafe_update_pd_fee_switch, unsafe_update_pd_fee_switch_bidir, FeeSwitchPool, FeeSwitchPoolVer,
+};
 use crate::data::cfmm_pool::royalty_pool::{
     unsafe_update_pd_royalty, unsafe_update_pd_royalty_v2, RoyaltyPool, RoyaltyPoolVer,
 };
@@ -191,11 +193,23 @@ impl ConstFnPool {
 
     pub fn unsafe_datum_update(&self, raw_datum: &mut PlutusData) {
         match self {
-            ConstFnPool::FeeSwitch(fee_switch) => unsafe_update_pd_fee_switch(
-                raw_datum,
-                fee_switch.treasury_x.untag(),
-                fee_switch.treasury_y.untag(),
-            ),
+            ConstFnPool::FeeSwitch(fee_switch) => match fee_switch.ver {
+                FeeSwitchPoolVer::V1 | FeeSwitchPoolVer::V2 => unsafe_update_pd_fee_switch(
+                    raw_datum,
+                    *fee_switch.lp_fee_x.numer(),
+                    *fee_switch.treasury_fee.numer(),
+                    fee_switch.treasury_x.untag(),
+                    fee_switch.treasury_y.untag(),
+                ),
+                FeeSwitchPoolVer::BiDirV1 => unsafe_update_pd_fee_switch_bidir(
+                    raw_datum,
+                    *fee_switch.lp_fee_x.numer(),
+                    *fee_switch.lp_fee_y.numer(),
+                    *fee_switch.treasury_fee.numer(),
+                    fee_switch.treasury_x.untag(),
+                    fee_switch.treasury_y.untag(),
+                ),
+            },
             ConstFnPool::Royalty(royalty_pool) => match royalty_pool.ver {
                 RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => unsafe_update_pd_royalty(
                     raw_datum,
@@ -702,6 +716,9 @@ where
         + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DAOContext>
         + Has<NetworkId>,
 {
@@ -717,6 +734,9 @@ where
             ConstFnPool::Royalty(r_pool) => r_pool
                 .apply_order(dao_request, ctx)
                 .map(|(pool, result)| (ConstFnPool::Royalty(pool), result)),
+            ConstFnPool::FeeSwitch(f_pool) => f_pool
+                .apply_order(dao_request, ctx)
+                .map(|(pool, result)| (ConstFnPool::FeeSwitch(pool), result)),
             _ => Err(ApplyOrderError::incompatible(dao_request)),
         }
     }

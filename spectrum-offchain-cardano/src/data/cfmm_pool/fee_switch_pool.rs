@@ -1,11 +1,20 @@
-use crate::constants::{FEE_DEN, MAX_LQ_CAP};
+use crate::constants::{FEE_DEN, MAX_LQ_CAP, POOL_OUT_IDX_IN};
 use crate::data::cfmm_pool::AMMOps;
+use crate::data::dao_request::DAOV1RequestVersion::V1;
+use crate::data::dao_request::{DAOContext, DaoAction, DaoRequestDataToSign, OnChainDAOActionRequest};
+use crate::data::operation_output::DaoActionResult::{RequestorOutput, TreasuryWithdraw};
+use crate::data::operation_output::OperationResultOutputs::SingleOutput;
+use crate::data::operation_output::{
+    ContexBasedRedeemerCreator, DaoActionResult, DaoRequestorOutput, OperationResultBlueprint,
+    OperationResultContext, OperationResultOutputs, TreasuryWithdrawOutput,
+};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
-use crate::data::pool::{ImmutablePoolUtxo, Lq, PoolValidation, Rx, Ry};
+use crate::data::pool::{ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolValidation, Rx, Ry};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2,
+    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, RoyaltyPoolDAOV1,
+    RoyaltyPoolDAOV1Request, RoyaltyPoolV2DAO, RoyaltyPoolV2DAOV1Request,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::{
@@ -19,16 +28,19 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use cml_chain::address::Address;
+use cml_chain::address::Address::Enterprise;
+use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::{Credential, StakeCredential};
-use cml_chain::plutus::PlutusData;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::Value;
-use cml_crypto::ScriptHash;
+use cml_core::serialization::{RawBytesEncoding, Serialize};
+use cml_crypto::{Ed25519Signature, PublicKey, ScriptHash};
 use num_rational::Ratio;
 use num_traits::{CheckedSub, ToPrimitive};
 use spectrum_cardano_lib::address::AddressExtension;
+use spectrum_cardano_lib::address::{PlutusAddress, PlutusCredential};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
@@ -36,11 +48,11 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
+use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use std::fmt::{Display, Formatter};
-use std::ops::Div;
+use std::ops::{Div, Neg};
 use void::Void;
 
 pub struct FeeSwitchPoolConfig {
@@ -103,10 +115,34 @@ impl TryFromPData for FeeSwitchBidirectionalPoolConfig {
     }
 }
 
-pub fn unsafe_update_pd_fee_switch(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+pub fn unsafe_update_pd_fee_switch(
+    data: &mut PlutusData,
+    lp_fee_num: u64,
+    treasury_fee_num: u64,
+    treasury_x: u64,
+    treasury_y: u64,
+) {
     let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(4, lp_fee_num.into_pd());
+    cpd.set_field(5, treasury_fee_num.into_pd());
     cpd.set_field(6, treasury_x.into_pd());
     cpd.set_field(7, treasury_y.into_pd());
+}
+
+pub fn unsafe_update_pd_fee_switch_bidir(
+    data: &mut PlutusData,
+    lp_fee_num_x: u64,
+    lp_fee_num_y: u64,
+    treasury_fee_num: u64,
+    treasury_x: u64,
+    treasury_y: u64,
+) {
+    let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(4, lp_fee_num_x.into_pd());
+    cpd.set_field(5, lp_fee_num_y.into_pd());
+    cpd.set_field(6, treasury_fee_num.into_pd());
+    cpd.set_field(7, treasury_x.into_pd());
+    cpd.set_field(8, treasury_y.into_pd());
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -359,6 +395,246 @@ where
             FeeSwitchPoolVer::BiDirV1 => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                 .erased(),
+        }
+    }
+}
+
+impl<Ctx> ApplyOrder<OnChainDAOActionRequest, Ctx> for FeeSwitchPool
+where
+    Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DAOContext>
+        + Has<NetworkId>,
+{
+    type Result = DaoActionResult;
+
+    fn apply_order(
+        mut self,
+        dao_request: OnChainDAOActionRequest,
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<DaoActionResult>), ApplyOrderError<OnChainDAOActionRequest>>
+    {
+        let dao_validator = if self.ver == FeeSwitchPoolVer::V1 {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>()
+                .erased()
+        } else {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>()
+                .erased()
+        };
+        let validator = if dao_request.order.version == V1 {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>()
+                .erased()
+        } else {
+            ctx.select::<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>()
+                .erased()
+        };
+
+        let pool_validator_hash = match self.ver {
+            FeeSwitchPoolVer::V1 => {
+                ctx.select::<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>()
+                    .hash
+            }
+            FeeSwitchPoolVer::V2 => {
+                ctx.select::<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>()
+                    .hash
+            }
+            FeeSwitchPoolVer::BiDirV1 => {
+                ctx.select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                    .hash
+            }
+        };
+        let dao_ctx: DAOContext = ctx.get();
+
+        let data_to_sign: DaoRequestDataToSign = DaoRequestDataToSign {
+            dao_action: dao_request.order.dao_action,
+            pool_nft: dao_request.order.pool_nft,
+            pool_fee: *dao_request.order.pool_fee.numer(),
+            treasury_fee: *dao_request.order.treasury_fee.numer(),
+            admin_address: vec![dao_request.order.admin_address.into()],
+            pool_address: PlutusAddress {
+                payment_cred: PlutusCredential::Script(pool_validator_hash),
+                stake_cred: dao_request.order.pool_stake_script_hash.map(Into::into),
+            },
+            treasury_address: dao_request.order.treasury_address,
+            treasury_x_delta: (dao_request.order.treasury_x_abs_delta.untag() as i64).neg(),
+            treasury_y_delta: (dao_request.order.treasury_y_abs_delta.untag() as i64).neg(),
+            pool_nonce: self.nonce,
+        };
+
+        let data_to_sign_raw = data_to_sign.clone().into_pd().to_cbor_bytes();
+
+        let data_to_sign_with_additional_bytes: Vec<Vec<u8>> = dao_request
+            .clone()
+            .order
+            .additional_bytes
+            .into_iter()
+            .map(|mut additional_bytes| {
+                let mut to_add = data_to_sign_raw.clone();
+                additional_bytes.append(&mut to_add);
+                additional_bytes
+            })
+            .collect();
+
+        let mut siq_qty = 0;
+
+        let correct_signatures_qty = dao_request
+            .clone()
+            .order
+            .signatures
+            .into_iter()
+            .zip::<Vec<[u8; 32]>>(dao_ctx.clone().public_keys.into())
+            .zip(data_to_sign_with_additional_bytes)
+            .fold(
+                0,
+                |correct_signatures, (signature_with_public_key, data_to_sign_for_user)| {
+                    siq_qty += 1;
+                    let (signature, public_key_raw) = signature_with_public_key;
+                    if let Some(public_key) = PublicKey::from_raw_bytes(&public_key_raw).ok() {
+                        if public_key.verify(&data_to_sign_for_user, &signature) {
+                            return correct_signatures + 1;
+                        }
+                    }
+                    correct_signatures
+                },
+            );
+
+        if correct_signatures_qty < dao_ctx.signature_threshold {
+            return Err(ApplyOrderError::verification_failed(
+                dao_request.clone(),
+                format!(
+                    "Incorrect signature threshold. Correct signatures qty: {}. Threshold: {}",
+                    correct_signatures_qty, dao_ctx.signature_threshold
+                ),
+            ));
+        }
+
+        let network_id = ctx.select::<NetworkId>();
+        match dao_request.order.dao_action {
+            DaoAction::WithdrawTreasury => {
+                self.reserves_x = self
+                    .reserves_x
+                    .checked_sub(&dao_request.order.treasury_x_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
+                self.treasury_x = self
+                    .treasury_x
+                    .checked_sub(&dao_request.order.treasury_x_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
+                self.reserves_y = self
+                    .reserves_y
+                    .checked_sub(&dao_request.order.treasury_y_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
+                self.treasury_y = self
+                    .treasury_y
+                    .checked_sub(&dao_request.order.treasury_y_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?
+            }
+            DaoAction::ChangeStakePart => {
+                self.stake_part_script_hash = dao_request.order.pool_stake_script_hash
+            }
+            DaoAction::ChangeTreasuryFee => self.treasury_fee = dao_request.order.treasury_fee,
+            DaoAction::ChangeTreasuryAddress | DaoAction::ChangeAdminAddress => {}
+            DaoAction::ChangePoolFee => {
+                self.lp_fee_x = dao_request.order.pool_fee;
+                self.lp_fee_y = dao_request.order.pool_fee;
+            }
+        };
+
+        let requestor_output = RequestorOutput(DaoRequestorOutput {
+            lovelace_qty: dao_request
+                .order
+                .lovelace
+                .checked_sub(dao_request.order.fee)
+                .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?,
+            requestor_address: Enterprise(EnterpriseAddress::new(
+                network_id.into(),
+                Credential::new_pub_key(dao_request.order.requestor_pkh),
+            )),
+        });
+
+        self.nonce += 1;
+
+        let redeemer_creator = |pool_id: PoolId,
+                                signatures: Vec<Ed25519Signature>,
+                                additional_bytes: Vec<Vec<u8>>,
+                                dao_action: DaoAction| {
+            ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
+                PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                    0,
+                    vec![
+                        dao_action.into_pd(),
+                        context.pool_input_idx.into_pd(),
+                        POOL_OUT_IDX_IN.into_pd(),
+                        PlutusData::new_list(
+                            signatures
+                                .iter()
+                                .map(|signature| {
+                                    PlutusData::new_bytes(signature.clone().to_raw_bytes().to_vec())
+                                })
+                                .collect(),
+                        ),
+                        PlutusData::new_list(
+                            additional_bytes
+                                .iter()
+                                .map(|additional_bytes_to_add| {
+                                    PlutusData::new_bytes(additional_bytes_to_add.clone())
+                                })
+                                .collect(),
+                        ),
+                    ],
+                ))
+            })
+        };
+
+        match dao_request.order.dao_action {
+            DaoAction::WithdrawTreasury => {
+                let treasury_withdraw = TreasuryWithdraw(TreasuryWithdrawOutput {
+                    token_x_asset: self.asset_x,
+                    token_x_amount: dao_request.order.treasury_x_abs_delta,
+                    token_y_asset: self.asset_y,
+                    token_y_amount: dao_request.order.treasury_y_abs_delta,
+                    ada_residue: 0,
+                    treasury_script_hash: dao_request.order.treasury_address,
+                });
+                Ok((
+                    self.clone(),
+                    OperationResultBlueprint {
+                        outputs: OperationResultOutputs::multiple(requestor_output, vec![treasury_withdraw]),
+                        witness_script: Some((
+                            dao_validator.clone(),
+                            redeemer_creator(
+                                self.id,
+                                dao_request.order.signatures,
+                                dao_request.order.additional_bytes,
+                                dao_request.order.dao_action,
+                            ),
+                        )),
+                        order_script_validator: validator,
+                        strict_fee: Some(dao_ctx.execution_fee),
+                    },
+                ))
+            }
+            _ => Ok((
+                self,
+                OperationResultBlueprint {
+                    outputs: SingleOutput(requestor_output),
+                    witness_script: Some((
+                        dao_validator.clone(),
+                        redeemer_creator(
+                            self.id,
+                            dao_request.order.signatures,
+                            dao_request.order.additional_bytes,
+                            dao_request.order.dao_action,
+                        ),
+                    )),
+                    order_script_validator: validator,
+                    strict_fee: Some(dao_ctx.execution_fee),
+                },
+            )),
         }
     }
 }
@@ -623,7 +899,23 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchPool {
         ma.set(nft_lq, name_nft.into(), 1);
 
         if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_pd_fee_switch(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            match self.ver {
+                FeeSwitchPoolVer::V1 | FeeSwitchPoolVer::V2 => unsafe_update_pd_fee_switch(
+                    datum,
+                    *self.lp_fee_x.numer(),
+                    *self.treasury_fee.numer(),
+                    self.treasury_x.untag(),
+                    self.treasury_y.untag(),
+                ),
+                FeeSwitchPoolVer::BiDirV1 => unsafe_update_pd_fee_switch_bidir(
+                    datum,
+                    *self.lp_fee_x.numer(),
+                    *self.lp_fee_y.numer(),
+                    *self.treasury_fee.numer(),
+                    self.treasury_x.untag(),
+                    self.treasury_y.untag(),
+                ),
+            }
         }
 
         if let Some(stake_part_script_hash) = self.stake_part_script_hash {
