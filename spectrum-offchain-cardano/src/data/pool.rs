@@ -40,7 +40,9 @@ use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::operation_output::{OperationResultBlueprint, OperationResultOutputs};
-use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, OrderPoolOutputIndex, Quote};
+use crate::data::order::{
+    ClassicalOrderAction, ClassicalOrderRedeemer, OrderPoolOutputIndex, OrderRewardOutputIndex, Quote,
+};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
 use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
@@ -491,7 +493,7 @@ where
         + RequiresRedeemer<CFMMPoolAction>
         + Copy,
     <Pool as ApplyOrder<Order, Ctx>>::Result: IntoLedger<TransactionOutput, Ctx> + Clone,
-    Order: Has<OnChainOrderId> + Clone + Debug + OrderPoolOutputIndex,
+    Order: Has<OnChainOrderId> + Clone + Debug + OrderPoolOutputIndex + OrderRewardOutputIndex,
     Order: Into<CFMMPoolAction>,
     Ctx: Clone + Has<Collateral> + Has<OperatorRewardAddress> + Has<NetworkId>,
 {
@@ -512,7 +514,7 @@ where
     let order_redeemer = ClassicalOrderRedeemer {
         pool_input_index: pool_in_idx,
         order_input_index: order_in_idx,
-        output_index: Order::pool_output_index(),
+        output_index: Order::reward_output_index(),
         action: ClassicalOrderAction::Apply,
     };
 

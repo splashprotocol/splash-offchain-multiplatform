@@ -113,6 +113,42 @@ impl OrderPoolOutputIndex for OnChainDAOActionRequest {
     }
 }
 
+/// Index of the requestor/reward output for the order validator (rewardOutIx).
+/// Outputs layout: pool at 0, requestor at 1, then sub-outputs.
+pub trait OrderRewardOutputIndex {
+    fn reward_output_index() -> u64;
+}
+
+impl OrderRewardOutputIndex for ClassicalOnChainDeposit {
+    fn reward_output_index() -> u64 {
+        1
+    }
+}
+
+impl OrderRewardOutputIndex for ClassicalOnChainRedeem {
+    fn reward_output_index() -> u64 {
+        1
+    }
+}
+
+impl OrderRewardOutputIndex for OnChainRoyaltyWithdraw {
+    fn reward_output_index() -> u64 {
+        1
+    }
+}
+
+impl OrderRewardOutputIndex for OnChainDAOActionRequest {
+    fn reward_output_index() -> u64 {
+        1
+    }
+}
+
+impl OrderRewardOutputIndex for Order {
+    fn reward_output_index() -> u64 {
+        1
+    }
+}
+
 pub struct ClassicalOrderRedeemer {
     pub pool_input_index: u64,
     pub order_input_index: u64,
