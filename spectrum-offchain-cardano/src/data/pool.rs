@@ -224,6 +224,7 @@ impl<Order> From<VerificationFailed<Order>> for RunOrderError<Order> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum CFMMPoolAction {
     Swap,
     Deposit,
@@ -412,12 +413,12 @@ pub trait RequiresRedeemer<Action> {
 }
 
 impl RequiresRedeemer<CFMMPoolAction> for ConstFnPool {
-    fn redeemer(self, _: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
+    fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
         CFMMPoolRedeemer {
             pool_input_index,
             action,
         }
-        .to_plutus_data()
+        .to_plutus_data_for_pool(&prev_state)
     }
 }
 

@@ -257,6 +257,19 @@ impl CFMMPoolRedeemer {
         let self_ix_pd = PlutusData::Integer(BigInteger::from(self.pool_input_index));
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
     }
+
+    /// PPool (FeeSwitch/Classic): DAOAction=4. PRoyaltyPool: DAOAction=3, RoyaltyWithdraw=4.
+    pub fn to_plutus_data_for_pool(self, pool: &ConstFnPool) -> PlutusData {
+        use crate::data::pool::CFMMPoolAction;
+        let action_pd = match (pool, self.action) {
+            (ConstFnPool::FeeSwitch(_) | ConstFnPool::Classic(_), CFMMPoolAction::DAOAction) => {
+                PlutusData::Integer(BigInteger::from(4))
+            }
+            _ => self.action.to_plutus_data(),
+        };
+        let self_ix_pd = PlutusData::Integer(BigInteger::from(self.pool_input_index));
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
+    }
 }
 
 pub trait AMMOps {
