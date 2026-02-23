@@ -82,6 +82,37 @@ impl ClassicalOrderAction {
     }
 }
 
+/// Index of the pool output in the transaction.
+/// DAO and RoyaltyWithdraw validators validate the pool output (index 0).
+/// Deposit and Redeem validators use index 1 (first non-pool output).
+pub trait OrderPoolOutputIndex {
+    fn pool_output_index() -> u64;
+}
+
+impl OrderPoolOutputIndex for ClassicalOnChainDeposit {
+    fn pool_output_index() -> u64 {
+        1
+    }
+}
+
+impl OrderPoolOutputIndex for ClassicalOnChainRedeem {
+    fn pool_output_index() -> u64 {
+        1
+    }
+}
+
+impl OrderPoolOutputIndex for OnChainRoyaltyWithdraw {
+    fn pool_output_index() -> u64 {
+        0
+    }
+}
+
+impl OrderPoolOutputIndex for OnChainDAOActionRequest {
+    fn pool_output_index() -> u64 {
+        0
+    }
+}
+
 pub struct ClassicalOrderRedeemer {
     pub pool_input_index: u64,
     pub order_input_index: u64,
