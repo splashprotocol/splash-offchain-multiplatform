@@ -11,14 +11,14 @@ pub enum RestartMode {
     },
     RollbackAndResume {
         current_point: Point,
-        rollback_blocks: u64,
+        rollback_slots: u64,
     },
 }
 
 pub async fn determine_restart_mode<Cache>(
     chain_sync_cache: Arc<Mutex<Cache>>,
     starting_point: Point,
-    auto_rollback_blocks: u64,
+    auto_rollback_slots: u64,
 ) -> RestartMode
 where
     Cache: LedgerCache,
@@ -28,7 +28,7 @@ where
     let cache_tip = chain_sync_cache.lock().await.get_tip().await;
 
     info!("Chain sync cache tip: {:?}", cache_tip);
-    info!("Configured auto_rollback_blocks: {}", auto_rollback_blocks);
+    info!("Configured auto_rollback_slots: {}", auto_rollback_slots);
 
     match cache_tip {
         None => {
@@ -43,11 +43,11 @@ where
             };
 
             info!("Existing state detected at slot {}", current_slot);
-            info!("Auto-rolling back {} blocks", auto_rollback_blocks);
+            info!("Auto-rolling back {} slots", auto_rollback_slots);
 
             RestartMode::RollbackAndResume {
                 current_point,
-                rollback_blocks: auto_rollback_blocks,
+                rollback_slots: auto_rollback_slots,
             }
         }
     }
@@ -86,7 +86,7 @@ mod tests {
             mode,
             RestartMode::RollbackAndResume {
                 current_point,
-                rollback_blocks: 2160
+                rollback_slots: 2160
             } if current_point == test_point
         ));
     }

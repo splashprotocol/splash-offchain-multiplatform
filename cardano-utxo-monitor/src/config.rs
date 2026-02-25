@@ -11,8 +11,8 @@ pub struct AppConfig {
     pub index_path: String,
 }
 
-fn default_auto_rollback_blocks() -> u64 {
-    2160
+fn default_auto_rollback_slots() -> u64 {
+    21600
 }
 
 #[derive(serde::Deserialize)]
@@ -20,12 +20,12 @@ fn default_auto_rollback_blocks() -> u64 {
 pub struct ChainSyncConfig {
     pub starting_point: Point,
 
-    /// Number of blocks to automatically rollback on restart.
-    /// Default: 2160 blocks (~1 day on Cardano).
-    #[serde(default = "default_auto_rollback_blocks")]
-    pub auto_rollback_blocks: u64,
+    /// Number of slots to automatically rollback on restart.
+    /// Default: 21600 slots (~6 hours on Cardano mainnet, 1 slot/sec).
+    #[serde(default = "default_auto_rollback_slots")]
+    pub auto_rollback_slots: u64,
 
-    /// Deprecated: no longer used. Automatic rollback is configured via `autoRollbackBlocks`.
+    /// Deprecated: no longer used. Automatic rollback is configured via `autoRollbackSlots`.
     #[serde(default)]
     pub replay_from_point: Option<Point>,
 

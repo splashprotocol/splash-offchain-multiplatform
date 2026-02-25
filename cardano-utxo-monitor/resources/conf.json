@@ -7,7 +7,7 @@
     "startingPoint": {
       "Specific": [122422297, "62629dcb0f7708eea1efcbf94229ce95adde99e95fa3cc53bd0177e3254727e4"]
     },
-    "autoRollbackBlocks": 2160,
+    "autoRollbackSlots": 2160,
     "disableRollbacksUntil": 122422297,
     "dbPath": "state"
   },

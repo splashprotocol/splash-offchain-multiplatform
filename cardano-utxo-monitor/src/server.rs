@@ -93,7 +93,7 @@ where
     if !startup_complete.load(Ordering::Acquire) {
         return HttpResponse::ServiceUnavailable().json(serde_json::json!({
             "error": "Service is starting up",
-            "message": "Rollback in progress - please retry in a moment"
+            "message": "Service is initializing - please retry in a moment"
         }));
     }
     trace!("Received request: {:?}", req);

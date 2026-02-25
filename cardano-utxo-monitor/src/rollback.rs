@@ -6,29 +6,29 @@ use cardano_chain_sync::client::Point;
 use cardano_chain_sync::event_source::unpack_valid_transactions_multi_era;
 use cml_chain::Deserialize;
 use cml_multi_era::MultiEraBlock;
-use log::{error, info, warn};
+use log::{error, info};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Rollback both databases by walking backwards N blocks.
+/// Rollback both databases by walking backwards N slots.
 pub async fn rollback_blocks<Index, Cache>(
     utxo_index: &Index,
     chain_sync_cache: Arc<Mutex<Cache>>,
     current_point: Point,
-    rollback_blocks: u64,
+    rollback_slots: u64,
 ) -> Result<Point, String>
 where
     Index: UtxoIndex + Send + Sync,
     Cache: LedgerCache + Send,
 {
     let current_slot = current_slot_val(current_point);
-    let target_slot = current_slot.saturating_sub(rollback_blocks);
+    let target_slot = current_slot.saturating_sub(rollback_slots);
 
     info!(
-        "Starting rollback from slot {} to slot {} ({} blocks)",
+        "Starting rollback from slot {} to slot {} ({} slots)",
         current_slot,
         target_slot,
-        rollback_blocks.min(current_slot)
+        current_slot.saturating_sub(target_slot)
     );
 
     let mut current = current_point;
@@ -50,8 +50,16 @@ where
                         current
                     ));
                 } else {
-                    warn!("Block not found in cache: {:?} - stopping rollback", current);
-                    break;
+                    error!(
+                        "Block not found in cache during rollback after partial progress: {:?}",
+                        current
+                    );
+                    error!("Stopping rollback. Cache tip rewound to {:?}", rollback_target);
+                    chain_sync_cache.lock().await.set_tip(rollback_target).await;
+                    return Err(format!(
+                        "Missing block {:?} in cache during rollback after partial progress",
+                        current
+                    ));
                 }
             }
         };

@@ -60,7 +60,7 @@ async fn main() {
         warn!("⚠  DEPRECATED CONFIGURATION");
         warn!("════════════════════════════════════");
         warn!("'replayFromPoint' is no longer used");
-        warn!("Automatic rollback is now configured via 'autoRollbackBlocks'");
+        warn!("Automatic rollback is now configured via 'autoRollbackSlots'");
         warn!("Please remove 'replayFromPoint' from config");
         warn!("════════════════════════════════════");
     }
@@ -74,7 +74,7 @@ async fn main() {
     let restart_mode = determine_restart_mode(
         Arc::clone(&chain_sync_cache),
         config.chain_sync.starting_point.clone(),
-        config.chain_sync.auto_rollback_blocks,
+        config.chain_sync.auto_rollback_slots,
     )
     .await;
 
@@ -85,10 +85,10 @@ async fn main() {
         }
         RestartMode::RollbackAndResume {
             current_point,
-            rollback_blocks: n_blocks,
+            rollback_slots: n_slots,
         } => {
-            log::info!("Rolling back {} blocks from {:?}", n_blocks, current_point);
-            match rollback_blocks(&db, Arc::clone(&chain_sync_cache), current_point, n_blocks).await {
+            log::info!("Rolling back {} slots from {:?}", n_slots, current_point);
+            match rollback_blocks(&db, Arc::clone(&chain_sync_cache), current_point, n_slots).await {
                 Ok(rolled_back_point) => {
                     log::info!("Rollback complete - resuming from {:?}", rolled_back_point);
                     rolled_back_point
