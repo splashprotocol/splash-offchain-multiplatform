@@ -173,7 +173,7 @@ async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, hdr: &MultiEr
     cache.set_tip(point).await;
 }
 
-pub(crate) fn unpack_valid_transactions_multi_era(
+pub fn unpack_valid_transactions_multi_era(
     block: MultiEraBlock,
 ) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64, BlockHeaderHash)> {
     match block {
