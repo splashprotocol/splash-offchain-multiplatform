@@ -135,6 +135,8 @@ pub fn execution_part_stream<
     reporting: Rep,
     is_synced: Beacon,
     rollback_in_progress: Beacon,
+    stream_id: crate::health::StreamId,
+    engine_status_sink: mpsc::UnboundedSender<(crate::health::StreamId, crate::health::EngineStatus)>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver, LedgerCx>)> + Unpin + 'a,
@@ -182,6 +184,8 @@ where
         feedback_in,
         is_synced,
         rollback_in_progress,
+        stream_id,
+        engine_status_sink,
     );
     executor.then(move |(tx, maybe_report)| {
         let mut network = network.clone();
@@ -249,6 +253,12 @@ pub struct Executor<
     state_synced: Beacon,
     /// Rollback is currently in progress.
     rollback_in_progress: Beacon,
+    /// This executor's stream id for health reporting.
+    stream_id: crate::health::StreamId,
+    /// Sink to report engine status (e.g. NoFunding when matchmaking fails for lack of funding).
+    engine_status_sink: mpsc::UnboundedSender<(crate::health::StreamId, crate::health::EngineStatus)>,
+    /// Last engine status we sent; used to report only on transition and avoid redundant traffic.
+    last_engine_status: crate::health::EngineStatus,
     blocker: Option<Once>,
     pd: PhantomData<(Id, Ver, TxCandidate, Tx, Meta, Err, LedgerCx)>,
 }
@@ -272,6 +282,8 @@ where
         feedback: mpsc::Receiver<Result<(), E>>,
         is_synced: Beacon,
         rollback_in_progress: Beacon,
+        stream_id: crate::health::StreamId,
+        engine_status_sink: mpsc::UnboundedSender<(crate::health::StreamId, crate::health::EngineStatus)>,
     ) -> Self {
         Self {
             index,
@@ -290,8 +302,19 @@ where
             skip_filter: CircularFilter::new(),
             state_synced: is_synced,
             rollback_in_progress,
+            stream_id,
+            engine_status_sink,
+            last_engine_status: crate::health::EngineStatus::Ok,
             blocker: None,
             pd: Default::default(),
+        }
+    }
+
+    /// Sends engine status to the health monitor only when it changes, so the stream "heals" after NoFunding once we succeed again.
+    fn try_send_engine_status(&mut self, status: crate::health::EngineStatus) {
+        if self.last_engine_status != status {
+            let _ = self.engine_status_sink.unbounded_send((self.stream_id, status));
+            self.last_engine_status = status;
         }
     }
 
@@ -890,9 +913,11 @@ where
                                 );
                                 // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                                 self.focus_set.push_back(focus_pair);
+                                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                                 return Poll::Ready(Some((tx, Some(report))));
                             } else {
                                 warn!("Cannot matchmake without funding box");
+                                self.try_send_engine_status(crate::health::EngineStatus::NoFunding);
                                 self.multi_book.get_mut(&focus_pair).on_recipe_failed();
                             }
                         }
@@ -929,6 +954,7 @@ where
                             });
                             // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
+                            self.try_send_engine_status(crate::health::EngineStatus::Ok);
                             return Poll::Ready(Some((tx, None)));
                         }
                     }

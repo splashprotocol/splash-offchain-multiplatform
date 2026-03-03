@@ -39,6 +39,7 @@ pub struct AppConfig {
     pub adhoc_fee: AdhocFeeConfig,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
+    pub health_listen_addr: Option<SocketAddr>,
 }
 
 pub fn allowed_payment_destinations(whitelist: Vec<Address>) -> AllowedAdditionalPaymentDestinations {
