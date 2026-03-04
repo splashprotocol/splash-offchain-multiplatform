@@ -9,7 +9,7 @@ use std::{
 
 use either::Either;
 use futures::{Future, Stream, channel::mpsc, channel::oneshot};
-use log::{trace, warn};
+use log::{debug, trace, warn};
 use pin_project::pin_project;
 use serde::{Serialize, Serializer};
 use time::OffsetDateTime;
