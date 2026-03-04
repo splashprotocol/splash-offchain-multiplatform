@@ -831,12 +831,14 @@ where
                                 self.on_funding_effects_failure(err, effects.funding);
                             }
                         }
+                        self.try_send_engine_status(crate::health::EngineStatus::Ok);
                     }
                 }
             }
             // Process all upstream events before matchmaking.
             if let Poll::Ready(Some((pair, event))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
                 self.on_pair_event(pair, event);
+                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                 continue;
             }
             // Process all funding events before matchmaking.
@@ -844,6 +846,7 @@ where
                 Stream::poll_next(Pin::new(&mut self.funding_events), cx)
             {
                 self.on_funding_event(funding_event);
+                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                 continue;
             }
             // Wait until blockers are resolved.
