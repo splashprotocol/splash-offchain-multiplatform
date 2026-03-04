@@ -314,6 +314,9 @@ where
     /// stays fresh and the engine is not marked Stale during sustained activity. Also updates
     /// last_engine_status for local tracking.
     fn try_send_engine_status(&mut self, status: crate::health::EngineStatus) {
+        if status != self.last_engine_status {
+            trace!("Engine stream {} status: {:?} -> {:?}", self.stream_id, self.last_engine_status, status);
+        }
         let _ = self.engine_status_sink.unbounded_send((self.stream_id, status));
         self.last_engine_status = status;
     }

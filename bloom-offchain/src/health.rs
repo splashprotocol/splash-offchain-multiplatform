@@ -169,7 +169,7 @@ where
                 Poll::Ready(Some((stream_id, status))) => {
                     made_progress = true;
                     let now = OffsetDateTime::now_utc();
-                    debug!("Received engine status update for stream {}", stream_id);
+                    trace!("Received engine status update for stream {}", stream_id);
                     let idx = stream_id as usize;
                     if idx < this.per_stream_status.len() {
                         this.per_stream_status[idx] = status;
@@ -183,7 +183,7 @@ where
                     }
                 }
                 Poll::Ready(None) => {
-                    debug!("Health monitor stopping: engine stream closed");
+                    trace!("Health monitor stopping: engine stream closed");
                     return Poll::Ready(());
                 }
                 Poll::Pending => {}
@@ -193,12 +193,12 @@ where
                 Poll::Ready(Some(status)) => {
                     made_progress = true;
                     let now = OffsetDateTime::now_utc();
-                    debug!("Received node status update");
+                    trace!("Received node status update");
                     this.state.node.status = Either::Left(status);
                     this.state.node.last_updated = now;
                 }
                 Poll::Ready(None) => {
-                    debug!("Health monitor stopping: node stream closed");
+                    trace!("Health monitor stopping: node stream closed");
                     return Poll::Ready(());
                 }
                 Poll::Pending => {}
@@ -207,12 +207,12 @@ where
             match this.from_api.as_mut().poll_next(cx) {
                 Poll::Ready(Some(request)) => {
                     made_progress = true;
-                    debug!("Received health request from API");
+                    trace!("Received health request from API");
                     let GetHealth(sender) = request;
                     let _ = sender.send(this.state.clone());
                 }
                 Poll::Ready(None) => {
-                    debug!("Health monitor stopping: API stream closed");
+                    trace!("Health monitor stopping: API stream closed");
                     return Poll::Ready(());
                 }
                 Poll::Pending => {}
@@ -223,7 +223,7 @@ where
                     made_progress = true;
                 }
                 Poll::Ready(None) => {
-                    debug!("Health monitor stopping: tick stream closed (no guaranteed wakeups)");
+                    trace!("Health monitor stopping: tick stream closed (no guaranteed wakeups)");
                     return Poll::Ready(());
                 }
                 Poll::Pending => {}
