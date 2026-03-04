@@ -929,6 +929,9 @@ where
                             self.on_linkage_failure(focus_pair, invalid_fragments);
                         }
                     }
+                } else {
+                    // No recipe from TLB for this pair — engine is ok, nothing to matchmake.
+                    self.try_send_engine_status(crate::health::EngineStatus::Ok);
                 }
                 // Try Backlog:
                 if let Some(next_order) = self.multi_backlog.get_mut(&focus_pair).try_pop() {
