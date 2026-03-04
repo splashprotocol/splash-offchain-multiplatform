@@ -58,5 +58,6 @@
     "secs": 2,
     "nanos": 0
   },
-   "reportingEndpoint": "127.0.0.1:9021"
+   "reportingEndpoint": "127.0.0.1:9021",
+   "healthListenAddr" : "127.0.0.1:9025"
 }
