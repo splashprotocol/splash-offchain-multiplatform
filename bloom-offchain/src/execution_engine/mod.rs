@@ -310,12 +310,12 @@ where
         }
     }
 
-    /// Sends engine status to the health monitor only when it changes, so the stream "heals" after NoFunding once we succeed again.
+    /// Sends engine status to the health monitor on each processed event so the monitor's last_updated
+    /// stays fresh and the engine is not marked Stale during sustained activity. Also updates
+    /// last_engine_status for local tracking.
     fn try_send_engine_status(&mut self, status: crate::health::EngineStatus) {
-        if self.last_engine_status != status {
-            let _ = self.engine_status_sink.unbounded_send((self.stream_id, status));
-            self.last_engine_status = status;
-        }
+        let _ = self.engine_status_sink.unbounded_send((self.stream_id, status));
+        self.last_engine_status = status;
     }
 
     fn sync_backlog(&mut self, pair: &PR, update: Channel<OrderUpdate<Bundled<SO, B>, SO>, LCX>)
