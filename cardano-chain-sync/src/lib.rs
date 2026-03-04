@@ -31,15 +31,14 @@ impl Default for ChainSyncHealth {
 pub fn chain_sync_stream_with_health_monitor<'a, Block, ToHealthMonitor>(
     mut chain_sync: ChainSyncClient<Block>,
     state_synced: Beacon,
-    to_health_monitor: ToHealthMonitor,
+    mut to_health_monitor: ToHealthMonitor,
 ) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
 where
     Block: Deserialize + 'a,
-    ToHealthMonitor: Sink<ChainSyncHealth> + Clone + Unpin + 'a,
+    ToHealthMonitor: Sink<ChainSyncHealth> + Unpin + 'a,
     <ToHealthMonitor as Sink<ChainSyncHealth>>::Error: Debug,
 {
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
-
     stream! {
         loop {
             let delay = {delay_mux.lock().await.take()};
@@ -47,9 +46,7 @@ where
                 delay.await;
             }
             if let Some(upgr) = chain_sync.try_pull_next().await {
-                if let Err(e) = to_health_monitor.clone().send(ChainSyncHealth::Ok).await {
-                    trace!(target: "chain_sync", "Health monitor receiver dropped: {:?}", e);
-                }
+                to_health_monitor.send(ChainSyncHealth::Ok).await.unwrap();
                 yield upgr;
             } else {
                 trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
