@@ -814,6 +814,7 @@ where
     type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        self.try_send_engine_status(crate::health::EngineStatus::Ok);
         loop {
             // Wait for the feedback from the last pending job.
             if !self.pending_effects.is_none() {
@@ -831,14 +832,12 @@ where
                                 self.on_funding_effects_failure(err, effects.funding);
                             }
                         }
-                        self.try_send_engine_status(crate::health::EngineStatus::Ok);
                     }
                 }
             }
             // Process all upstream events before matchmaking.
             if let Poll::Ready(Some((pair, event))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
                 self.on_pair_event(pair, event);
-                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                 continue;
             }
             // Process all funding events before matchmaking.
@@ -846,7 +845,6 @@ where
                 Stream::poll_next(Pin::new(&mut self.funding_events), cx)
             {
                 self.on_funding_event(funding_event);
-                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                 continue;
             }
             // Wait until blockers are resolved.
@@ -916,7 +914,6 @@ where
                                 );
                                 // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                                 self.focus_set.push_back(focus_pair);
-                                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                                 return Poll::Ready(Some((tx, Some(report))));
                             } else {
                                 warn!("Cannot matchmake without funding box");
@@ -957,7 +954,6 @@ where
                             });
                             // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
-                            self.try_send_engine_status(crate::health::EngineStatus::Ok);
                             return Poll::Ready(Some((tx, None)));
                         }
                     }
