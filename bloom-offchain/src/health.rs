@@ -169,7 +169,7 @@ where
                 Poll::Ready(Some((stream_id, status))) => {
                     made_progress = true;
                     let now = OffsetDateTime::now_utc();
-                    trace!("Received engine status update for stream {}", stream_id);
+                    debug!("Received engine status update for stream {}", stream_id);
                     let idx = stream_id as usize;
                     if idx < this.per_stream_status.len() {
                         this.per_stream_status[idx] = status;
@@ -193,7 +193,7 @@ where
                 Poll::Ready(Some(status)) => {
                     made_progress = true;
                     let now = OffsetDateTime::now_utc();
-                    trace!("Received node status update");
+                    debug!("Received node status update");
                     this.state.node.status = Either::Left(status);
                     this.state.node.last_updated = now;
                 }
@@ -207,7 +207,7 @@ where
             match this.from_api.as_mut().poll_next(cx) {
                 Poll::Ready(Some(request)) => {
                     made_progress = true;
-                    trace!("Received health request from API");
+                    debug!("Received health request from API");
                     let GetHealth(sender) = request;
                     let _ = sender.send(this.state.clone());
                 }

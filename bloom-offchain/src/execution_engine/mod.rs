@@ -817,7 +817,6 @@ where
     type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        trace!("Engine stream {} polling next", self.stream_id);
         loop {
             // Wait for the feedback from the last pending job.
             if !self.pending_effects.is_none() {
