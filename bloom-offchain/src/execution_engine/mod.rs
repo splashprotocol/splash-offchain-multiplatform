@@ -817,7 +817,7 @@ where
     type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        self.try_send_engine_status(crate::health::EngineStatus::Ok);
+        trace!("Engine stream {} polling next", self.stream_id);
         loop {
             // Wait for the feedback from the last pending job.
             if !self.pending_effects.is_none() {
@@ -917,6 +917,7 @@ where
                                 );
                                 // Return the pair to the focus set to make sure the corresponding TLB will be exhausted.
                                 self.focus_set.push_back(focus_pair);
+                                self.try_send_engine_status(crate::health::EngineStatus::Ok);
                                 return Poll::Ready(Some((tx, Some(report))));
                             } else {
                                 warn!("Cannot matchmake without funding box");
