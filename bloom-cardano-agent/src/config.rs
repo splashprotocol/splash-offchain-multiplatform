@@ -41,6 +41,7 @@ pub struct AppConfig {
     pub royalty_withdraw: RoyaltyWithdrawContext,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
+    pub health_listen_addr: Option<SocketAddr>,
 }
 
 fn default_disable_mempool() -> bool {

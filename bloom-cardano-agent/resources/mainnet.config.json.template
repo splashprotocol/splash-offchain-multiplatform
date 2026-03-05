@@ -62,4 +62,5 @@
   "royaltyWithdraw": {
     "transactionFee": 1500000
   },
+  "healthListenAddr": "127.0.0.1:9024"
 }

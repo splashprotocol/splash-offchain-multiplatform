@@ -1,3 +1,5 @@
+use bloom_offchain_cardano::health::{AgentNodeStatus, EngineStatus, HealthMonitor, health_tick_stream, StreamId};
+use bloom_offchain_cardano::http_endpoints::{create_health_router, HealthMonitorState};
 use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
@@ -24,10 +26,11 @@ use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
-use cardano_chain_sync::chain_sync_stream;
+use cardano_chain_sync::chain_sync_stream_with_health_monitor;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
+use cardano_chain_sync::ChainSyncHealth;
 use cardano_explorer::{AnyExplorer, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
@@ -40,7 +43,7 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
-use log::info;
+use log::{info, warn};
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -272,6 +275,9 @@ async fn main() {
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
 
+    const NUM_ENGINE_STREAMS: usize = 4;
+    let (engine_tx, engine_rx) = mpsc::unbounded::<(StreamId, EngineStatus)>();
+
     let upstream_p1 = adapt_events(
         select_partition(pair_upd_recv_p1, config.partitioning.clone())
             .buffered_within(config.event_feed_buffering_duration),
@@ -290,6 +296,8 @@ async fn main() {
         reporting_channel.clone(),
         state_synced.clone(),
         rollback_in_progress.clone(),
+        0u8,
+        engine_tx.clone(),
     );
     let upstream_p2 = adapt_events(
         select_partition(pair_upd_recv_p2, config.partitioning.clone())
@@ -309,6 +317,8 @@ async fn main() {
         reporting_channel.clone(),
         state_synced.clone(),
         rollback_in_progress.clone(),
+        1u8,
+        engine_tx.clone(),
     );
     let upstream_p3 = adapt_events(
         select_partition(pair_upd_recv_p3, config.partitioning.clone())
@@ -328,6 +338,8 @@ async fn main() {
         reporting_channel.clone(),
         state_synced.clone(),
         rollback_in_progress.clone(),
+        2u8,
+        engine_tx.clone(),
     );
     let upstream_p4 = adapt_events(
         select_partition(pair_upd_recv_p4, config.partitioning.clone())
@@ -347,16 +359,27 @@ async fn main() {
         reporting_channel,
         state_synced.clone(),
         rollback_in_progress.clone(),
+        3u8,
+        engine_tx.clone(),
     );
+    let (node_to_health_snd, node_to_health_recv) =
+        mpsc::unbounded::<ChainSyncHealth>();
+
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
-        chain_sync_stream(chain_sync, state_synced.clone()),
+        chain_sync_stream_with_health_monitor(
+            chain_sync,
+            state_synced.clone(),
+            node_to_health_snd,
+        ),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
         rollback_in_progress,
     ))
     .await
     .map(|ev| ev.map(TxViewMut::from));
+
+    let node_status_stream = node_to_health_recv.map(|_| AgentNodeStatus::ok());
 
     let mempool_stream = mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced)
         .map(|ev| ev.map(TxViewMut::from));
@@ -396,6 +419,37 @@ async fn main() {
 
     let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
     processes.push(tx_tracker_handle);
+
+    let (health_api_snd, health_api_recv) =
+        mpsc::unbounded::<bloom_offchain_cardano::health::GetHealth<EngineStatus, AgentNodeStatus>>();
+    let (health_tick_rx, health_tick_driver) = health_tick_stream();
+    processes.push(tokio::spawn(health_tick_driver));
+    let health_monitor =
+        HealthMonitor::<_, _, _, _, EngineStatus, AgentNodeStatus>::new(
+            engine_rx,
+            node_status_stream,
+            health_api_recv,
+            health_tick_rx,
+            NUM_ENGINE_STREAMS,
+        );
+    processes.push(tokio::spawn(health_monitor));
+    if let Some(addr) = config.health_listen_addr {
+        let health_state = HealthMonitorState {
+            sender: health_api_snd,
+        };
+        let router = create_health_router(health_state);
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .expect("Failed to bind health server");
+        info!("Health API listening on http://{}", addr);
+        processes.push(tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("Health server failed")
+        }));
+    } else {
+        warn!("Health listen address not configured; health API disabled");
+    }
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
