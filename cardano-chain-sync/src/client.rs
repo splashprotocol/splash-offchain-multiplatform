@@ -5,7 +5,7 @@ use std::sync::Arc;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
-use log::debug;
+use log::{debug, info};
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
@@ -100,6 +100,10 @@ impl<Block> ChainSyncClient<Block> {
                 }
             }
             Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt.into())),
+            Ok(some_event) => {
+                info!("Unexpected event: {:?}", some_event);
+                None
+            }
             _ => None,
         }
     }
