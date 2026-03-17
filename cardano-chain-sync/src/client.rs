@@ -113,8 +113,8 @@ impl<Block> ChainSyncClient<Block> {
                 info!("Unexpected event: {:?}", some_event);
                 None
             }
-            None => {
-                info!("State is empty");
+            Err(err) => {
+                info!("Got error: {:?}", err);
                 None
             }
         }
