@@ -81,7 +81,8 @@ impl<Block> ChainSyncClient<Block> {
     {
         info!("State before try_pull_next: {:?}", self.chain_sync.state());
         let response = match self.chain_sync.state() {
-            State::MustReply => self.chain_sync.recv_while_can_await().await,
+            State::MustReply => self.chain_sync.recv_while_must_reply().await,
+            State::CanAwait => self.chain_sync.recv_while_can_await().await,
             _ => self.chain_sync.request_next().await,
         };
         info!("State after response: {:?}", self.chain_sync.state());
