@@ -79,19 +79,24 @@ impl<Block> ChainSyncClient<Block> {
     where
         Block: Deserialize,
     {
+        info!("State before try_pull_next: {:?}", self.chain_sync.state());
         let response = match self.chain_sync.state() {
             State::MustReply => self.chain_sync.recv_while_can_await().await,
             _ => self.chain_sync.request_next().await,
         };
+        info!("State after response: {:?}", self.chain_sync.state());
         match response {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
                 let original_bytes = raw[BLK_START..].to_vec();
                 match Block::from_cbor_bytes(&original_bytes) {
-                    Ok(blk) => Some(ChainUpgrade::RollForward {
-                        blk,
-                        blk_bytes: original_bytes,
-                        replayed: false,
-                    }),
+                    Ok(blk) => {
+                        info!("State after parsing: {:?}", self.chain_sync.state());
+                        Some(ChainUpgrade::RollForward {
+                            blk,
+                            blk_bytes: original_bytes,
+                            replayed: false,
+                        })
+                    }
                     Err(err) => panic!(
                         "Block deserialization failed: {}, bytes: {}",
                         err,
@@ -99,12 +104,19 @@ impl<Block> ChainSyncClient<Block> {
                     ),
                 }
             }
-            Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt.into())),
+            Ok(NextResponse::RollBackward(pt, _)) => {
+                info!("State after RollBackward: {:?}", self.chain_sync.state());
+                Some(ChainUpgrade::RollBackward(pt.into()))
+            }
             Ok(some_event) => {
+                info!("State after unknown event: {:?}", self.chain_sync.state());
                 info!("Unexpected event: {:?}", some_event);
                 None
             }
-            _ => None,
+            None => {
+                info!("State is empty");
+                None
+            }
         }
     }
 
