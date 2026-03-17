@@ -11,7 +11,7 @@ async-primitives = { version = "0.1.0", path = "../concurrent-primitives" }
 async-stream = "0.3.3"
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
-pallas-network = { git = "https://github.com/txpipe/pallas.git", tag = "v1.0.0-alpha.3" }
+pallas-network = { git = "https://github.com/txpipe/pallas.git", tag = "v1.0.0-alpha.5" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 futures = "0.3.28"
