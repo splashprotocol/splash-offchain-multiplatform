@@ -3,7 +3,7 @@ use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, Tran
 use cml_chain::transaction::TransactionOutput;
 use cml_core::serialization::StringEncoding;
 use either::Either;
-use log::{info, trace};
+use log::{debug, info, trace, Level};
 use num_rational::Ratio;
 use std::fmt::{Debug, Display, Formatter};
 use tailcall::tailcall;
@@ -37,7 +37,7 @@ const MAX_FEE_CORRECTION_ATTEMPTS: u8 = 24;
 /// The interpreter always starts from the currently matched recipe and the current
 /// residue amount. After comparing `estimated_fee` with the effective fee budget,
 /// it chooses one of these follow-up actions.
-enum FeeCorrection<Fr, Pl, Bearer> {
+enum FeeCorrection {
     /// Rebuild the transaction from the same recipe.
     ///
     /// This is used when the recipe itself does not need to change:
@@ -58,8 +58,6 @@ enum FeeCorrection<Fr, Pl, Bearer> {
         take_residual_fee: bool,
         /// Residue carried into the next iteration together with the rebalanced recipe.
         accumulated_residue: Lovelace,
-        /// Recipe after fee balancing changed one or more take states.
-        instructions: Vec<Execution<Fr, Pl, Bearer>>,
     },
     /// The current build already has matching reserved and estimated fee.
     Complete,
@@ -269,7 +267,7 @@ where
     Ctx: Clone + Sized + Has<Collateral> + Has<NetworkId> + Has<OperatorRewardAddress>,
 {
     let state = ExecutionState::new();
-    info!(
+    debug!(
         "fee correction attempt {}: take_residual_fee={}, accumulated_residue={}",
         attempt, take_residual_fee, accumulated_residue
     );
@@ -297,17 +295,6 @@ where
     let estimated_fee = tx_builder.min_fee(true).unwrap() + ADDITIONAL_FEE;
     let updated_tx_fee = reserved_tx_fee - accumulated_residue;
     let fee_mismatch = updated_tx_fee as i64 - estimated_fee as i64;
-    info!(
-        "fee correction attempt {} built tx: reserved_tx_fee={}, updated_tx_fee={}, estimated_fee={}, fee_mismatch={}, operator_interest={}, funding_io={}, recipe_state={}",
-        attempt,
-        reserved_tx_fee,
-        updated_tx_fee,
-        estimated_fee,
-        fee_mismatch,
-        operator_interest,
-        funding_io_kind(&funding_io),
-        describe_fee_balance_state(&instructions)
-    );
     trace!(
         "Est. fee: {}, reserved fee: {}, updated fee: {}, accumulated residue: {}, mismatch: {}, funding io: {}",
         estimated_fee,
@@ -331,14 +318,12 @@ where
             fee_mismatch,
         });
     }
-    let original_state = fee_balance_state(&instructions);
     match decide_fee_correction(
         take_residual_fee,
         fee_mismatch,
         reserved_tx_fee,
         estimated_fee,
         accumulated_residue,
-        instructions.clone(),
     ) {
         FeeCorrection::Complete => {
             info!("fee correction converged at attempt {}", attempt);
@@ -348,7 +333,7 @@ where
             take_residual_fee,
             updated_accumulated_residue,
         } => {
-            info!(
+            debug!(
                 "fee correction attempt {} rebuilding same recipe with take_residual_fee={} and accumulated_residue={}",
                 attempt,
                 take_residual_fee,
@@ -366,8 +351,10 @@ where
         FeeCorrection::RebuildRebalancedRecipe {
             take_residual_fee,
             accumulated_residue,
-            instructions,
         } => {
+            let original_state = fee_balance_state(&instructions);
+            let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
+            let instructions = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
             let corrected_state = fee_balance_state(&instructions);
             if corrected_state == original_state {
                 info!(
@@ -383,7 +370,7 @@ where
                     fee_mismatch,
                 })
             } else {
-                info!(
+                debug!(
                     "fee correction attempt {} rebalanced recipe state from {} to {}",
                     attempt,
                     describe_state_entries(&original_state),
@@ -402,21 +389,17 @@ where
     }
 }
 
-fn decide_fee_correction<Fr, Pl, Bearer>(
+fn decide_fee_correction(
     take_residual_fee: bool,
     fee_mismatch: i64,
     reserved_tx_fee: Lovelace,
     estimated_fee: Lovelace,
     accumulated_residue: Lovelace,
-    instructions: Vec<Execution<Fr, Pl, Bearer>>,
-) -> FeeCorrection<Fr, Pl, Bearer>
-where
-    Fr: MarketTaker + TakerBehaviour + Copy,
-{
+) -> FeeCorrection {
     if fee_mismatch == 0 {
         FeeCorrection::Complete
     } else if take_residual_fee && fee_mismatch > 0 {
-        info!(
+        debug!(
             "fee correction decision: keep recipe and accumulate residue by {}",
             fee_mismatch.unsigned_abs()
         );
@@ -426,7 +409,7 @@ where
         }
     } else if fee_mismatch < 0 && accumulated_residue > 0 {
         let residue_refund = fee_mismatch.unsigned_abs().min(accumulated_residue);
-        info!(
+        debug!(
             "fee correction decision: refund residue by {} before rebalancing recipe",
             residue_refund
         );
@@ -435,16 +418,13 @@ where
             updated_accumulated_residue: accumulated_residue - residue_refund,
         }
     } else {
-        info!(
+        debug!(
             "fee correction decision: rebalance recipe budgets with rescale_factor={}/{}",
             estimated_fee, reserved_tx_fee
         );
-        let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
-        let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
         FeeCorrection::RebuildRebalancedRecipe {
             take_residual_fee: false,
             accumulated_residue,
-            instructions: corrected_recipe,
         }
     }
 }
@@ -497,6 +477,7 @@ where
         .collect()
 }
 
+#[cfg(test)]
 fn recipe_fee_balance_progressed<Fr, Pl, Bearer>(
     before: &[Execution<Fr, Pl, Bearer>],
     after: &[Execution<Fr, Pl, Bearer>],
@@ -794,11 +775,14 @@ mod tests {
         const POOL_TX: &str = "909e94bd7eadea617527a2b71acb2d0a103989cc5ca8d905e9d7a874ffaa20f5";
         const POOL_IX: u64 = 0;
         const ORDER_BEACON: &str = "73bfc3a2be32cc9d9e34c6f8f5af2a9c1d0297df6ca93026d503ac0a";
-        const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff0236b3ff1ec77ed8b241273ac7c0c2d5f1ae8776728456c0fbc35c3f7e01821a002625a0a1581c5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114a1434941471a3adfd3f6028201d81858f2d8798c4100581c08636ad2419cdc4076333a18dbbeddbe25f72ef20e57ea0973c20a3cd87982581c5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114434941471a3adfd3f61a000f42401a0aba7d87d879824040d879821a0aba7d871a3adfd3f600d87982d87981581c73bfc3a2be32cc9d9e34c6f8f5af2a9c1d0297df6ca93026d503ac0ad87981d87981d87981581c36b3ff1ec77ed8b241273ac7c0c2d5f1ae8776728456c0fbc35c3f7e581c73bfc3a2be32cc9d9e34c6f8f5af2a9c1d0297df6ca93026d503ac0a81581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2";
-        const POOL_UTXO: &str = "a3005839319dee0659686c3ab807895c929e3284c11222affd710b09be690f924db2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821b000000050cca9844a3581c4f7dd6afaba351eca93dce82ecd2d489cb950bce7de3a89b07c37878a14a4941475f4144415f4c511b7ffffff5bc42696e581c5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114a1434941471b0000001ad141d089581c8475b1a7546a1a8eb929b27868797b0a3ffcfeb547fc1e249cfe13bda14b4941475f4144415f4e465401028201d81858e3d8799fd8799f581c8475b1a7546a1a8eb929b27868797b0a3ffcfeb547fc1e249cfe13bd4b4941475f4144415f4e4654ffd8799f4040ffd8799f581c5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d11443494147ffd8799f581c4f7dd6afaba351eca93dce82ecd2d489cb950bce7de3a89b07c378784a4941475f4144415f4c51ff1a0001843c18441a10ba7aa21a4cd9f6ab9fd8799fd87a9f581c8d5e497bb0507f0ae64b0d9c2f4f3544c9244ed3f72cf16b77706663ffffff00581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133ff";
+        const ORDER_UTXO: &str =
+            include_str!("../../resources/testdata/fee_correction/exact_iag_order_utxo.hex");
+        const POOL_UTXO: &str =
+            include_str!("../../resources/testdata/fee_correction/exact_iag_pool_utxo.hex");
         const FUNDING_TX: &str = "556067b45db9b6b3fac38e2e8a173de4374b171b52c7a32a37f991330189e146";
         const FUNDING_IX: u64 = 2;
-        const FUNDING_UTXO: &str = "825839015cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2213c52886a517be9954d80ec7ba19ca783a03eb501694b9281dfcad81a00167496";
+        const FUNDING_UTXO: &str =
+            include_str!("../../resources/testdata/fee_correction/exact_iag_funding_utxo.hex");
         const RESIDUE: u64 = 473_756;
 
         let scripts = mainnet_scripts();
@@ -811,9 +795,12 @@ mod tests {
         let pool_ref = OutputRef::new(TransactionHash::from_hex(POOL_TX).unwrap(), POOL_IX);
         let funding_ref = OutputRef::new(TransactionHash::from_hex(FUNDING_TX).unwrap(), FUNDING_IX);
 
-        let order_bearer = TransactionOutput::from_cbor_bytes(&hex::decode(ORDER_UTXO).unwrap()).unwrap();
-        let pool_bearer = TransactionOutput::from_cbor_bytes(&hex::decode(POOL_UTXO).unwrap()).unwrap();
-        let funding_bearer = TransactionOutput::from_cbor_bytes(&hex::decode(FUNDING_UTXO).unwrap()).unwrap();
+        let order_bearer =
+            TransactionOutput::from_cbor_bytes(&hex::decode(ORDER_UTXO.trim()).unwrap()).unwrap();
+        let pool_bearer =
+            TransactionOutput::from_cbor_bytes(&hex::decode(POOL_UTXO.trim()).unwrap()).unwrap();
+        let funding_bearer =
+            TransactionOutput::from_cbor_bytes(&hex::decode(FUNDING_UTXO.trim()).unwrap()).unwrap();
 
         let collateral = Collateral::from(TransactionUnspentOutput::new(
             OutputRef::new(
@@ -985,13 +972,12 @@ mod tests {
         const INITIAL_RESIDUE: u64 = 473_756;
         const REBUILT_ESTIMATED_FEE: u64 = 531_914;
 
-        let correction = decide_fee_correction::<SimpleOrderPF, Unit, ()>(
+        let correction = decide_fee_correction(
             true,
             (RESERVED_TX_FEE - INITIAL_RESIDUE) as i64 - REBUILT_ESTIMATED_FEE as i64,
             RESERVED_TX_FEE,
             REBUILT_ESTIMATED_FEE,
             INITIAL_RESIDUE,
-            Vec::new(),
         );
 
         match correction {
@@ -1012,14 +998,7 @@ mod tests {
 
     #[test]
     fn negative_mismatch_consumes_accumulated_residue_before_rebalancing_recipe() {
-        let correction = decide_fee_correction::<SimpleOrderPF, Unit, ()>(
-            true,
-            -5_670,
-            1_000_000,
-            526_244,
-            473_756,
-            Vec::new(),
-        );
+        let correction = decide_fee_correction(true, -5_670, 1_000_000, 526_244, 473_756);
 
         match correction {
             FeeCorrection::RebuildSameRecipe {
@@ -1044,25 +1023,21 @@ mod tests {
             Either::Right(_) => unreachable!("expected take instruction"),
         };
 
-        let correction = decide_fee_correction::<SimpleOrderPF, Unit, ()>(
-            false,
-            -10_000,
-            1_000_000,
-            1_010_000,
-            0,
-            instructions,
-        );
+        let correction = decide_fee_correction(false, -10_000, 1_000_000, 1_010_000, 0);
 
         match correction {
             FeeCorrection::RebuildRebalancedRecipe {
                 take_residual_fee,
                 accumulated_residue,
-                instructions,
             } => {
                 assert!(!take_residual_fee);
                 assert_eq!(accumulated_residue, 0);
-                assert_eq!(instructions.len(), 1);
-                let take = match &instructions[0] {
+                let corrected = balance_fee::<SimpleOrderPF, Unit, ()>(
+                    -10_000,
+                    Ratio::new(1_010_000, 1_000_000),
+                    instructions,
+                );
+                let take = match &corrected[0] {
                     Either::Left(take) => take,
                     Either::Right(_) => panic!("expected take instruction"),
                 };
