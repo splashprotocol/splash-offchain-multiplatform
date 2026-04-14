@@ -153,14 +153,19 @@ where
         Traced<Predicted<TEntity>>: 'a,
     {
         let db = self.db.clone();
+        let is_quasi_permanent = entity.is_quasi_permanent();
         let state_id_bytes = bincode::serialize(&entity.version()).unwrap();
         let state_key = prefixed_key(STATE_PREFIX, &entity.version());
         let state_bytes = bincode::serialize(&entity).unwrap();
         let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &entity.stable_id());
+        let stale_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &entity.stable_id());
         spawn_blocking(move || {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
             tx.put(index_key, state_id_bytes).unwrap();
+            if is_quasi_permanent {
+                tx.delete(stale_unconfirmed_index_key).unwrap();
+            }
             tx.commit().unwrap();
         })
         .await

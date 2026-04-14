@@ -294,6 +294,12 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn test_inmem_confirmed_supersedes_stale_unconfirmed() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_confirmed_supersedes_stale_unconfirmed(client).await;
+    }
+
+    #[tokio::test]
     async fn test_inmem_invalidate() {
         let client = InMemoryEntityRepo::new();
         test_entity_repo_invalidate(client).await;
@@ -327,6 +333,12 @@ pub(crate) mod tests {
     async fn test_rocksdb_unconfirmed() {
         let client = rocks_db_client();
         test_entity_repo_unconfirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_confirmed_supersedes_stale_unconfirmed() {
+        let client = rocks_db_client();
+        test_entity_repo_confirmed_supersedes_stale_unconfirmed(client).await;
     }
 
     #[tokio::test]
@@ -417,6 +429,31 @@ pub(crate) mod tests {
             let e: Unconfirmed<TestEntity> = client.get_last_unconfirmed(token_ids[i]).await.unwrap();
             assert_eq!(e.0, entities[i].0);
         }
+    }
+
+    async fn test_entity_repo_confirmed_supersedes_stale_unconfirmed<C: EntityRepo<TestEntity>>(
+        mut client: C,
+    ) {
+        let token_id = TokenId::random();
+        let stale_unconfirmed = TestEntity {
+            token_id,
+            box_id: BoxId::random(),
+        };
+        let confirmed = TestEntity {
+            token_id,
+            box_id: BoxId::random(),
+        };
+
+        client
+            .put_unconfirmed(Unconfirmed(stale_unconfirmed))
+            .await;
+        client.put_confirmed(Confirmed(confirmed.clone())).await;
+
+        let resolved_unconfirmed = client.get_last_unconfirmed(token_id).await;
+        let resolved_confirmed = client.get_last_confirmed(token_id).await;
+
+        assert!(resolved_unconfirmed.is_none());
+        assert_eq!(resolved_confirmed, Some(Confirmed(confirmed)));
     }
 
     async fn test_entity_repo_invalidate<C: EntityRepo<TestEntity>>(mut client: C) {

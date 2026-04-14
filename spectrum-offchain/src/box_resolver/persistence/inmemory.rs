@@ -99,8 +99,12 @@ where
     where
         Traced<Predicted<T>>: 'a,
     {
-        let index_key = index_key(LAST_CONFIRMED_PREFIX, entity.stable_id());
-        self.index.insert(index_key, entity.version());
+        let confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, entity.stable_id());
+        self.index.insert(confirmed_index_key, entity.version());
+        if entity.is_quasi_permanent() {
+            let stale_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, entity.stable_id());
+            self.index.remove(&stale_unconfirmed_index_key);
+        }
         self.store.insert(entity.version(), entity);
     }
 

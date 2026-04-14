@@ -57,6 +57,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Div, Neg};
 use void::Void;
+use log::trace;
 
 pub const AIKEN_TRUE: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 1,
@@ -687,6 +688,15 @@ where
         };
 
         let data_to_sign_raw = data_to_sign.clone().into_pd().to_cbor_bytes();
+        trace!(
+            target: "royalty_pool",
+            "dao request verification: order_id={} pool_id={} ver={:?} nonce={} data_to_sign_raw={}",
+            dao_request.id,
+            dao_request.order.pool_nft,
+            self.ver,
+            self.nonce,
+            hex::encode(&data_to_sign_raw),
+        );
 
         let data_to_sign_with_additional_bytes: Vec<Vec<u8>> = dao_request
             .clone()
