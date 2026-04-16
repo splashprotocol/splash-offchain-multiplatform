@@ -625,25 +625,39 @@ where
     /// TODO: Remove this workaround once the `min_fee` issue is resolved.
     if let Some(strict_fee) = operation_result_blueprint.strict_fee {
         tx_builder.set_fee(strict_fee);
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(TransactionOutput::new(
-                address.clone(),
-                Value::from(
-                    tx_builder
-                        .get_total_input()
-                        .unwrap()
-                        .coin
-                        .checked_sub(tx_builder.get_total_output().unwrap().coin)
-                        .and_then(|without_fee| without_fee.checked_sub(strict_fee))
-                        .ok_or(RunOrderError::raw_builder_error(
-                            "Insufficient ada value".to_string(),
-                            order_bundle.clone(),
-                        ))?,
-                ),
-                None,
-                None,
-            )))
-            .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
+        let batcher_output_lovelace = tx_builder
+            .get_total_input()
+            .unwrap()
+            .coin
+            .checked_sub(tx_builder.get_total_output().unwrap().coin)
+            .and_then(|without_fee| without_fee.checked_sub(strict_fee))
+            .ok_or(RunOrderError::raw_builder_error(
+                "Insufficient ada value".to_string(),
+                order_bundle.clone(),
+            ))?;
+
+        // Skip the synthetic batcher output when fee balancing leaves no remainder.
+        // Also reject dust explicitly instead of constructing an invalid output.
+        if batcher_output_lovelace > 0 {
+            if batcher_output_lovelace < 1_000_000 {
+                return Err(RunOrderError::raw_builder_error(
+                    format!(
+                        "Batcher output {} below minimum lovelace threshold",
+                        batcher_output_lovelace
+                    ),
+                    order_bundle.clone(),
+                ));
+            }
+
+            tx_builder
+                .add_output(SingleOutputBuilderResult::new(TransactionOutput::new(
+                    address.clone(),
+                    Value::from(batcher_output_lovelace),
+                    None,
+                    None,
+                )))
+                .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
+        }
     }
 
     let tx = wrap_cml_action(
