@@ -26,18 +26,18 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Copy, Clone, Debug)]
 pub struct AdhocFeeStructure {
-    pub relative_fee_percent: BoundedU64<0, 100>,
+    pub relative_fee_bps: BoundedU64<0, 10000>,
 }
 
 impl AdhocFeeStructure {
     pub fn empty() -> Self {
         Self {
-            relative_fee_percent: BoundedU64::new_saturating(0),
+            relative_fee_bps: BoundedU64::new_saturating(0),
         }
     }
 
     pub fn fee(&self, body: u64) -> u64 {
-        body * self.relative_fee_percent.get() / 100
+        (body as u128 * self.relative_fee_bps.get() as u128 / 10_000) as u64
     }
 }
 
@@ -224,5 +224,28 @@ where
                 None
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adhoc_fee_uses_basis_points() {
+        let fee_structure = AdhocFeeStructure {
+            relative_fee_bps: BoundedU64::new_saturating(130),
+        };
+
+        assert_eq!(fee_structure.fee(1_000_000_000), 13_000_000);
+    }
+
+    #[test]
+    fn adhoc_fee_floors_with_integer_math() {
+        let fee_structure = AdhocFeeStructure {
+            relative_fee_bps: BoundedU64::new_saturating(130),
+        };
+
+        assert_eq!(fee_structure.fee(333), 4);
     }
 }

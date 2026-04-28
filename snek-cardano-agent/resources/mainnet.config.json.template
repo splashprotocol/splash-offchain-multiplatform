@@ -52,7 +52,7 @@
     "assignedPartitions": [0]
   },
   "adhocFee": {
-    "relativeFeePercent": 1
+    "relativeFeeBps": 130
   },
   "eventFeedBufferingDuration": {
     "secs": 2,
