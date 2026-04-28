@@ -50,7 +50,7 @@ enum GraduationAction {
     Rollback,
 }
 
-trait GraduationTracking {
+pub trait GraduationTracking {
     fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash);
     fn consumed_snek_refs(&self, consumed_utxos: &[OutputRef]) -> Vec<(OutputRef, Token)>;
     fn observe_snek_output(

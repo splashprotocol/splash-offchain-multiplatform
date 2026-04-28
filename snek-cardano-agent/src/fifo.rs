@@ -83,12 +83,14 @@ impl<Taker: Stable, Maker: Stable> FifoState<Taker, Maker> {
 
     pub fn preselect_market_maker(
         &self,
+        taker: &Taker,
         price: AbsolutePrice,
         demand: u64,
         side: Side,
         optimized: bool,
     ) -> Option<(Maker::StableId, FillPreview)>
     where
+        Taker: MarketTaker + TakerBehaviour + Copy,
         Maker: MarketMaker,
     {
         let pools = self
@@ -97,9 +99,10 @@ impl<Taker: Stable, Maker: Stable> FifoState<Taker, Maker> {
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
                 if optimized {
-                    try_optimized_swap(price, demand, side, p).or_else(|| dummy_swap(demand, side, p))
+                    try_optimized_swap(taker, price, demand, side, p)
+                        .or_else(|| dummy_swap(taker, demand, side, p))
                 } else {
-                    dummy_swap(demand, side, p)
+                    dummy_swap(taker, demand, side, p)
                 }
             });
         match side {
@@ -253,6 +256,7 @@ where
                         let target_side = target_taker.side();
                         let target_price = target_side.wrap(target_taker.price());
                         let maybe_price_maker = self.state.preselect_market_maker(
+                            &target_taker,
                             target_taker.price(),
                             target_taker.input(),
                             target_side,
