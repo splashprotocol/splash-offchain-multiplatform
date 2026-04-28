@@ -9,7 +9,7 @@ use crate::event_sink::context::{EventContext, HandlerContextProto};
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
 use crate::event_sink::tx_view::TxViewMut;
-use crate::graduation::{GraduationJournalEntry, SnekQuadraticPoolIdentity};
+use crate::graduation::SnekQuadraticPoolIdentity;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -67,6 +67,22 @@ trait GraduationTracking {
     );
 }
 
+trait MaybeGraduatedSplashId {
+    fn maybe_graduated_splash_id(&self) -> Option<Token>;
+}
+
+impl MaybeGraduatedSplashId for Token {
+    fn maybe_graduated_splash_id(&self) -> Option<Token> {
+        Some(*self)
+    }
+}
+
+impl MaybeGraduatedSplashId for u8 {
+    fn maybe_graduated_splash_id(&self) -> Option<Token> {
+        None
+    }
+}
+
 impl GraduationTracking for HandlerContextProto {
     fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash) {
         self.graduated_pool_store
@@ -101,18 +117,12 @@ impl GraduationTracking for HandlerContextProto {
         produced_snek_refs: Vec<(OutputRef, Token)>,
         graduated_splash_ids: Vec<Token>,
     ) {
-        for (output_ref, _) in &consumed_snek_refs {
-            self.snek_pool_input_tracker.remove(*output_ref);
-        }
-        self.graduated_pool_store
-            .extend(graduated_splash_ids.iter().copied());
-        self.graduated_pool_store.journal_applied(
+        self.graduated_pool_store.apply_observation(
             tx_hash,
-            GraduationJournalEntry {
-                consumed_snek_refs,
-                produced_snek_refs,
-                graduated_splash_ids,
-            },
+            &self.snek_pool_input_tracker,
+            consumed_snek_refs,
+            produced_snek_refs,
+            graduated_splash_ids,
         );
     }
 }
@@ -798,7 +808,8 @@ async fn extract_continuous_transitions<Entity, Index, Proto, Ctx>(
 where
     Proto: Clone + GraduationTracking,
     Ctx: From<(Proto, EventContext<Entity::StableId>)>,
-    Entity: EntitySnapshot<StableId = Token> + Tradable + TryFromLedger<TransactionOutput, Ctx> + Clone,
+    Entity: EntitySnapshot + Tradable + TryFromLedger<TransactionOutput, Ctx> + Clone,
+    Entity::StableId: MaybeGraduatedSplashId,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
 {
@@ -877,7 +888,10 @@ where
         }
     }
     if matches!(graduation_action, GraduationAction::Apply) && !consumed_snek_refs.is_empty() {
-        let graduated_splash_ids = produced_entities.keys().copied().collect::<Vec<_>>();
+        let graduated_splash_ids = produced_entities
+            .keys()
+            .filter_map(MaybeGraduatedSplashId::maybe_graduated_splash_id)
+            .collect::<Vec<_>>();
         if !graduated_splash_ids.is_empty() {
             context_proto.journal_graduated_splash_pools(
                 tx.hash,
@@ -927,13 +941,14 @@ where
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<Transition<Entity>, LedgerCx>)> + Unpin + Send,
     Topic::Error: Debug,
-    Entity: EntitySnapshot<StableId = Token>
+    Entity: EntitySnapshot
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, Ctx>
         + Clone
         + Debug
         + Send,
     Entity::Version: From<OutputRef>,
+    Entity::StableId: MaybeGraduatedSplashId,
     Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
@@ -1057,13 +1072,14 @@ where
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<Transition<Entity>, LedgerCx>)> + Unpin + Send,
     Topic::Error: Debug,
-    Entity: EntitySnapshot<StableId = Token>
+    Entity: EntitySnapshot
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, Ctx>
         + Clone
         + Debug
         + Send,
     Entity::Version: From<OutputRef>,
+    Entity::StableId: MaybeGraduatedSplashId,
     Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {

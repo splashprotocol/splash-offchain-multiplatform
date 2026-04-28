@@ -91,6 +91,31 @@ impl GraduatedSplashPoolStore {
             .insert(tx_hash, entry);
     }
 
+    pub fn apply_observation(
+        &self,
+        tx_hash: TransactionHash,
+        tracker: &SnekPoolInputTracker,
+        consumed_snek_refs: Vec<(OutputRef, Token)>,
+        produced_snek_refs: Vec<(OutputRef, Token)>,
+        graduated_splash_ids: Vec<Token>,
+    ) {
+        for (output_ref, _) in &consumed_snek_refs {
+            tracker.remove(*output_ref);
+        }
+        for (output_ref, pool_id) in &produced_snek_refs {
+            tracker.insert(*output_ref, *pool_id);
+        }
+        self.extend(graduated_splash_ids.iter().copied());
+        self.journal_applied(
+            tx_hash,
+            GraduationJournalEntry {
+                consumed_snek_refs,
+                produced_snek_refs,
+                graduated_splash_ids,
+            },
+        );
+    }
+
     pub fn rollback_tx(&self, tx_hash: TransactionHash, tracker: &SnekPoolInputTracker) {
         if let Some(entry) = self
             .journal
@@ -181,4 +206,61 @@ impl SnekQuadraticPoolIdentity {
             pool_id: pool_id.into(),
         })
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use cml_chain::transaction::TransactionOutput;
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::TransactionHash;
+    use spectrum_cardano_lib::{OutputRef, Token};
+
+    use crate::graduation::{GraduatedSplashPoolStore, SnekPoolInputTracker, SnekQuadraticPoolIdentity};
+
+    #[test]
+    fn parses_snek_quadratic_pool_identity_from_ledger_output() {
+        let bearer = TransactionOutput::from_cbor_bytes(&hex::decode(SNEK_POOL_UTXO).unwrap()).unwrap();
+
+        let identity = SnekQuadraticPoolIdentity::try_from_ledger(&bearer).unwrap();
+
+        assert_eq!(
+            identity.pool_id,
+            Token::from_string_unsafe("9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51.6e6674")
+        );
+    }
+
+    #[test]
+    fn graduation_observation_marks_splash_pool_and_rolls_back() {
+        let store = GraduatedSplashPoolStore::default();
+        let tracker = SnekPoolInputTracker::default();
+        let snek_ref = OutputRef::new(TransactionHash::from_hex(&"11".repeat(32)).unwrap(), 0);
+        let produced_snek_ref = OutputRef::new(TransactionHash::from_hex(&"22".repeat(32)).unwrap(), 1);
+        let tx_hash = TransactionHash::from_hex(&"33".repeat(32)).unwrap();
+        let snek_pool_id =
+            Token::from_string_unsafe("9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51.6e6674");
+        let splash_pool_id = Token::from_string_unsafe(
+            "9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51.73706c617368",
+        );
+        tracker.insert(snek_ref, snek_pool_id);
+
+        store.apply_observation(
+            tx_hash,
+            &tracker,
+            vec![(snek_ref, snek_pool_id)],
+            vec![(produced_snek_ref, snek_pool_id)],
+            vec![splash_pool_id],
+        );
+
+        assert!(store.contains(splash_pool_id));
+        assert_eq!(tracker.contains(snek_ref), None);
+        assert_eq!(tracker.contains(produced_snek_ref), Some(snek_pool_id));
+
+        store.rollback_tx(tx_hash, &tracker);
+
+        assert!(!store.contains(splash_pool_id));
+        assert_eq!(tracker.contains(snek_ref), Some(snek_pool_id));
+        assert_eq!(tracker.contains(produced_snek_ref), None);
+    }
+
+    const SNEK_POOL_UTXO: &str = "a300581d7005fca42e405386300c71cb3d3ab80ed65e2838f20073409c0cca063101821a05f5e100a2581c1954722030c9adf89d037ebe00bc70747eb746956a8b02f755f789a9a145746f6b656e1a3b9aca00581c9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51a1436e667401028201d81858f3d8799fd8799f581c9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51436e6674ffd8799f581cf357c6f00f0496fcd01851a7a8d909a1d9d1c9d7ba9bc021ac3bc3fe4d636e74546f6b656e746f6b656effd8799f581c1954722030c9adf89d037ebe00bc70747eb746956a8b02f755f789a945746f6b656eff1b0000001efc22eee61a00393870581c15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d5091b00000004af5c9bf9581ce67c2ed0ccbea65650a054400a22357a357f581a0b535fc06097278b581c65e55e46a039c5711fcdc508c79ef626b0b4e7be0e6fb3c4548939c0ff";
 }
