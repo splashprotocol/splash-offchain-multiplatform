@@ -469,6 +469,7 @@ impl<Maker> MakeInProgress<Maker> {
                         Next::Succ(maker) => maker,
                         Next::Term(_) => unreachable!(),
                     };
+                    let rebalanced = target.preserve_preview_metadata(next, rebalanced);
                     let rebalanced_reserves = rebalanced.liquidity();
                     trace!("R_rebalanced in d_base {:?}", rebalanced_reserves);
                     let excess_quote = next_reserves.quote.checked_sub(rebalanced_reserves.quote)?;
@@ -483,6 +484,7 @@ impl<Maker> MakeInProgress<Maker> {
                         Next::Succ(maker) => maker,
                         Next::Term(_) => unreachable!(),
                     };
+                    let rebalanced = target.preserve_preview_metadata(next, rebalanced);
                     let rebalanced_reserves = rebalanced.liquidity();
                     trace!("R_rebalanced in d_quote {:?}", rebalanced_reserves);
                     let excess_base = next_reserves.base.checked_sub(rebalanced_reserves.base)?;
@@ -929,10 +931,13 @@ pub enum ExecutionEvent {
 #[cfg(test)]
 mod tests {
     use crate::execution_engine::liquidity_book::core::{
-        BaseStepBudget, Final, FinalRecipe, MatchmakingRecipe, Next, TerminalTake, Trans,
+        BaseStepBudget, Final, FinalRecipe, MakeInProgress, MatchmakingRecipe, Next, TerminalTake, Trans,
+    };
+    use crate::execution_engine::liquidity_book::market_maker::{
+        AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
     };
     use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
-    use crate::execution_engine::liquidity_book::side::Side;
+    use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
     use spectrum_offchain::domain::{Has, Stable};
@@ -973,6 +978,107 @@ mod tests {
             },
         );
         assert!(ok)
+    }
+
+    #[test]
+    fn finalized_make_preserves_preview_metadata() {
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        struct MetadataPool {
+            id: usize,
+            base: u64,
+            quote: u64,
+            marker: u64,
+        }
+
+        impl Stable for MetadataPool {
+            type StableId = usize;
+            fn stable_id(&self) -> Self::StableId {
+                self.id
+            }
+            fn is_quasi_permanent(&self) -> bool {
+                true
+            }
+        }
+
+        impl MakerBehavior for MetadataPool {
+            fn swap(mut self, input: OnSide<u64>) -> Next<Self, void::Void> {
+                match input {
+                    OnSide::Ask(input) => {
+                        self.base += input;
+                        self.quote -= input;
+                    }
+                    OnSide::Bid(input) => {
+                        self.quote += input;
+                        self.base -= input;
+                    }
+                }
+                Next::Succ(self)
+            }
+
+            fn preserve_preview_metadata(self, previewed: Self, mut rebalanced: Self) -> Self {
+                rebalanced.marker = previewed.marker;
+                rebalanced
+            }
+        }
+
+        impl MarketMaker for MetadataPool {
+            type U = ();
+
+            fn static_price(&self) -> SpotPrice {
+                AbsolutePrice::new_unsafe(1, 1).into()
+            }
+
+            fn real_price(&self, _: OnSide<u64>) -> Option<AbsolutePrice> {
+                Some(AbsolutePrice::new_unsafe(1, 1))
+            }
+
+            fn quality(&self) -> PoolQuality {
+                PoolQuality::from(0u128)
+            }
+
+            fn marginal_cost_hint(&self) -> Self::U {}
+
+            fn liquidity(&self) -> AbsoluteReserves {
+                AbsoluteReserves {
+                    base: self.base,
+                    quote: self.quote,
+                }
+            }
+
+            fn available_liquidity_on_side(&self, _: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+                None
+            }
+
+            fn estimated_trade(&self, _: OnSide<u64>) -> Option<AvailableLiquidity> {
+                None
+            }
+
+            fn is_active(&self) -> bool {
+                true
+            }
+        }
+
+        let target = MetadataPool {
+            id: 1,
+            base: 100,
+            quote: 100,
+            marker: 0,
+        };
+        let previewed = MetadataPool { marker: 7, ..target };
+        let previewed = match previewed.swap(OnSide::Ask(10)) {
+            Next::Succ(pool) => pool,
+            Next::Term(_) => unreachable!(),
+        };
+
+        let transition: MakeInProgress<MetadataPool> = Trans::new(target, Next::Succ(previewed));
+        let (final_make, _) = transition.finalized().unwrap();
+        let Final(trans) = final_make;
+        let rebalanced = match trans.result {
+            Next::Succ(rebalanced) => rebalanced,
+            Next::Term(_) => panic!("maker must remain live"),
+        };
+
+        assert_eq!(rebalanced.marker, 7);
     }
 
     #[test]
@@ -1142,7 +1248,7 @@ mod tests {
             todo!()
         }
 
-        fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+        fn operator_fee(&self, _input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
             todo!()
         }
 

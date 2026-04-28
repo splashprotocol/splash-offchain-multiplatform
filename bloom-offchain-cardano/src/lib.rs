@@ -1,5 +1,6 @@
 pub mod event_sink;
 pub mod execution_engine;
+pub mod graduation;
 pub mod integrity;
 pub use bloom_offchain::{health, http_endpoints};
 pub mod orders;

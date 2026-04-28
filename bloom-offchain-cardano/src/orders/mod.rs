@@ -91,6 +91,10 @@ impl TakerBehaviour for AnyOrder {
             AnyOrder::Grid(o) => o.try_terminate().map_succ(AnyOrder::Grid),
         }
     }
+
+    fn graduated_splash_fee_eligible(&self) -> bool {
+        matches!(self, AnyOrder::Limit(_))
+    }
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for AnyOrder

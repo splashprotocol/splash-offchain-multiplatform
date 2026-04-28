@@ -2,8 +2,10 @@ use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain_cardano::graduation::{GraduatedPoolFeeConfig, GraduatedSplashPoolStore};
 use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
 use bloom_offchain_cardano::orders::AnyOrder;
+use bloom_offchain_cardano::pools::classified::ClassifiedPool;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::domain::order::SpecializedOrder;
@@ -14,7 +16,7 @@ use spectrum_offchain_cardano::data::dao_request::DAOV1ActionOrderValidation;
 use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
 use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
+use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
@@ -87,7 +89,7 @@ where
 #[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct EvolvingCardanoEntity(
-    pub Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+    pub Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<ClassifiedPool, OutputRef>>, FinalizedTxOut>,
 );
 
 impl Stable for EvolvingCardanoEntity {
@@ -136,16 +138,17 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<LimitOrderValidation>
         + Has<DepositOrderValidation>
-        + Has<PoolValidation>,
+        + Has<PoolValidation>
+        + Has<GraduatedPoolFeeConfig>
+        + Has<GraduatedSplashPoolStore>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
-            |inner| {
+        <Either<Baked<AnyOrder, OutputRef>, Baked<ClassifiedPool, OutputRef>>>::try_from_ledger(repr, ctx)
+            .map(|inner| {
                 Self(Bundled(
                     inner,
                     FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
                 ))
-            },
-        )
+            })
     }
 }

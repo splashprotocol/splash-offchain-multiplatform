@@ -14,6 +14,9 @@ use spectrum_offchain_cardano::data::order::{Order, RunClassicalAMMOrderOverPool
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
 use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
+
+pub mod classified;
+use classified::ClassifiedPool;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
@@ -93,6 +96,36 @@ where
                 .try_run(order, ctx)
                 .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.0.map(StableCFMM))))),
         }
+    }
+}
+
+impl<Ctx> RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>
+    for PoolMagnet<Bundled<ClassifiedPool, FinalizedTxOut>>
+where
+    PoolMagnet<Bundled<AnyPool, FinalizedTxOut>>:
+        RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>,
+{
+    fn try_run(
+        self,
+        order: Bundled<Order, FinalizedTxOut>,
+        ctx: Ctx,
+    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<Order, FinalizedTxOut>>> {
+        let PoolMagnet(Bundled(pool, bearer)) = self;
+        PoolMagnet(Bundled(pool.inner, bearer)).try_run(order, ctx).map(
+            |(txb, Predicted(PoolMagnet(Bundled(inner, bearer))))| {
+                (
+                    txb,
+                    Predicted(PoolMagnet(Bundled(
+                        ClassifiedPool {
+                            inner,
+                            pending_operator_fee: 0,
+                            ..pool
+                        },
+                        bearer,
+                    ))),
+                )
+            },
+        )
     }
 }
 

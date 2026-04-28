@@ -5,10 +5,11 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::event_sink::context::EventContext;
+use crate::event_sink::context::{EventContext, HandlerContextProto};
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
 use crate::event_sink::tx_view::TxViewMut;
+use crate::graduation::{GraduationJournalEntry, SnekQuadraticPoolIdentity};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -22,7 +23,7 @@ use either::Either;
 use futures::Sink;
 use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain::domain::event::{Channel, Transition};
@@ -41,6 +42,79 @@ use tokio::sync::{Mutex, MutexGuard};
 pub struct LedgerCx {
     pub block_hash: BlockHeaderHash,
     pub slot: Slot,
+}
+
+#[derive(Copy, Clone)]
+enum GraduationAction {
+    Apply,
+    Rollback,
+}
+
+trait GraduationTracking {
+    fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash);
+    fn consumed_snek_refs(&self, consumed_utxos: &[OutputRef]) -> Vec<(OutputRef, Token)>;
+    fn observe_snek_output(
+        &self,
+        output_ref: OutputRef,
+        output: &TransactionOutput,
+    ) -> Option<(OutputRef, Token)>;
+    fn journal_graduated_splash_pools(
+        &self,
+        tx_hash: cml_crypto::TransactionHash,
+        consumed_snek_refs: Vec<(OutputRef, Token)>,
+        produced_snek_refs: Vec<(OutputRef, Token)>,
+        graduated_splash_ids: Vec<Token>,
+    );
+}
+
+impl GraduationTracking for HandlerContextProto {
+    fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash) {
+        self.graduated_pool_store
+            .rollback_tx(tx_hash, &self.snek_pool_input_tracker);
+    }
+
+    fn consumed_snek_refs(&self, consumed_utxos: &[OutputRef]) -> Vec<(OutputRef, Token)> {
+        consumed_utxos
+            .iter()
+            .filter_map(|oref| {
+                self.snek_pool_input_tracker
+                    .contains(*oref)
+                    .map(|pool_id| (*oref, pool_id))
+            })
+            .collect()
+    }
+
+    fn observe_snek_output(
+        &self,
+        output_ref: OutputRef,
+        output: &TransactionOutput,
+    ) -> Option<(OutputRef, Token)> {
+        let pool_id = SnekQuadraticPoolIdentity::try_from_ledger(output)?.pool_id;
+        self.snek_pool_input_tracker.insert(output_ref, pool_id);
+        Some((output_ref, pool_id))
+    }
+
+    fn journal_graduated_splash_pools(
+        &self,
+        tx_hash: cml_crypto::TransactionHash,
+        consumed_snek_refs: Vec<(OutputRef, Token)>,
+        produced_snek_refs: Vec<(OutputRef, Token)>,
+        graduated_splash_ids: Vec<Token>,
+    ) {
+        for (output_ref, _) in &consumed_snek_refs {
+            self.snek_pool_input_tracker.remove(*output_ref);
+        }
+        self.graduated_pool_store
+            .extend(graduated_splash_ids.iter().copied());
+        self.graduated_pool_store.journal_applied(
+            tx_hash,
+            GraduationJournalEntry {
+                consumed_snek_refs,
+                produced_snek_refs,
+                graduated_splash_ids,
+            },
+        );
+    }
 }
 
 impl LedgerCx {
@@ -389,7 +463,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K, Proto
         Ctx,
     >
 where
-    Proto: Copy + Send,
+    Proto: Clone + GraduationTracking + Send,
     Ctx: From<(Proto, EventContext<K>)> + Send,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>, LedgerCx>)> + Send + Unpin,
@@ -416,7 +490,7 @@ where
             } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.context_proto,
+                    self.general_handler.context_proto.clone(),
                     tx,
                 )
                 .await
@@ -464,7 +538,7 @@ where
             } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.context_proto,
+                    self.general_handler.context_proto.clone(),
                     tx,
                 )
                 .await
@@ -530,7 +604,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K, Proto
         Ctx,
     >
 where
-    Proto: Copy + Send,
+    Proto: Clone + Send,
     Ctx: From<(Proto, EventContext<K>)> + Send,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>, LedgerCx>)> + Send + Unpin,
@@ -552,7 +626,7 @@ where
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.context_proto,
+                    self.general_handler.context_proto.clone(),
                     tx,
                 )
                 .await
@@ -584,7 +658,7 @@ where
             MempoolUpdate::TxDropped(tx) => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.context_proto,
+                    self.general_handler.context_proto.clone(),
                     tx,
                 )
                 .await
@@ -641,7 +715,7 @@ async fn extract_atomic_transitions<Order, Index, K, Proto, Ctx>(
     mut tx: TxViewMut,
 ) -> Result<(Vec<Either<Order, Order>>, TxViewMut), TxViewMut>
 where
-    Proto: Copy,
+    Proto: Clone,
     Ctx: From<(Proto, EventContext<K>)>,
     Order: SpecializedOrder + TryFromLedger<TransactionOutput, Ctx> + Clone,
     Order::TOrderId: From<OutputRef> + Display,
@@ -679,7 +753,7 @@ where
             added_payment_destinations: Default::default(),
             mints: tx.mints,
         };
-        match Order::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
+        match Order::try_from_ledger(&o, &Ctx::from((context_proto.clone(), event_context))) {
             Some(order) => {
                 let order_id = order.get_self_ref();
                 trace!("Order {} created by {}", order_id, tx.hash);
@@ -719,17 +793,21 @@ async fn extract_continuous_transitions<Entity, Index, Proto, Ctx>(
     index: Arc<Mutex<Index>>,
     context_proto: Proto,
     mut tx: TxViewMut,
+    graduation_action: GraduationAction,
 ) -> Result<(Vec<Ior<Entity, Entity>>, TxViewMut), TxViewMut>
 where
-    Proto: Copy,
+    Proto: Clone + GraduationTracking,
     Ctx: From<(Proto, EventContext<Entity::StableId>)>,
-    Entity: EntitySnapshot + Tradable + TryFromLedger<TransactionOutput, Ctx> + Clone,
+    Entity: EntitySnapshot<StableId = Token> + Tradable + TryFromLedger<TransactionOutput, Ctx> + Clone,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
 {
     let num_outputs = tx.outputs.len();
     if num_outputs == 0 {
         return Err(tx);
+    }
+    if matches!(graduation_action, GraduationAction::Rollback) {
+        context_proto.rollback_graduation(tx.hash);
     }
     let mut consumed_entities = HashMap::<Entity::StableId, Entity>::new();
     let mut consumed_utxos = Vec::new();
@@ -748,6 +826,7 @@ where
     }
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
     let mut non_processed_outputs = VecDeque::new();
+    let consumed_snek_refs = context_proto.consumed_snek_refs(&consumed_utxos);
     let consumed_utxos = SmallVec::new(consumed_utxos.into_iter());
     let consumed_identifiers = SmallVec::new(consumed_entities.keys().cloned());
     let outbound_keys = tx.outputs.iter().filter_map(|(_, o)| match o.address() {
@@ -768,8 +847,14 @@ where
             None
         }
     })));
+    let mut produced_snek_refs = Vec::new();
     while let Some((ix, o)) = tx.outputs.pop() {
         let o_ref = OutputRef::new(tx.hash, ix as u64);
+        if matches!(graduation_action, GraduationAction::Apply) {
+            if let Some(produced_snek_ref) = context_proto.observe_snek_output(o_ref, &o) {
+                produced_snek_refs.push(produced_snek_ref);
+            }
+        }
         let produced_identifiers = SmallVec::new(produced_entities.keys().cloned());
         let event_context = EventContext {
             output_ref: o_ref,
@@ -780,7 +865,7 @@ where
             added_payment_destinations: added_destinations,
             mints: tx.mints,
         };
-        match Entity::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
+        match Entity::try_from_ledger(&o, &Ctx::from((context_proto.clone(), event_context))) {
             Some(entity) => {
                 let entity_id = entity.stable_id();
                 trace!("Entity {} created by {}", entity_id, tx.hash);
@@ -789,6 +874,17 @@ where
             None => {
                 non_processed_outputs.push_front((ix, o));
             }
+        }
+    }
+    if matches!(graduation_action, GraduationAction::Apply) && !consumed_snek_refs.is_empty() {
+        let graduated_splash_ids = produced_entities.keys().copied().collect::<Vec<_>>();
+        if !graduated_splash_ids.is_empty() {
+            context_proto.journal_graduated_splash_pools(
+                tx.hash,
+                consumed_snek_refs,
+                produced_snek_refs,
+                graduated_splash_ids,
+            );
         }
     }
     // Preserve non-processed outputs in original ordering.
@@ -826,12 +922,12 @@ fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
 impl<const N: usize, PairId, Topic, Entity, Index, Proto, Ctx> EventHandler<LedgerTxEvent<TxViewMut>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto, Ctx>
 where
-    Proto: Copy + Send,
+    Proto: Clone + GraduationTracking + Send,
     Ctx: From<(Proto, EventContext<Entity::StableId>)> + Send,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<Transition<Entity>, LedgerCx>)> + Unpin + Send,
     Topic::Error: Debug,
-    Entity: EntitySnapshot
+    Entity: EntitySnapshot<StableId = Token>
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, Ctx>
         + Clone
@@ -849,7 +945,14 @@ where
                 block_number,
                 block_hash,
             } => {
-                match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
+                match extract_continuous_transitions(
+                    Arc::clone(&self.index),
+                    self.context_proto.clone(),
+                    tx,
+                    GraduationAction::Apply,
+                )
+                .await
+                {
                     Ok((transitions, tx)) => {
                         trace!("{} transitions found in applied TX", transitions.len());
                         let cx = LedgerCx::new(block_hash, slot);
@@ -889,7 +992,14 @@ where
                 block_number,
                 block_hash,
             } => {
-                match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
+                match extract_continuous_transitions(
+                    Arc::clone(&self.index),
+                    self.context_proto.clone(),
+                    tx,
+                    GraduationAction::Rollback,
+                )
+                .await
+                {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
                         let cx = LedgerCx::new(block_hash, slot);
@@ -942,12 +1052,12 @@ where
 impl<const N: usize, PairId, Topic, Entity, Index, Proto, Ctx> EventHandler<MempoolUpdate<TxViewMut>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto, Ctx>
 where
-    Proto: Copy + Send,
+    Proto: Clone + GraduationTracking + Send,
     Ctx: From<(Proto, EventContext<Entity::StableId>)> + Send,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<Transition<Entity>, LedgerCx>)> + Unpin + Send,
     Topic::Error: Debug,
-    Entity: EntitySnapshot
+    Entity: EntitySnapshot<StableId = Token>
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, Ctx>
         + Clone
@@ -960,7 +1070,14 @@ where
         let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>, LedgerCx>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
+                match extract_continuous_transitions(
+                    Arc::clone(&self.index),
+                    self.context_proto.clone(),
+                    tx,
+                    GraduationAction::Apply,
+                )
+                .await
+                {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in accepted TX", transitions.len());
                         let mut index = self.index.lock().await;
@@ -984,7 +1101,14 @@ where
                 }
             }
             MempoolUpdate::TxDropped(tx) => {
-                match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
+                match extract_continuous_transitions(
+                    Arc::clone(&self.index),
+                    self.context_proto.clone(),
+                    tx,
+                    GraduationAction::Rollback,
+                )
+                .await
+                {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in dropped TX", transitions.len());
                         let mut index = self.index.lock().await;
@@ -1375,6 +1499,9 @@ mod tests {
                 signature_threshold: 0,
                 execution_fee: 0,
             },
+            graduated_pool_fee_config: Default::default(),
+            graduated_pool_store: Default::default(),
+            snek_pool_input_tracker: Default::default(),
         };
         let mut handler: PairUpdateHandler<
             1,

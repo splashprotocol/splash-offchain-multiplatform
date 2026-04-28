@@ -37,6 +37,7 @@ use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
 use crate::orders::{grid, instant, limit, AnyOrder};
+use crate::pools::classified::ClassifiedPool;
 
 /// Magnet for local instances.
 #[repr(transparent)]
@@ -420,6 +421,54 @@ where
             }
             _ => unreachable!(),
         }
+    }
+}
+
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<ClassifiedPool>, Ctx>
+    for Magnet<Make<ClassifiedPool, FinalizedTxOut>>
+where
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<ClassifiedPool>, Ctx) {
+        let Trans {
+            target: Bundled(pool, src),
+            result,
+        } = self.0;
+        let next_pool = match result {
+            Next::Succ(next_pool) => next_pool,
+            Next::Term(_) => unreachable!("Splash pool trades do not terminate pools"),
+        };
+        let pending_operator_fee = next_pool.pending_operator_fee;
+        let (state_after_pool, effect, context) = Magnet(Trans {
+            target: Bundled(pool.inner, src),
+            result: Next::Succ(next_pool.inner),
+        })
+        .exec(state, context);
+
+        state = state_after_pool;
+        state.add_operator_interest(pending_operator_fee);
+        (
+            state,
+            effect.bimap(
+                |updated| updated.map(|_| next_pool),
+                |consumed| consumed.map(|_| pool),
+            ),
+            context,
+        )
     }
 }
 

@@ -15,6 +15,9 @@ pub trait TakerBehaviour: Sized {
     fn with_fee_charged(self, fee: u64) -> Self;
     fn with_output_added(self, added_output: u64) -> Self;
     fn try_terminate(self) -> Next<Self, TerminalTake>;
+    fn graduated_splash_fee_eligible(&self) -> bool {
+        false
+    }
 }
 
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.

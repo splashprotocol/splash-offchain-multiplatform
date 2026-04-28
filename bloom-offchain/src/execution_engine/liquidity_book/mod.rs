@@ -167,6 +167,7 @@ where
                             target_taker.input(),
                             target_side,
                             optimized_matchmaking,
+                            &target_taker,
                         );
                         trace!(
                             "{} P_target: {}, P_counter: {}, P_amm: {}",
@@ -266,12 +267,7 @@ where
     Taker: MarketTaker + TakerBehaviour + Copy,
     Maker: MarketMaker + MakerBehavior + Copy,
 {
-    let next_maker = maker.swap(chunk_size);
-    let make = Trans::new(maker, next_maker);
-    let trade_output = make.loss().map(|val| val.unwrap()).unwrap_or(0);
-    let next_taker = target_taker.with_applied_trade(chunk_size.unwrap(), trade_output);
-    let take = Trans::new(target_taker, next_taker);
-    (take, make)
+    maker.swap_with_taker(target_taker, chunk_size)
 }
 
 fn execute_with_taker<Taker, F>(
@@ -428,7 +424,7 @@ pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
-    use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
+    use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
     use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
     use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
@@ -606,8 +602,8 @@ mod tests {
             reserves_quote: 36600000000000,
             fee_num: 997,
         };
-        let real_price_in_pool = pool.real_price(OnSide::Ask(ask_fr.input()));
-        let (t, m) = execute_with_maker(ask_fr, pool, OnSide::Ask(ask_fr.input()));
+        let _real_price_in_pool = pool.real_price(OnSide::Ask(ask_fr.input()));
+        let (_t, m) = execute_with_maker(ask_fr, pool, OnSide::Ask(ask_fr.input()));
         assert_eq!(m.gain().unwrap().unwrap(), ask_fr.input());
     }
 
@@ -632,10 +628,38 @@ mod tests {
             reserves_quote: 1148842702781,
             fee_num: 997,
         };
-        let real_price_in_pool = pool.real_price(OnSide::Ask(ask_fr.input()));
+        let _real_price_in_pool = pool.real_price(OnSide::Ask(ask_fr.input()));
         let (t, m) = execute_with_maker(ask_fr, pool, OnSide::Ask(ask_fr.input()));
         assert_eq!(m.gain().unwrap().unwrap(), t.removed_input());
         assert_eq!(m.loss().unwrap().unwrap(), t.added_output());
+    }
+
+    #[test]
+    fn maker_swap_with_taker_default_matches_existing_execution() {
+        let ask_fr = SimpleOrderPF {
+            source: StableId::random(),
+            side: Ask,
+            input: 1000,
+            accumulated_output: 0,
+            min_marginal_output: 0,
+            price: AbsolutePrice::new_unsafe(36, 100),
+            fee: 0,
+            ex_budget: 0,
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let pool = SimpleCFMMPool {
+            pool_id: StableId::random(),
+            reserves_base: 100000000000000,
+            reserves_quote: 36600000000000,
+            fee_num: 997,
+        };
+
+        let (expected_take, expected_make) = execute_with_maker(ask_fr, pool, OnSide::Ask(ask_fr.input()));
+        let (actual_take, actual_make) = pool.swap_with_taker(ask_fr, OnSide::Ask(ask_fr.input()));
+
+        assert_eq!(actual_take, expected_take);
+        assert_eq!(actual_make, expected_make);
     }
 
     #[test]
