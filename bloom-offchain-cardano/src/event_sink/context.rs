@@ -23,7 +23,9 @@ use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
-use crate::graduation::{GraduatedPoolFeeConfig, GraduatedSplashPoolStore, SnekPoolInputTracker};
+use crate::graduation::{
+    GraduatedPoolFeeConfig, GraduatedSplashPoolStore, SnekPoolInputTracker, SnekPoolScriptHashes,
+};
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
 use crate::validation_rules::ValidationRules;
@@ -46,6 +48,7 @@ pub struct HandlerContextProto {
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
     pub graduated_pool_fee_config: GraduatedPoolFeeConfig,
+    pub snek_pool_script_hashes: SnekPoolScriptHashes,
     pub graduated_pool_store: GraduatedSplashPoolStore,
     pub snek_pool_input_tracker: SnekPoolInputTracker,
 }
@@ -62,6 +65,7 @@ pub struct HandlerContext<I: Copy> {
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
     pub graduated_pool_fee_config: GraduatedPoolFeeConfig,
+    pub snek_pool_script_hashes: SnekPoolScriptHashes,
     pub graduated_pool_store: GraduatedSplashPoolStore,
     pub snek_pool_input_tracker: SnekPoolInputTracker,
     pub mints: Option<Mints>,
@@ -81,6 +85,7 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             dao_context: ctx_proto.dao_context,
             graduated_pool_fee_config: ctx_proto.graduated_pool_fee_config,
+            snek_pool_script_hashes: ctx_proto.snek_pool_script_hashes,
             graduated_pool_store: ctx_proto.graduated_pool_store,
             snek_pool_input_tracker: ctx_proto.snek_pool_input_tracker,
             mints: event_ctx.mints,

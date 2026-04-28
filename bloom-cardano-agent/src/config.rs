@@ -13,7 +13,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
 
-use bloom_offchain_cardano::graduation::GraduatedPoolFeeConfig;
+use bloom_offchain_cardano::graduation::{GraduatedPoolFeeConfig, SnekPoolScriptHashes};
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 use cardano_explorer::config::ExplorerConfig;
 use spectrum_offchain::data::small_vec::SmallVec;
@@ -42,6 +42,8 @@ pub struct AppConfig {
     pub royalty_withdraw: RoyaltyWithdrawContext,
     #[serde(default)]
     pub graduated_pool_fee: GraduatedPoolFeeAppConfig,
+    #[serde(default)]
+    pub snek_graduation: SnekPoolScriptHashes,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
     pub health_listen_addr: Option<SocketAddr>,
@@ -99,7 +101,22 @@ impl CheckIntegrity for AppConfig {
         } else {
             IntegrityViolations::one("Bad partitioning".to_string())
         };
-        partitioning_violations
+        let snek_graduation_violations = if self.graduated_pool_fee.enabled
+            && !self.snek_graduation.is_configured()
+        {
+            IntegrityViolations::one(
+                "graduatedPoolFee is enabled but snekGraduation script hashes are not configured".to_string(),
+            )
+        } else {
+            IntegrityViolations::empty()
+        };
+        IntegrityViolations(
+            partitioning_violations
+                .0
+                .into_iter()
+                .chain(snek_graduation_violations.0)
+                .collect(),
+        )
     }
 }
 

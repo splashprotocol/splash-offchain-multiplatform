@@ -3,8 +3,9 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use bounded_integer::BoundedU64;
+use cml_chain::certs::StakeCredential;
 use cml_chain::transaction::TransactionOutput;
-use cml_crypto::TransactionHash;
+use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{OutputRef, Token};
@@ -194,14 +195,61 @@ pub struct SnekQuadraticPoolIdentity {
     pub pool_id: Token,
 }
 
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnekPoolScriptHashes {
+    #[serde(rename = "quadraticPoolV1ScriptHash")]
+    pub quadratic_pool_v1_script_hash: Option<ScriptHash>,
+    #[serde(rename = "quadraticPoolV1T2TScriptHash")]
+    pub quadratic_pool_v1_t2t_script_hash: Option<ScriptHash>,
+}
+
+impl SnekPoolScriptHashes {
+    pub fn is_configured(&self) -> bool {
+        self.quadratic_pool_v1_script_hash.is_some() || self.quadratic_pool_v1_t2t_script_hash.is_some()
+    }
+
+    fn pool_version(&self, repr: &TransactionOutput) -> Option<SnekQuadraticPoolVersion> {
+        let hash = repr.address().payment_cred().and_then(|cred| match cred {
+            StakeCredential::Script { hash, .. } => Some(*hash),
+            StakeCredential::PubKey { .. } => None,
+        })?;
+        if self
+            .quadratic_pool_v1_script_hash
+            .is_some_and(|expected| expected == hash)
+        {
+            Some(SnekQuadraticPoolVersion::V1)
+        } else if self
+            .quadratic_pool_v1_t2t_script_hash
+            .is_some_and(|expected| expected == hash)
+        {
+            Some(SnekQuadraticPoolVersion::V1T2T)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum SnekQuadraticPoolVersion {
+    V1,
+    V1T2T,
+}
+
 impl SnekQuadraticPoolIdentity {
-    pub fn try_from_ledger(repr: &TransactionOutput) -> Option<Self> {
+    pub fn try_from_ledger(repr: &TransactionOutput, script_hashes: SnekPoolScriptHashes) -> Option<Self> {
+        let pool_ver = script_hashes.pool_version(repr)?;
         let pd = repr.datum().clone()?.into_pd()?;
-        let pool_id = QuadraticPoolConfig::try_from_pd(pd.clone())
-            .and_then(|conf| PoolId::try_from(conf.pool_nft).ok())
-            .or_else(|| {
-                QuadraticPoolT2TConfig::try_from_pd(pd).and_then(|conf| PoolId::try_from(conf.pool_nft).ok())
-            })?;
+        let pool_id = match pool_ver {
+            SnekQuadraticPoolVersion::V1 => {
+                let conf = QuadraticPoolConfig::try_from_pd(pd)?;
+                PoolId::try_from(conf.pool_nft).ok()?
+            }
+            SnekQuadraticPoolVersion::V1T2T => {
+                let conf = QuadraticPoolT2TConfig::try_from_pd(pd)?;
+                PoolId::try_from(conf.pool_nft).ok()?
+            }
+        };
         Some(Self {
             pool_id: pool_id.into(),
         })
@@ -212,21 +260,63 @@ impl SnekQuadraticPoolIdentity {
 mod tests {
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
-    use cml_crypto::TransactionHash;
+    use cml_crypto::{ScriptHash, TransactionHash};
     use spectrum_cardano_lib::{OutputRef, Token};
 
-    use crate::graduation::{GraduatedSplashPoolStore, SnekPoolInputTracker, SnekQuadraticPoolIdentity};
+    use crate::graduation::{
+        GraduatedSplashPoolStore, SnekPoolInputTracker, SnekPoolScriptHashes, SnekQuadraticPoolIdentity,
+    };
 
     #[test]
     fn parses_snek_quadratic_pool_identity_from_ledger_output() {
         let bearer = TransactionOutput::from_cbor_bytes(&hex::decode(SNEK_POOL_UTXO).unwrap()).unwrap();
 
-        let identity = SnekQuadraticPoolIdentity::try_from_ledger(&bearer).unwrap();
+        let identity = SnekQuadraticPoolIdentity::try_from_ledger(
+            &bearer,
+            SnekPoolScriptHashes {
+                quadratic_pool_v1_script_hash: Some(ScriptHash::from_hex(SNEK_POOL_SCRIPT_HASH).unwrap()),
+                quadratic_pool_v1_t2t_script_hash: None,
+            },
+        )
+        .unwrap();
 
         assert_eq!(
             identity.pool_id,
             Token::from_string_unsafe("9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51.6e6674")
         );
+    }
+
+    #[test]
+    fn rejects_quadratic_datum_at_unconfigured_script_hash() {
+        let bearer = TransactionOutput::from_cbor_bytes(&hex::decode(SNEK_POOL_UTXO).unwrap()).unwrap();
+
+        let identity = SnekQuadraticPoolIdentity::try_from_ledger(
+            &bearer,
+            SnekPoolScriptHashes {
+                quadratic_pool_v1_script_hash: None,
+                quadratic_pool_v1_t2t_script_hash: Some(ScriptHash::from([0u8; 28])),
+            },
+        );
+
+        assert!(identity.is_none());
+    }
+
+    #[test]
+    fn deserializes_snek_pool_script_hash_config() {
+        let config: SnekPoolScriptHashes = serde_json::from_str(&format!(
+            r#"{{
+                "quadraticPoolV1ScriptHash": "{SNEK_POOL_SCRIPT_HASH}",
+                "quadraticPoolV1T2TScriptHash": null
+            }}"#
+        ))
+        .unwrap();
+
+        assert_eq!(
+            config.quadratic_pool_v1_script_hash,
+            Some(ScriptHash::from_hex(SNEK_POOL_SCRIPT_HASH).unwrap())
+        );
+        assert_eq!(config.quadratic_pool_v1_t2t_script_hash, None);
+        assert!(config.is_configured());
     }
 
     #[test]
@@ -263,4 +353,5 @@ mod tests {
     }
 
     const SNEK_POOL_UTXO: &str = "a300581d7005fca42e405386300c71cb3d3ab80ed65e2838f20073409c0cca063101821a05f5e100a2581c1954722030c9adf89d037ebe00bc70747eb746956a8b02f755f789a9a145746f6b656e1a3b9aca00581c9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51a1436e667401028201d81858f3d8799fd8799f581c9d8f27a66cfffebe2a4a19157b6845a051dd2f627f11bfafed584d51436e6674ffd8799f581cf357c6f00f0496fcd01851a7a8d909a1d9d1c9d7ba9bc021ac3bc3fe4d636e74546f6b656e746f6b656effd8799f581c1954722030c9adf89d037ebe00bc70747eb746956a8b02f755f789a945746f6b656eff1b0000001efc22eee61a00393870581c15772e8f1fdcf12d59636caf42522b7d6249ccb223253eb7e9b6d5091b00000004af5c9bf9581ce67c2ed0ccbea65650a054400a22357a357f581a0b535fc06097278b581c65e55e46a039c5711fcdc508c79ef626b0b4e7be0e6fb3c4548939c0ff";
+    const SNEK_POOL_SCRIPT_HASH: &str = "05fca42e405386300c71cb3d3ab80ed65e2838f20073409c0cca0631";
 }

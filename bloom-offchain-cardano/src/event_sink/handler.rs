@@ -105,7 +105,8 @@ impl GraduationTracking for HandlerContextProto {
         output_ref: OutputRef,
         output: &TransactionOutput,
     ) -> Option<(OutputRef, Token)> {
-        let pool_id = SnekQuadraticPoolIdentity::try_from_ledger(output)?.pool_id;
+        let pool_id =
+            SnekQuadraticPoolIdentity::try_from_ledger(output, self.snek_pool_script_hashes)?.pool_id;
         self.snek_pool_input_tracker.insert(output_ref, pool_id);
         Some((output_ref, pool_id))
     }
@@ -1522,6 +1523,7 @@ mod tests {
                 execution_fee: 0,
             },
             graduated_pool_fee_config: Default::default(),
+            snek_pool_script_hashes: Default::default(),
             graduated_pool_store: Default::default(),
             snek_pool_input_tracker: Default::default(),
         };
@@ -1593,9 +1595,19 @@ mod tests {
         let snek_pool_tx_hash = TransactionHash::from_hex(SNEK_POOL_TX_HASH).unwrap();
         let consumed_snek_ref = OutputRef::new(snek_pool_tx_hash, 1);
         let snek_pool_output = snek_pool_tx.body.outputs.get(1).unwrap();
-        let snek_pool_id = SnekQuadraticPoolIdentity::try_from_ledger(snek_pool_output)
-            .expect("consumed output must parse as Snek quadratic pool")
-            .pool_id;
+        let snek_pool_id = SnekQuadraticPoolIdentity::try_from_ledger(
+            snek_pool_output,
+            crate::graduation::SnekPoolScriptHashes {
+                quadratic_pool_v1_script_hash: Some(
+                    ScriptHash::from_hex("905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d").unwrap(),
+                ),
+                quadratic_pool_v1_t2t_script_hash: Some(
+                    ScriptHash::from_hex("c876c435e1de1bd93ac71f0e9f956a844cd72493514d2740221bfea6").unwrap(),
+                ),
+            },
+        )
+        .expect("consumed output must parse as Snek quadratic pool")
+        .pool_id;
 
         type PoolEntity = Bundled<Baked<ClassifiedPool, OutputRef>, TransactionOutput>;
         type PairId = <PoolEntity as Tradable>::PairId;
@@ -1668,6 +1680,14 @@ mod tests {
                 execution_fee: 0,
             },
             graduated_pool_fee_config: GraduatedPoolFeeConfig::enabled(1),
+            snek_pool_script_hashes: crate::graduation::SnekPoolScriptHashes {
+                quadratic_pool_v1_script_hash: Some(
+                    ScriptHash::from_hex("905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d").unwrap(),
+                ),
+                quadratic_pool_v1_t2t_script_hash: Some(
+                    ScriptHash::from_hex("c876c435e1de1bd93ac71f0e9f956a844cd72493514d2740221bfea6").unwrap(),
+                ),
+            },
             graduated_pool_store: Default::default(),
             snek_pool_input_tracker: Default::default(),
         }

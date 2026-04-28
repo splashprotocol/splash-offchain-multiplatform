@@ -65,6 +65,10 @@
     "enabled": true,
     "relativeFeePercent": 1
   },
+  "snekGraduation": {
+    "quadraticPoolV1ScriptHash": "905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d",
+    "quadraticPoolV1T2TScriptHash": "c876c435e1de1bd93ac71f0e9f956a844cd72493514d2740221bfea6"
+  },
   "reportingEndpoint": "127.0.0.1:9021",
   "healthListenAddr": "127.0.0.1:9024"
 }

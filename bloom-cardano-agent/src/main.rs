@@ -231,6 +231,7 @@ async fn main() {
     ));
     let dao_ctx: DAOContext = config.dao_config.clone().into();
     let graduated_pool_fee_config = config.graduated_pool_fee.into();
+    let snek_pool_script_hashes = config.snek_graduation;
     let graduated_pool_store = GraduatedSplashPoolStore::default();
     let snek_pool_input_tracker = SnekPoolInputTracker::default();
     let handler_context = HandlerContextProto {
@@ -240,6 +241,7 @@ async fn main() {
         validation_rules,
         dao_context: dao_ctx,
         graduated_pool_fee_config,
+        snek_pool_script_hashes,
         graduated_pool_store: graduated_pool_store.clone(),
         snek_pool_input_tracker: snek_pool_input_tracker.clone(),
     };
