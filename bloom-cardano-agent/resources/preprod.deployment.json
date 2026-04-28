@@ -519,35 +519,5 @@
       "mem": 600000,
       "steps": 240000000
     }
-  },
-  "instantOrderWitness": {
-    "hash": "a5643b4a22a192d7691d05baf4a9bbb8acdbb5daa60be1f333e128f1",
-    "referenceUtxo": {
-      "txHash": "3ddcf70e259988fc20e0bc82d20d3711372520faaac43fd26b745fac31b3e303",
-      "outputIndex": 1
-    },
-    "cost": {
-      "mem": 500000,
-      "steps": 200000000
-    },
-    "marginalCost": {
-      "mem": 213000,
-      "steps": 78944000
-    }
-  },
-  "instantOrder": {
-    "hash": "d9143ac63473b17a215d1b7484dfb6ac6b4a0005beb0e26a6ca02c96",
-    "referenceUtxo": {
-      "txHash": "3ddcf70e259988fc20e0bc82d20d3711372520faaac43fd26b745fac31b3e303",
-      "outputIndex": 0
-    },
-    "cost": {
-      "mem": 500000,
-      "steps": 200000000
-    },
-    "marginalCost": {
-      "mem": 0,
-      "steps": 0
-    }
   }
 }
