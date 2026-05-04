@@ -264,4 +264,20 @@ mod tests {
 
         assert!(error.to_string().contains("at most two decimal places"));
     }
+
+    #[test]
+    fn adhoc_fee_config_rejects_basis_points_above_one_hundred_percent() {
+        let error = serde_json::from_str::<AdhocFeeConfig>(r#"{"relativeFeeBps":10001}"#)
+            .expect_err("config must reject fees above 100%");
+
+        assert!(error.to_string().contains("between 0 and 10000 bps"));
+    }
+
+    #[test]
+    fn adhoc_fee_config_rejects_legacy_percent_above_one_hundred() {
+        let error = serde_json::from_str::<AdhocFeeConfig>(r#"{"relativeFeePercent":100.01}"#)
+            .expect_err("config must reject fees above 100%");
+
+        assert!(error.to_string().contains("between 0 and 10000 bps"));
+    }
 }

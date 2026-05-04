@@ -248,4 +248,13 @@ mod tests {
 
         assert_eq!(fee_structure.fee(333), 4);
     }
+
+    #[test]
+    fn adhoc_fee_handles_max_input_without_overflow() {
+        let fee_structure = AdhocFeeStructure {
+            relative_fee_bps: BoundedU64::new_saturating(10_000),
+        };
+
+        assert_eq!(fee_structure.fee(u64::MAX), u64::MAX);
+    }
 }
