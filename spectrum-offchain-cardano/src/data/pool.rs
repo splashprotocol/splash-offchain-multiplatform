@@ -36,6 +36,7 @@ use spectrum_offchain::domain::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
+use crate::constants::MIN_SAFE_LOVELACE_VALUE;
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
@@ -639,7 +640,7 @@ where
         // Skip the synthetic batcher output when fee balancing leaves no remainder.
         // Also reject dust explicitly instead of constructing an invalid output.
         if batcher_output_lovelace > 0 {
-            if batcher_output_lovelace < 1_000_000 {
+            if batcher_output_lovelace < MIN_SAFE_LOVELACE_VALUE {
                 return Err(RunOrderError::raw_builder_error(
                     format!(
                         "Batcher output {} below minimum lovelace threshold",
