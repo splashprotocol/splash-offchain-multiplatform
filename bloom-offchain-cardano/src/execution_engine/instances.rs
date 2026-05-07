@@ -10,7 +10,6 @@ use bloom_offchain::execution_engine::liquidity_book::core::{Make, Next, Take, T
 use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, NetworkId};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
@@ -20,7 +19,7 @@ use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMa
 use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPoolVer::V1T2T;
 use spectrum_offchain_cardano::data::quadratic_pool::{QuadraticPool, QuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
-use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, quadratic_pool, stable_pool_t2t};
+use spectrum_offchain_cardano::data::{balance_pool, quadratic_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T,
@@ -461,10 +460,14 @@ where
 
         state = state_after_pool;
         state.add_operator_interest(pending_operator_fee);
+        let consumed_next_pool = ClassifiedPool {
+            pending_operator_fee: 0,
+            ..next_pool
+        };
         (
             state,
             effect.bimap(
-                |updated| updated.map(|_| next_pool),
+                |updated| updated.map(|_| consumed_next_pool),
                 |consumed| consumed.map(|_| pool),
             ),
             context,

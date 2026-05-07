@@ -65,6 +65,7 @@
     "enabled": true,
     "relativeFeePercent": 1
   },
+  "graduationStateDbPath": "bloom-cardano-agent/state/preprod.graduation-state.rocksdb",
   "snekGraduation": {
     "quadraticPoolV1ScriptHash": "905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d",
     "quadraticPoolV1T2TScriptHash": "c876c435e1de1bd93ac71f0e9f956a844cd72493514d2740221bfea6"

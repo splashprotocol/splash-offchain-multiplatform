@@ -33,6 +33,32 @@ pub struct ClassifiedPool {
 }
 
 impl ClassifiedPool {
+    pub(crate) fn accumulated_operator_fee(
+        pending_operator_fee: Lovelace,
+        operator_fee: Lovelace,
+    ) -> Option<Lovelace> {
+        pending_operator_fee.checked_add(operator_fee)
+    }
+
+    pub(crate) fn net_amount_after_operator_fee(
+        gross_amount: Lovelace,
+        operator_fee: Lovelace,
+    ) -> Option<Lovelace> {
+        gross_amount
+            .checked_sub(operator_fee)
+            .and_then(|net_amount| (net_amount > 0).then_some(net_amount))
+    }
+
+    fn no_trade<Taker>(self, target_taker: Taker) -> (TakeInProgress<Taker>, MakeInProgress<Self>)
+    where
+        Taker: Copy,
+    {
+        (
+            Trans::new(target_taker, Next::Succ(target_taker)),
+            Trans::new(self, Next::Succ(self)),
+        )
+    }
+
     fn fee_applicable<Taker>(&self, taker: &Taker) -> bool
     where
         Taker: TakerBehaviour,
@@ -56,6 +82,14 @@ impl ClassifiedPool {
             pending_operator_fee,
             ..self
         }
+    }
+
+    fn with_inner_and_added_operator_fee(self, inner: AnyPool, operator_fee: Lovelace) -> Option<Self> {
+        Some(Self {
+            inner,
+            pending_operator_fee: Self::accumulated_operator_fee(self.pending_operator_fee, operator_fee)?,
+            ..self
+        })
     }
 }
 
@@ -112,18 +146,22 @@ impl MakerBehavior for ClassifiedPool {
         let gross_input = input.unwrap();
         if input_asset == AssetClass::Native {
             let operator_fee = self.fee_config.fee(gross_input);
-            let Some(net_input) = gross_input.checked_sub(operator_fee) else {
-                return default_swap_with_taker(target_taker, self, input);
+            let Some(net_input) = Self::net_amount_after_operator_fee(gross_input, operator_fee) else {
+                return self.no_trade(target_taker);
             };
-            if net_input == 0 {
-                return default_swap_with_taker(target_taker, self, input);
+            if Self::accumulated_operator_fee(self.pending_operator_fee, operator_fee).is_none() {
+                return self.no_trade(target_taker);
             }
             let maker_input = input.map(|_| net_input);
             let next_inner = self.inner.swap(maker_input);
-            let make = Trans::new(
-                self,
-                next_inner.map_succ(|inner| self.with_inner(inner, operator_fee)),
-            );
+            let next_pool = match next_inner {
+                Next::Succ(inner) => match self.with_inner_and_added_operator_fee(inner, operator_fee) {
+                    Some(next_pool) => Next::Succ(next_pool),
+                    None => return self.no_trade(target_taker),
+                },
+                Next::Term(term) => Next::Term(term),
+            };
+            let make = Trans::new(self, next_pool);
             let trade_output = make.loss().map(|val| val.unwrap()).unwrap_or(0);
             let next_taker = target_taker.with_applied_trade(gross_input, trade_output);
             return (Trans::new(target_taker, next_taker), make);
@@ -136,18 +174,25 @@ impl MakerBehavior for ClassifiedPool {
                 .map(|val| val.unwrap())
                 .unwrap_or(0);
             let operator_fee = self.fee_config.fee(gross_output);
-            let Some(net_output) = gross_output.checked_sub(operator_fee) else {
-                return default_swap_with_taker(target_taker, self, input);
+            let Some(net_output) = Self::net_amount_after_operator_fee(gross_output, operator_fee) else {
+                return self.no_trade(target_taker);
             };
-            let make = Trans::new(
-                self,
-                next_inner.map_succ(|inner| self.with_inner(inner, operator_fee)),
-            );
+            if Self::accumulated_operator_fee(self.pending_operator_fee, operator_fee).is_none() {
+                return self.no_trade(target_taker);
+            }
+            let next_pool = match next_inner {
+                Next::Succ(inner) => match self.with_inner_and_added_operator_fee(inner, operator_fee) {
+                    Some(next_pool) => Next::Succ(next_pool),
+                    None => return self.no_trade(target_taker),
+                },
+                Next::Term(term) => Next::Term(term),
+            };
+            let make = Trans::new(self, next_pool);
             let next_taker = target_taker.with_applied_trade(gross_input, net_output);
             return (Trans::new(target_taker, next_taker), make);
         }
 
-        default_swap_with_taker(target_taker, self, input)
+        self.no_trade(target_taker)
     }
 }
 
@@ -172,7 +217,9 @@ impl MarketMaker for ClassifiedPool {
         let (input_asset, output_asset) = self.trade_assets(input);
         let gross_input = input.unwrap();
         if input_asset == AssetClass::Native {
-            let net_input = gross_input.checked_sub(self.fee_config.fee(gross_input))?;
+            let operator_fee = self.fee_config.fee(gross_input);
+            let net_input = Self::net_amount_after_operator_fee(gross_input, operator_fee)?;
+            Self::accumulated_operator_fee(self.pending_operator_fee, operator_fee)?;
             let output = self.inner.estimated_trade(input.map(|_| net_input))?.output;
             return match input {
                 OnSide::Ask(_) => AbsolutePrice::new(output, gross_input),
@@ -181,15 +228,15 @@ impl MarketMaker for ClassifiedPool {
         }
         if output_asset == AssetClass::Native {
             let estimated = self.inner.estimated_trade(input)?;
-            let net_output = estimated
-                .output
-                .checked_sub(self.fee_config.fee(estimated.output))?;
+            let operator_fee = self.fee_config.fee(estimated.output);
+            let net_output = Self::net_amount_after_operator_fee(estimated.output, operator_fee)?;
+            Self::accumulated_operator_fee(self.pending_operator_fee, operator_fee)?;
             return match input {
                 OnSide::Ask(_) => AbsolutePrice::new(net_output, gross_input),
                 OnSide::Bid(_) => AbsolutePrice::new(gross_input, net_output),
             };
         }
-        self.inner.real_price(input)
+        None
     }
 
     fn quality(&self) -> PoolQuality {
@@ -250,5 +297,30 @@ where
             fee_config: ctx.select::<GraduatedPoolFeeConfig>(),
             pending_operator_fee: 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod classified_pool_fee_tests {
+    use super::ClassifiedPool;
+
+    #[test]
+    fn classified_pool_fee_accumulates_pending_operator_fee() {
+        assert_eq!(
+            ClassifiedPool::accumulated_operator_fee(1_500_000, 500_000),
+            Some(2_000_000)
+        );
+    }
+
+    #[test]
+    fn classified_pool_fee_accumulation_rejects_overflow() {
+        assert_eq!(ClassifiedPool::accumulated_operator_fee(u64::MAX, 1), None);
+    }
+
+    #[test]
+    fn classified_pool_fee_requires_positive_net_amount() {
+        assert_eq!(ClassifiedPool::net_amount_after_operator_fee(100, 99), Some(1));
+        assert_eq!(ClassifiedPool::net_amount_after_operator_fee(100, 100), None);
+        assert_eq!(ClassifiedPool::net_amount_after_operator_fee(100, 101), None);
     }
 }

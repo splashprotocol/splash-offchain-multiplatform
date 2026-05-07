@@ -9,7 +9,7 @@ use crate::event_sink::context::{EventContext, HandlerContextProto};
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
 use crate::event_sink::tx_view::TxViewMut;
-use crate::graduation::SnekQuadraticPoolIdentity;
+use crate::graduation::{GraduationJournalEntry, SnekQuadraticPoolIdentity};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -21,7 +21,7 @@ use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
 use either::Either;
 use futures::Sink;
-use log::trace;
+use log::{trace, warn};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::ior::Ior;
@@ -48,6 +48,7 @@ pub struct LedgerCx {
 enum GraduationAction {
     Apply,
     Rollback,
+    Ignore,
 }
 
 pub trait GraduationTracking {
@@ -85,8 +86,12 @@ impl MaybeGraduatedSplashId for u8 {
 
 impl GraduationTracking for HandlerContextProto {
     fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash) {
-        self.graduated_pool_store
-            .rollback_tx(tx_hash, &self.snek_pool_input_tracker);
+        if let Some(entry) = self
+            .graduated_pool_store
+            .rollback_tx(tx_hash, &self.snek_pool_input_tracker)
+        {
+            self.persist_graduation_rollback(tx_hash, &entry);
+        }
     }
 
     fn consumed_snek_refs(&self, consumed_utxos: &[OutputRef]) -> Vec<(OutputRef, Token)> {
@@ -107,7 +112,6 @@ impl GraduationTracking for HandlerContextProto {
     ) -> Option<(OutputRef, Token)> {
         let pool_id =
             SnekQuadraticPoolIdentity::try_from_ledger(output, self.snek_pool_script_hashes)?.pool_id;
-        self.snek_pool_input_tracker.insert(output_ref, pool_id);
         Some((output_ref, pool_id))
     }
 
@@ -118,13 +122,40 @@ impl GraduationTracking for HandlerContextProto {
         produced_snek_refs: Vec<(OutputRef, Token)>,
         graduated_splash_ids: Vec<Token>,
     ) {
-        self.graduated_pool_store.apply_observation(
+        let entry = self.graduated_pool_store.apply_observation(
             tx_hash,
             &self.snek_pool_input_tracker,
             consumed_snek_refs,
             produced_snek_refs,
             graduated_splash_ids,
         );
+        self.persist_graduation_observation(tx_hash, &entry);
+    }
+}
+
+impl HandlerContextProto {
+    fn persist_graduation_observation(
+        &self,
+        tx_hash: cml_crypto::TransactionHash,
+        entry: &GraduationJournalEntry,
+    ) {
+        if let Some(state) = &self.graduation_state {
+            state
+                .persist_observation(tx_hash, entry)
+                .expect("failed to persist graduation observation");
+        }
+    }
+
+    fn persist_graduation_rollback(
+        &self,
+        tx_hash: cml_crypto::TransactionHash,
+        entry: &GraduationJournalEntry,
+    ) {
+        if let Some(state) = &self.graduation_state {
+            state
+                .persist_rollback(tx_hash, entry)
+                .expect("failed to persist graduation rollback");
+        }
     }
 }
 
@@ -888,19 +919,36 @@ where
             }
         }
     }
-    if matches!(graduation_action, GraduationAction::Apply) && !consumed_snek_refs.is_empty() {
-        let graduated_splash_ids = produced_entities
+    if matches!(graduation_action, GraduationAction::Apply)
+        && (!consumed_snek_refs.is_empty() || !produced_snek_refs.is_empty())
+    {
+        let produced_splash_ids = produced_entities
             .keys()
             .filter_map(MaybeGraduatedSplashId::maybe_graduated_splash_id)
             .collect::<Vec<_>>();
-        if !graduated_splash_ids.is_empty() {
-            context_proto.journal_graduated_splash_pools(
-                tx.hash,
-                consumed_snek_refs,
-                produced_snek_refs,
-                graduated_splash_ids,
-            );
-        }
+        let graduated_splash_ids = if !consumed_snek_refs.is_empty()
+            && produced_snek_refs.is_empty()
+            && produced_splash_ids.len() == 1
+        {
+            produced_splash_ids
+        } else {
+            if !consumed_snek_refs.is_empty() && !produced_splash_ids.is_empty() {
+                warn!(
+                    "Skipping ambiguous graduation marker for tx {}: consumed_snek_refs={}, produced_snek_refs={}, produced_splash_pools={}",
+                    tx.hash,
+                    consumed_snek_refs.len(),
+                    produced_snek_refs.len(),
+                    produced_splash_ids.len()
+                );
+            }
+            Vec::new()
+        };
+        context_proto.journal_graduated_splash_pools(
+            tx.hash,
+            consumed_snek_refs,
+            produced_snek_refs,
+            graduated_splash_ids,
+        );
     }
     // Preserve non-processed outputs in original ordering.
     tx.outputs = non_processed_outputs.into();
@@ -1091,7 +1139,7 @@ where
                     Arc::clone(&self.index),
                     self.context_proto.clone(),
                     tx,
-                    GraduationAction::Apply,
+                    GraduationAction::Ignore,
                 )
                 .await
                 {
@@ -1122,7 +1170,7 @@ where
                     Arc::clone(&self.index),
                     self.context_proto.clone(),
                     tx,
-                    GraduationAction::Rollback,
+                    GraduationAction::Ignore,
                 )
                 .await
                 {
@@ -1336,7 +1384,6 @@ mod tests {
             true,
             None,
         );
-        let tx_2_hash = hash_transaction_canonical(&tx_2.body);
         let entity_eviction_delay = Duration::from_secs(60 * 5);
         let index = Arc::new(Mutex::new(InMemoryEntityIndex::new(entity_eviction_delay)));
         let (snd, mut recv) = mpsc::channel::<(u8, Channel<Transition<TrivialEntity>, LedgerCx>)>(100);
@@ -1526,6 +1573,7 @@ mod tests {
             snek_pool_script_hashes: Default::default(),
             graduated_pool_store: Default::default(),
             snek_pool_input_tracker: Default::default(),
+            graduation_state: None,
         };
         let mut handler: PairUpdateHandler<
             1,
@@ -1690,6 +1738,7 @@ mod tests {
             },
             graduated_pool_store: Default::default(),
             snek_pool_input_tracker: Default::default(),
+            graduation_state: None,
         }
     }
 

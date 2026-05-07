@@ -1,5 +1,6 @@
 use cml_core::serialization::RawBytesEncoding;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use cml_core::Slot;
@@ -43,6 +44,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub graduated_pool_fee: GraduatedPoolFeeAppConfig,
     #[serde(default)]
+    pub graduation_state_db_path: Option<PathBuf>,
+    #[serde(default)]
     pub snek_graduation: SnekPoolScriptHashes,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
@@ -63,7 +66,7 @@ pub struct GraduatedPoolFeeAppConfig {
 }
 
 fn default_graduated_pool_fee_enabled() -> bool {
-    true
+    false
 }
 
 fn default_graduated_pool_fee_percent() -> u64 {
@@ -73,18 +76,20 @@ fn default_graduated_pool_fee_percent() -> u64 {
 impl Default for GraduatedPoolFeeAppConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             relative_fee_percent: 1,
         }
     }
 }
 
-impl From<GraduatedPoolFeeAppConfig> for GraduatedPoolFeeConfig {
-    fn from(value: GraduatedPoolFeeAppConfig) -> Self {
+impl TryFrom<GraduatedPoolFeeAppConfig> for GraduatedPoolFeeConfig {
+    type Error = String;
+
+    fn try_from(value: GraduatedPoolFeeAppConfig) -> Result<Self, Self::Error> {
         if value.enabled {
-            GraduatedPoolFeeConfig::enabled(value.relative_fee_percent)
+            GraduatedPoolFeeConfig::try_enabled(value.relative_fee_percent)
         } else {
-            GraduatedPoolFeeConfig::default()
+            Ok(GraduatedPoolFeeConfig::default())
         }
     }
 }
@@ -110,11 +115,29 @@ impl CheckIntegrity for AppConfig {
         } else {
             IntegrityViolations::empty()
         };
+        let fee_percent_violations =
+            if self.graduated_pool_fee.enabled && self.graduated_pool_fee.relative_fee_percent > 99 {
+                IntegrityViolations::one(
+                    "graduatedPoolFee.relativeFeePercent must be between 0 and 99".to_string(),
+                )
+            } else {
+                IntegrityViolations::empty()
+            };
+        let graduation_state_violations =
+            if self.graduated_pool_fee.enabled && self.graduation_state_db_path.is_none() {
+                IntegrityViolations::one(
+                    "graduatedPoolFee is enabled but graduationStateDbPath is not configured".to_string(),
+                )
+            } else {
+                IntegrityViolations::empty()
+            };
         IntegrityViolations(
             partitioning_violations
                 .0
                 .into_iter()
                 .chain(snek_graduation_violations.0)
+                .chain(fee_percent_violations.0)
+                .chain(graduation_state_violations.0)
                 .collect(),
         )
     }
@@ -200,19 +223,19 @@ mod tests {
     use bloom_offchain_cardano::graduation::GraduatedPoolFeeConfig;
 
     #[test]
-    fn graduated_pool_fee_config_defaults_to_current_one_percent_behavior() {
+    fn graduated_pool_fee_config_defaults_to_disabled() {
         let config: GraduatedPoolFeeAppConfig = serde_json::from_str("{}").unwrap();
 
         assert_eq!(
             config,
             GraduatedPoolFeeAppConfig {
-                enabled: true,
+                enabled: false,
                 relative_fee_percent: 1,
             }
         );
-        let runtime_config = GraduatedPoolFeeConfig::from(config);
-        assert!(runtime_config.enabled);
-        assert_eq!(runtime_config.fee(10_000), 100);
+        let runtime_config = GraduatedPoolFeeConfig::try_from(config).unwrap();
+        assert!(!runtime_config.enabled);
+        assert_eq!(runtime_config.fee(10_000), 0);
     }
 
     #[test]
@@ -220,8 +243,17 @@ mod tests {
         let config: GraduatedPoolFeeAppConfig =
             serde_json::from_str(r#"{"enabled":false,"relativeFeePercent":1}"#).unwrap();
 
-        let runtime_config = GraduatedPoolFeeConfig::from(config);
+        let runtime_config = GraduatedPoolFeeConfig::try_from(config).unwrap();
         assert!(!runtime_config.enabled);
         assert_eq!(runtime_config.fee(10_000), 0);
+    }
+
+    #[test]
+    fn graduated_pool_fee_config_rejects_one_hundred_percent() {
+        assert!(GraduatedPoolFeeConfig::try_from(
+            serde_json::from_str::<GraduatedPoolFeeAppConfig>(r#"{"enabled":true,"relativeFeePercent":100}"#)
+                .unwrap()
+        )
+        .is_err());
     }
 }

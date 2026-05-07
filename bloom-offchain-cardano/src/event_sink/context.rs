@@ -24,7 +24,8 @@ use spectrum_offchain_cardano::handler_context::{
 };
 
 use crate::graduation::{
-    GraduatedPoolFeeConfig, GraduatedSplashPoolStore, SnekPoolInputTracker, SnekPoolScriptHashes,
+    GraduatedPoolFeeConfig, GraduatedSplashPoolStore, GraduationStateRocksDb, SnekPoolInputTracker,
+    SnekPoolScriptHashes,
 };
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
@@ -51,6 +52,7 @@ pub struct HandlerContextProto {
     pub snek_pool_script_hashes: SnekPoolScriptHashes,
     pub graduated_pool_store: GraduatedSplashPoolStore,
     pub snek_pool_input_tracker: SnekPoolInputTracker,
+    pub graduation_state: Option<GraduationStateRocksDb>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +70,7 @@ pub struct HandlerContext<I: Copy> {
     pub snek_pool_script_hashes: SnekPoolScriptHashes,
     pub graduated_pool_store: GraduatedSplashPoolStore,
     pub snek_pool_input_tracker: SnekPoolInputTracker,
+    pub graduation_state: Option<GraduationStateRocksDb>,
     pub mints: Option<Mints>,
 }
 
@@ -88,6 +91,7 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             snek_pool_script_hashes: ctx_proto.snek_pool_script_hashes,
             graduated_pool_store: ctx_proto.graduated_pool_store,
             snek_pool_input_tracker: ctx_proto.snek_pool_input_tracker,
+            graduation_state: ctx_proto.graduation_state,
             mints: event_ctx.mints,
         }
     }

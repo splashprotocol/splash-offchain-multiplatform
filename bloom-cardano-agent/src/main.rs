@@ -30,7 +30,9 @@ use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
-use bloom_offchain_cardano::graduation::{GraduatedSplashPoolStore, SnekPoolInputTracker};
+use bloom_offchain_cardano::graduation::{
+    GraduatedPoolFeeConfig, GraduatedSplashPoolStore, GraduationStateRocksDb, SnekPoolInputTracker,
+};
 use bloom_offchain_cardano::health::{
     health_tick_stream, AgentNodeStatus, EngineStatus, HealthMonitor, StreamId,
 };
@@ -230,10 +232,22 @@ async fn main() {
         InMemoryKvIndex::new(config.event_cache_ttl, SystemClock).with_tracing("funding_index"),
     ));
     let dao_ctx: DAOContext = config.dao_config.clone().into();
-    let graduated_pool_fee_config = config.graduated_pool_fee.into();
+    let graduated_pool_fee_config = GraduatedPoolFeeConfig::try_from(config.graduated_pool_fee)
+        .expect("invalid graduated pool fee config");
     let snek_pool_script_hashes = config.snek_graduation;
-    let graduated_pool_store = GraduatedSplashPoolStore::default();
-    let snek_pool_input_tracker = SnekPoolInputTracker::default();
+    let graduation_state = config
+        .graduation_state_db_path
+        .as_ref()
+        .map(|path| GraduationStateRocksDb::open(path).expect("failed to open graduation RocksDB state"));
+    let (graduated_pool_store, snek_pool_input_tracker) = match &graduation_state {
+        Some(state) => state
+            .load_state()
+            .expect("failed to load graduation RocksDB state"),
+        None => (
+            GraduatedSplashPoolStore::default(),
+            SnekPoolInputTracker::default(),
+        ),
+    };
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
@@ -244,6 +258,7 @@ async fn main() {
         snek_pool_script_hashes,
         graduated_pool_store: graduated_pool_store.clone(),
         snek_pool_input_tracker: snek_pool_input_tracker.clone(),
+        graduation_state,
     };
     let general_upd_handler: PairUpdateHandler<4, _, _, _, _, HandlerContextProto, HandlerContext<Token>> =
         PairUpdateHandler::new(
