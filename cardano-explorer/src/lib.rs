@@ -147,7 +147,8 @@ impl Blockfrost {
                 .await
                 .ok()
                 .and_then(|opt_value| opt_value.cbor)
-                .and_then(|script| PlutusV2Script::from_cbor_bytes(script.as_ref()).ok())
+                .and_then(|script| hex::decode(script).ok())
+                .map(PlutusV2Script::new)
                 .map(Script::new_plutus_v2)
         }
 
@@ -168,8 +169,9 @@ impl Blockfrost {
         let datum: Option<DatumOption> = inline_datum
             .clone()
             .and_then(|datum| {
-                PlutusData::from_cbor_bytes(datum.as_ref())
+                hex::decode(datum)
                     .ok()
+                    .and_then(|datum| PlutusData::from_cbor_bytes(&datum).ok())
                     .map(DatumOption::new_datum)
             })
             .or(datum_hash.and_then(|datum_hash| {

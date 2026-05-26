@@ -2,13 +2,7 @@
 //! Provides GET /health for health checks.
 
 use crate::health::{AgentNodeStatus, EngineStatus, GetHealth};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde::Serialize;
 use std::time::Duration;
 
@@ -69,10 +63,11 @@ where
 }
 
 /// Creates the router with only the health endpoint (unprotected).
-pub fn create_health_router(
-    health_monitor: HealthMonitorState<EngineStatus, AgentNodeStatus>,
-) -> Router {
+pub fn create_health_router(health_monitor: HealthMonitorState<EngineStatus, AgentNodeStatus>) -> Router {
     Router::new()
-        .route("/health", get(get_health_handler::<EngineStatus, AgentNodeStatus>))
+        .route(
+            "/health",
+            get(get_health_handler::<EngineStatus, AgentNodeStatus>),
+        )
         .with_state(health_monitor)
 }

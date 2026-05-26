@@ -2,7 +2,9 @@ use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::types::Time;
 use bloom_offchain_cardano::graduation::{GraduatedPoolFeeConfig, GraduatedSplashPoolStore};
+use bloom_offchain_cardano::orders::auction::AuctionOrderRegistry;
 use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::pools::classified::ClassifiedPool;
@@ -135,6 +137,8 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<AuctionOrderRegistry>
+        + Has<Time>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<LimitOrderValidation>
         + Has<DepositOrderValidation>

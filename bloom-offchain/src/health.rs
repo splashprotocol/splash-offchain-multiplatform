@@ -8,7 +8,7 @@ use std::{
 };
 
 use either::Either;
-use futures::{Future, Stream, channel::mpsc, channel::oneshot};
+use futures::{channel::mpsc, channel::oneshot, Future, Stream};
 use log::{debug, trace, warn};
 use pin_project::pin_project;
 use serde::{Serialize, Serializer};
@@ -148,10 +148,7 @@ where
 
             let now = OffsetDateTime::now_utc();
             let uptime_duration = now - *this.start_time;
-            this.state.uptime_secs = uptime_duration
-                .whole_seconds()
-                .try_into()
-                .unwrap_or(0_u64);
+            this.state.uptime_secs = uptime_duration.whole_seconds().try_into().unwrap_or(0_u64);
 
             if is_component_stale(this.state.engine.last_updated, now) && this.state.engine.status.is_left() {
                 warn!("Engine component has been idle for too long, marking as stale");
@@ -397,11 +394,7 @@ mod tests {
             EngineStatus::NoFunding
         );
         assert_eq!(
-            aggregate_worst_across_streams(&[
-                EngineStatus::Ok,
-                EngineStatus::NoFunding,
-                EngineStatus::Ok,
-            ]),
+            aggregate_worst_across_streams(&[EngineStatus::Ok, EngineStatus::NoFunding, EngineStatus::Ok,]),
             EngineStatus::NoFunding
         );
     }

@@ -115,6 +115,8 @@ async fn main() {
         .expect("Explorer initialization failed");
 
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
+    let auction_order_registry =
+        config::AuctionOrderAppConfig::into_registry(config.auction_orders.clone(), &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
@@ -259,6 +261,8 @@ async fn main() {
         graduated_pool_store: graduated_pool_store.clone(),
         snek_pool_input_tracker: snek_pool_input_tracker.clone(),
         graduation_state,
+        auction_order_registry: auction_order_registry.clone(),
+        network_id: config.network_id,
     };
     let general_upd_handler: PairUpdateHandler<4, _, _, _, _, HandlerContextProto, HandlerContext<Token>> =
         PairUpdateHandler::new(
@@ -301,6 +305,7 @@ async fn main() {
             .execution
             .into_lb_config(validation_rules.limit_order.min_cost_per_ex_step.into()),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
+        auction_order_registry: auction_order_registry.clone(),
     };
     let context_p1 = ExecutionContext {
         time: 0.into(),
@@ -312,6 +317,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        auction_order_registry: auction_order_registry.clone(),
     };
     let context_p2 = ExecutionContext {
         time: 0.into(),
@@ -323,6 +329,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        auction_order_registry: auction_order_registry.clone(),
     };
     let context_p3 = ExecutionContext {
         time: 0.into(),
@@ -334,6 +341,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        auction_order_registry: auction_order_registry.clone(),
     };
     let context_p4 = ExecutionContext {
         time: 0.into(),
@@ -345,6 +353,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        auction_order_registry,
     };
 
     let multi_book =

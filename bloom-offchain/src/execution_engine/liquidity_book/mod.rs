@@ -7,7 +7,7 @@ use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBe
 use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
-use crate::execution_engine::liquidity_book::state::queries::max_by_distance_to_spot;
+use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to_spot, max_by_volume};
 use crate::execution_engine::liquidity_book::state::{FillPreview, IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
@@ -184,7 +184,11 @@ where
                                         .map(|(_, fp)| price_counter_taker.better_than(fp.price))
                                         .unwrap_or(false) =>
                             {
-                                if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
+                                if let Some(counter_taker) =
+                                    self.state.try_pick_taker(!target_side, |counter_taker| {
+                                        exact_price_compatible(&target_taker, counter_taker)
+                                    })
+                                {
                                     let make_match =
                                         |ask: &Taker, bid: &Taker| settle_price(ask, bid, Some(spot_price));
                                     let (take_a, take_b) =
@@ -220,6 +224,47 @@ where
                 } else {
                     events.push(ExecutionEvent::SpotPriceNotAvailable);
                     trace!("{} Spot price is not available", self.pair);
+                    if self.conf.o2o_allowed {
+                        let price_range = self.state.allowed_price_range();
+                        trace!("{} price_range: {}", self.pair, price_range);
+                        trace!("{} TLB.state: {}", self.pair, self.state);
+                        if let Some(target_taker) =
+                            self.state.pick_active_taker(|fs| max_by_volume(fs, price_range))
+                        {
+                            trace!("Selected taker without spot price: {}", target_taker);
+                            let target_side = target_taker.side();
+                            let target_price = target_side.wrap(target_taker.price());
+                            let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
+                            trace!(
+                                "{} P_target: {}, P_counter: {}",
+                                self.pair,
+                                target_price.unwrap(),
+                                display_option(&maybe_price_counter_taker),
+                            );
+                            if let Some(price_counter_taker) = maybe_price_counter_taker {
+                                if target_price.overlaps(price_counter_taker.unwrap()) {
+                                    if let Some(counter_taker) =
+                                        self.state.try_pick_taker(!target_side, |counter_taker| {
+                                            exact_price_compatible(&target_taker, counter_taker)
+                                        })
+                                    {
+                                        let make_match =
+                                            |ask: &Taker, bid: &Taker| settle_price(ask, bid, None);
+                                        let (take_a, take_b) =
+                                            execute_with_taker(target_taker, counter_taker, make_match);
+                                        trace!("Taker {} matched with {}", target_taker, counter_taker);
+                                        for take in [take_a, take_b] {
+                                            batch.add_take(take);
+                                            self.on_take(take.result);
+                                        }
+                                        continue;
+                                    }
+                                }
+                            }
+                            trace!("Failed to match taker {}", target_taker);
+                            self.state.pre_add_taker(target_taker);
+                        }
+                    }
                 }
                 break;
             }
@@ -283,7 +328,13 @@ where
         Side::Ask => (target_taker, counter_taker),
         Side::Bid => (counter_taker, target_taker),
     };
-    let price = matchmaker(&ask, &bid);
+    let price = if ask.exact_price_required() {
+        ask.price()
+    } else if bid.exact_price_required() {
+        bid.price()
+    } else {
+        matchmaker(&ask, &bid)
+    };
     let quote_input = bid.input();
     let demand_base = linear_output_unsafe(quote_input, Bid(price));
     let supply_base = ask.input();
@@ -300,8 +351,11 @@ where
     (Trans::new(ask, next_ask), Trans::new(bid, next_bid))
 }
 
-fn ok<T>(_: &T) -> bool {
-    true
+fn exact_price_compatible<Taker>(a: &Taker, b: &Taker) -> bool
+where
+    Taker: MarketTaker + TakerBehaviour,
+{
+    !a.exact_price_required() || !b.exact_price_required() || a.price() == b.price()
 }
 
 impl<T, M, P, Ctx, U> Maker<P, Ctx> for TLB<T, M, P, U>

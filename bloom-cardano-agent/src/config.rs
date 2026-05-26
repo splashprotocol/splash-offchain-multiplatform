@@ -14,12 +14,16 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
 
+use bloom_offchain::execution_engine::liquidity_book::types::{FeeAsset, OutputAsset};
 use bloom_offchain_cardano::graduation::{GraduatedPoolFeeConfig, SnekPoolScriptHashes};
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
+use bloom_offchain_cardano::orders::auction::{AuctionOrderRegistry, AuctionOrderRegistryEntry};
 use cardano_explorer::config::ExplorerConfig;
+use cardano_explorer::CardanoNetwork;
 use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
+use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorRef};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +51,8 @@ pub struct AppConfig {
     pub graduation_state_db_path: Option<PathBuf>,
     #[serde(default)]
     pub snek_graduation: SnekPoolScriptHashes,
+    #[serde(default)]
+    pub auction_orders: Vec<AuctionOrderAppConfig>,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
     pub health_listen_addr: Option<SocketAddr>,
@@ -79,6 +85,34 @@ impl Default for GraduatedPoolFeeAppConfig {
             enabled: false,
             relative_fee_percent: 1,
         }
+    }
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuctionOrderAppConfig {
+    pub validator: DeployedValidatorRef,
+    pub max_cost_per_ex_step: FeeAsset<u64>,
+    pub min_marginal_output: OutputAsset<u64>,
+}
+
+impl AuctionOrderAppConfig {
+    pub async fn into_registry<Net: CardanoNetwork>(
+        configs: Vec<Self>,
+        explorer: &Net,
+    ) -> AuctionOrderRegistry {
+        let mut entries = Vec::with_capacity(configs.len());
+        for config in configs {
+            let validator = DeployedValidator::<0>::unsafe_pull(config.validator, explorer)
+                .await
+                .erased();
+            entries.push(AuctionOrderRegistryEntry {
+                validator,
+                max_cost_per_ex_step: config.max_cost_per_ex_step,
+                min_marginal_output: config.min_marginal_output,
+            });
+        }
+        AuctionOrderRegistry::new(entries)
     }
 }
 

@@ -1,5 +1,3 @@
-use bloom_offchain_cardano::health::{AgentNodeStatus, EngineStatus, HealthMonitor, health_tick_stream, StreamId};
-use bloom_offchain_cardano::http_endpoints::{create_health_router, HealthMonitorState};
 use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
@@ -22,6 +20,10 @@ use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
+use bloom_offchain_cardano::health::{
+    health_tick_stream, AgentNodeStatus, EngineStatus, HealthMonitor, StreamId,
+};
+use bloom_offchain_cardano::http_endpoints::{create_health_router, HealthMonitorState};
 use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
@@ -362,16 +364,11 @@ async fn main() {
         3u8,
         engine_tx.clone(),
     );
-    let (node_to_health_snd, node_to_health_recv) =
-        mpsc::unbounded::<ChainSyncHealth>();
+    let (node_to_health_snd, node_to_health_recv) = mpsc::unbounded::<ChainSyncHealth>();
 
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
-        chain_sync_stream_with_health_monitor(
-            chain_sync,
-            state_synced.clone(),
-            node_to_health_snd,
-        ),
+        chain_sync_stream_with_health_monitor(chain_sync, state_synced.clone(), node_to_health_snd),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
         rollback_in_progress,
@@ -424,14 +421,13 @@ async fn main() {
         mpsc::unbounded::<bloom_offchain_cardano::health::GetHealth<EngineStatus, AgentNodeStatus>>();
     let (health_tick_rx, health_tick_driver) = health_tick_stream();
     processes.push(tokio::spawn(health_tick_driver));
-    let health_monitor =
-        HealthMonitor::<_, _, _, _, EngineStatus, AgentNodeStatus>::new(
-            engine_rx,
-            node_status_stream,
-            health_api_recv,
-            health_tick_rx,
-            NUM_ENGINE_STREAMS,
-        );
+    let health_monitor = HealthMonitor::<_, _, _, _, EngineStatus, AgentNodeStatus>::new(
+        engine_rx,
+        node_status_stream,
+        health_api_recv,
+        health_tick_rx,
+        NUM_ENGINE_STREAMS,
+    );
     processes.push(tokio::spawn(health_monitor));
     if let Some(addr) = config.health_listen_addr {
         let health_state = HealthMonitorState {
@@ -443,9 +439,7 @@ async fn main() {
             .expect("Failed to bind health server");
         info!("Health API listening on http://{}", addr);
         processes.push(tokio::spawn(async move {
-            axum::serve(listener, router)
-                .await
-                .expect("Health server failed")
+            axum::serve(listener, router).await.expect("Health server failed")
         }));
     } else {
         warn!("Health listen address not configured; health API disabled");
