@@ -12,6 +12,7 @@ use crate::event_sink::tx_view::TxViewMut;
 use crate::graduation::{GraduationJournalEntry, SnekQuadraticPoolIdentity};
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
+use bloom_offchain::execution_engine::types::LedgerClock;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
@@ -23,6 +24,7 @@ use either::Either;
 use futures::Sink;
 use log::{trace, warn};
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::time::slot_to_posix;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::data::small_vec::SmallVec;
@@ -42,6 +44,7 @@ use tokio::sync::{Mutex, MutexGuard};
 pub struct LedgerCx {
     pub block_hash: BlockHeaderHash,
     pub slot: Slot,
+    pub posix_time: u64,
 }
 
 #[derive(Copy, Clone)]
@@ -52,6 +55,7 @@ enum GraduationAction {
 }
 
 pub trait GraduationTracking {
+    fn network_id(&self) -> spectrum_cardano_lib::NetworkId;
     fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash);
     fn consumed_snek_refs(&self, consumed_utxos: &[OutputRef]) -> Vec<(OutputRef, Token)>;
     fn observe_snek_output(
@@ -85,6 +89,10 @@ impl MaybeGraduatedSplashId for u8 {
 }
 
 impl GraduationTracking for HandlerContextProto {
+    fn network_id(&self) -> spectrum_cardano_lib::NetworkId {
+        self.network_id
+    }
+
     fn rollback_graduation(&self, tx_hash: cml_crypto::TransactionHash) {
         if let Some(entry) = self
             .graduated_pool_store
@@ -160,8 +168,18 @@ impl HandlerContextProto {
 }
 
 impl LedgerCx {
-    pub fn new(block_hash: BlockHeaderHash, slot: Slot) -> Self {
-        Self { block_hash, slot }
+    pub fn new(block_hash: BlockHeaderHash, slot: Slot, network_id: spectrum_cardano_lib::NetworkId) -> Self {
+        Self {
+            block_hash,
+            slot,
+            posix_time: slot_to_posix(slot, network_id),
+        }
+    }
+}
+
+impl LedgerClock for LedgerCx {
+    fn posix_time(&self) -> Option<u64> {
+        Some(self.posix_time)
     }
 }
 
@@ -534,6 +552,10 @@ where
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto.clone(),
                     tx,
+                    Some(slot_to_posix(
+                        slot,
+                        self.general_handler.context_proto.network_id(),
+                    )),
                 )
                 .await
                 {
@@ -542,7 +564,8 @@ where
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
-                        let cx = LedgerCx::new(block_hash, slot);
+                        let cx =
+                            LedgerCx::new(block_hash, slot, self.general_handler.context_proto.network_id());
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 index_atomic_transition(&mut index, &tr);
@@ -582,6 +605,10 @@ where
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto.clone(),
                     tx,
+                    Some(slot_to_posix(
+                        slot,
+                        self.general_handler.context_proto.network_id(),
+                    )),
                 )
                 .await
                 {
@@ -589,7 +616,8 @@ where
                         trace!("{} entities found in unapplied TX", transitions.len());
                         let mut index = self.order_index.lock().await;
                         let pool_index = self.general_handler.index.lock().await;
-                        let cx = LedgerCx::new(block_hash, slot);
+                        let cx =
+                            LedgerCx::new(block_hash, slot, self.general_handler.context_proto.network_id());
                         index.run_eviction();
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
@@ -670,6 +698,7 @@ where
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto.clone(),
                     tx,
+                    None,
                 )
                 .await
                 {
@@ -702,6 +731,7 @@ where
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto.clone(),
                     tx,
+                    None,
                 )
                 .await
                 {
@@ -755,6 +785,7 @@ async fn extract_atomic_transitions<Order, Index, K, Proto, Ctx>(
     index: Arc<Mutex<Index>>,
     context_proto: Proto,
     mut tx: TxViewMut,
+    posix_time: Option<u64>,
 ) -> Result<(Vec<Either<Order, Order>>, TxViewMut), TxViewMut>
 where
     Proto: Clone,
@@ -794,6 +825,7 @@ where
             produced_identifiers: Default::default(),
             added_payment_destinations: Default::default(),
             mints: tx.mints,
+            posix_time,
         };
         match Order::try_from_ledger(&o, &Ctx::from((context_proto.clone(), event_context))) {
             Some(order) => {
@@ -836,6 +868,7 @@ async fn extract_continuous_transitions<Entity, Index, Proto, Ctx>(
     context_proto: Proto,
     mut tx: TxViewMut,
     graduation_action: GraduationAction,
+    posix_time: Option<u64>,
 ) -> Result<(Vec<Ior<Entity, Entity>>, TxViewMut), TxViewMut>
 where
     Proto: Clone + GraduationTracking,
@@ -907,6 +940,7 @@ where
             produced_identifiers: produced_identifiers.into(),
             added_payment_destinations: added_destinations,
             mints: tx.mints,
+            posix_time,
         };
         match Entity::try_from_ledger(&o, &Ctx::from((context_proto.clone(), event_context))) {
             Some(entity) => {
@@ -1014,12 +1048,13 @@ where
                     self.context_proto.clone(),
                     tx,
                     GraduationAction::Apply,
+                    Some(slot_to_posix(slot, self.context_proto.network_id())),
                 )
                 .await
                 {
                     Ok((transitions, tx)) => {
                         trace!("{} transitions found in applied TX", transitions.len());
-                        let cx = LedgerCx::new(block_hash, slot);
+                        let cx = LedgerCx::new(block_hash, slot, self.context_proto.network_id());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
@@ -1061,12 +1096,13 @@ where
                     self.context_proto.clone(),
                     tx,
                     GraduationAction::Rollback,
+                    Some(slot_to_posix(slot, self.context_proto.network_id())),
                 )
                 .await
                 {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
-                        let cx = LedgerCx::new(block_hash, slot);
+                        let cx = LedgerCx::new(block_hash, slot, self.context_proto.network_id());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
@@ -1140,6 +1176,7 @@ where
                     self.context_proto.clone(),
                     tx,
                     GraduationAction::Ignore,
+                    None,
                 )
                 .await
                 {
@@ -1171,6 +1208,7 @@ where
                     self.context_proto.clone(),
                     tx,
                     GraduationAction::Ignore,
+                    None,
                 )
                 .await
                 {
@@ -1574,6 +1612,8 @@ mod tests {
             graduated_pool_store: Default::default(),
             snek_pool_input_tracker: Default::default(),
             graduation_state: None,
+            auction_order_registry: crate::orders::auction::AuctionOrderRegistry::default(),
+            network_id: spectrum_cardano_lib::NetworkId::MAINNET,
         };
         let mut handler: PairUpdateHandler<
             1,
@@ -1739,6 +1779,8 @@ mod tests {
             graduated_pool_store: Default::default(),
             snek_pool_input_tracker: Default::default(),
             graduation_state: None,
+            auction_order_registry: crate::orders::auction::AuctionOrderRegistry::default(),
+            network_id: spectrum_cardano_lib::NetworkId::MAINNET,
         }
     }
 

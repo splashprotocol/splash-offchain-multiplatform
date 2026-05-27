@@ -1,7 +1,8 @@
 use cml_chain::auxdata::Metadata;
 use type_equalities::IsEqual;
 
-use spectrum_cardano_lib::OutputRef;
+use bloom_offchain::execution_engine::types::Time;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::dao_request::{DAOContext, DAOV1ActionOrderValidation};
@@ -28,6 +29,7 @@ use crate::graduation::{
     SnekPoolScriptHashes,
 };
 use crate::orders::adhoc::AdhocFeeStructure;
+use crate::orders::auction::AuctionOrderRegistry;
 use crate::orders::limit::LimitOrderValidation;
 use crate::validation_rules::ValidationRules;
 
@@ -39,6 +41,7 @@ pub struct EventContext<I: Copy> {
     pub produced_identifiers: ProducedIdentifiers<I>,
     pub added_payment_destinations: AddedPaymentDestinations,
     pub mints: Option<Mints>,
+    pub posix_time: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -53,6 +56,8 @@ pub struct HandlerContextProto {
     pub graduated_pool_store: GraduatedSplashPoolStore,
     pub snek_pool_input_tracker: SnekPoolInputTracker,
     pub graduation_state: Option<GraduationStateRocksDb>,
+    pub auction_order_registry: AuctionOrderRegistry,
+    pub network_id: NetworkId,
 }
 
 #[derive(Clone, Debug)]
@@ -71,6 +76,8 @@ pub struct HandlerContext<I: Copy> {
     pub graduated_pool_store: GraduatedSplashPoolStore,
     pub snek_pool_input_tracker: SnekPoolInputTracker,
     pub graduation_state: Option<GraduationStateRocksDb>,
+    pub auction_order_registry: AuctionOrderRegistry,
+    pub posix_time: Option<u64>,
     pub mints: Option<Mints>,
 }
 
@@ -92,6 +99,8 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             graduated_pool_store: ctx_proto.graduated_pool_store,
             snek_pool_input_tracker: ctx_proto.snek_pool_input_tracker,
             graduation_state: ctx_proto.graduation_state,
+            auction_order_registry: ctx_proto.auction_order_registry,
+            posix_time: event_ctx.posix_time,
             mints: event_ctx.mints,
         }
     }
@@ -106,6 +115,18 @@ impl<I: Copy> Has<Option<Mints>> for HandlerContext<I> {
 impl<I: Copy> Has<LimitOrderValidation> for HandlerContext<I> {
     fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
         self.bounds.limit_order
+    }
+}
+
+impl<I: Copy> Has<AuctionOrderRegistry> for HandlerContext<I> {
+    fn select<U: IsEqual<AuctionOrderRegistry>>(&self) -> AuctionOrderRegistry {
+        self.auction_order_registry.clone()
+    }
+}
+
+impl<I: Copy> Has<Time> for HandlerContext<I> {
+    fn select<U: IsEqual<Time>>(&self) -> Time {
+        Time::from(self.posix_time.unwrap_or(0))
     }
 }
 

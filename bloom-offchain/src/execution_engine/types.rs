@@ -6,6 +6,16 @@ use rand::RngCore;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Into, From)]
 pub struct Time(u64);
 
+pub trait LedgerClock {
+    fn posix_time(&self) -> Option<u64>;
+}
+
+impl LedgerClock for () {
+    fn posix_time(&self) -> Option<u64> {
+        None
+    }
+}
+
 #[cfg(test)]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, From)]
 pub struct StableId([u8; 28]);

@@ -14,6 +14,15 @@ pub trait TakerBehaviour: Sized {
     fn with_budget_corrected(self, delta: i64) -> (i64, Self);
     fn with_fee_charged(self, fee: u64) -> Self;
     fn with_output_added(self, added_output: u64) -> Self;
+    fn exact_price_required(&self) -> bool {
+        false
+    }
+    fn exact_output_for_input(&self, _input: InputAsset<u64>) -> Option<OutputAsset<u64>> {
+        None
+    }
+    fn accepts_excess_output(&self) -> bool {
+        true
+    }
     fn try_terminate(self) -> Next<Self, TerminalTake>;
     fn graduated_splash_fee_eligible(&self) -> bool {
         false

@@ -1,3 +1,5 @@
+use cml_chain::address::EnterpriseAddress;
+use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
@@ -33,6 +35,7 @@ use spectrum_offchain_cardano::script::{
 
 use crate::execution_engine::execution_state::{ExecutionState, ScriptInputBlueprint};
 use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
+use crate::orders::auction::{self, AuctionOrder, AuctionOrderRegistry};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
 use crate::orders::{grid, instant, limit, AnyOrder};
@@ -51,7 +54,8 @@ where
         + Has<OperatorCred>
         + Has<DeployedValidator<{ GridOrderNative as u8 }>>
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
-        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
+        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>
+        + Has<AuctionOrderRegistry>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyOrder>, Ctx) {
         match self {
@@ -88,6 +92,24 @@ where
                 (
                     st,
                     res.bimap(|u| u.map(AnyOrder::Grid), |e| e.map(AnyOrder::Grid)),
+                    ctx,
+                )
+            }
+            Magnet(Trans {
+                target: Bundled(AnyOrder::Auction(o), src),
+                result,
+            }) => {
+                let (st, res, ctx) = Magnet(Trans {
+                    target: Bundled(o, src),
+                    result: result.map_succ(|ord| match ord {
+                        AnyOrder::Auction(o2) => o2,
+                        _ => unreachable!(),
+                    }),
+                })
+                .exec(state, context);
+                (
+                    st,
+                    res.bimap(|u| u.map(AnyOrder::Auction), |e| e.map(AnyOrder::Auction)),
                     ctx,
                 )
             }
@@ -179,6 +201,92 @@ where
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
         state.tx_blueprint.add_io(input, residual_order);
         state.tx_blueprint.add_ref_input(reference_utxo);
+        (state, effect, context)
+    }
+}
+
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<AuctionOrder>, Ctx>
+    for Magnet<Take<AuctionOrder, FinalizedTxOut>>
+where
+    Ctx: Has<NetworkId> + Has<AuctionOrderRegistry>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<AuctionOrder>, Ctx) {
+        let Magnet(trans) = self;
+        trace!("Running transition: {}", trans);
+        let removed_input = trans.removed_input();
+        let added_output = trans.added_output();
+        let consumed_budget = trans.consumed_budget();
+        let consumed_fee = trans.consumed_fee();
+        trace!(
+            "AuctionOrder::exec(removed_input={}, added_output={}, consumed_budget={}, consumed_fee={})",
+            removed_input,
+            added_output,
+            consumed_budget,
+            consumed_fee
+        );
+        let Trans {
+            target: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            result,
+        } = trans;
+        let validator = context
+            .select::<AuctionOrderRegistry>()
+            .get(&ord.script_hash)
+            .expect("auction order validator must be registered")
+            .validator
+            .clone();
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out.clone(),
+            script: ScriptWitness {
+                hash: validator.hash,
+                cost: ready_cost(validator.ex_budget),
+            },
+            redeemer: delayed_redeemer(move |_inputs_ordering, ctx| {
+                let successor_ix = ctx.self_index as u64;
+                auction::exec_redeemer(ord.current_span, successor_ix)
+            }),
+            required_signers: vec![].into(),
+        };
+        let mut candidate = consumed_out.clone();
+        candidate.sub_asset(ord.config.base_asset, removed_input);
+        candidate.add_asset(ord.config.quote_asset, added_output);
+        if consumed_budget + consumed_fee > 0 {
+            candidate.sub_asset(AssetClass::Native, consumed_budget + consumed_fee);
+        }
+        let consumed_bundle = Bundled(ord, FinalizedTxOut(consumed_out, in_ref));
+        let (residual_order, effect) = match result {
+            Next::Succ(next) => (
+                candidate.clone(),
+                ExecutionEff::Updated(consumed_bundle, Bundled(next, candidate)),
+            ),
+            Next::Term(_) => {
+                candidate.null_datum();
+                candidate.update_address(
+                    EnterpriseAddress::new(
+                        context.select::<NetworkId>().into(),
+                        StakeCredential::new_pub_key(ord.config.redeemer),
+                    )
+                    .to_address(),
+                );
+                (candidate, ExecutionEff::Eliminated(consumed_bundle))
+            }
+        };
+        let span_low = ord
+            .config
+            .start_time
+            .saturating_add(ord.config.step_len.saturating_mul(ord.current_span));
+        let span_high = span_low.saturating_add(ord.config.step_len);
+        state
+            .tx_blueprint
+            .restrict_validity_range(span_low.saturating_add(1), span_high);
+        state.add_tx_fee(consumed_budget);
+        state.add_operator_interest(consumed_fee);
+        state.tx_blueprint.add_io(input, residual_order);
+        state.tx_blueprint.add_ref_input(validator.reference_utxo);
         (state, effect, context)
     }
 }
@@ -523,7 +631,7 @@ where
                 hash,
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
-            redeemer: delayed_redeemer(move |ordering| {
+            redeemer: delayed_redeemer(move |ordering, _ctx| {
                 CFMMPoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
@@ -597,7 +705,7 @@ where
                 hash,
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
-            redeemer: delayed_redeemer(move |ordering| {
+            redeemer: delayed_redeemer(move |ordering, _ctx| {
                 BalancePoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
@@ -670,7 +778,7 @@ where
                 hash,
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
-            redeemer: delayed_redeemer(move |ordering| {
+            redeemer: delayed_redeemer(move |ordering, _ctx| {
                 let pool_index = ordering.index_of(&in_ref) as u64;
                 StablePoolRedeemer {
                     pool_input_index: pool_index,
@@ -752,7 +860,7 @@ where
                 hash,
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
-            redeemer: delayed_redeemer(move |ordering| {
+            redeemer: delayed_redeemer(move |ordering, _ctx| {
                 let pool_index = ordering.index_of(&in_ref) as u64;
                 QuadraticPoolRedeemer {
                     pool_input_index: pool_index,

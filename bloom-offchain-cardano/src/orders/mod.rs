@@ -1,12 +1,14 @@
 use cml_chain::transaction::TransactionOutput;
 use std::fmt::{Debug, Display, Formatter};
 
+use crate::orders::auction::{AuctionOrder, AuctionOrderRegistry};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset, RelativePrice};
+use bloom_offchain::execution_engine::types::Time;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -16,6 +18,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 pub mod adhoc;
+pub mod auction;
 pub mod grid;
 pub mod instant;
 pub mod limit;
@@ -23,6 +26,7 @@ pub mod limit;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, MarketTaker, Stable, Tradable)]
 pub enum AnyOrder {
     Limit(LimitOrder),
+    Auction(AuctionOrder),
     Grid(GridOrder),
 }
 
@@ -30,6 +34,7 @@ impl Display for AnyOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AnyOrder::Limit(lo) => std::fmt::Display::fmt(&lo, f),
+            AnyOrder::Auction(ao) => std::fmt::Display::fmt(&ao, f),
             AnyOrder::Grid(go) => std::fmt::Display::fmt(&go, f),
         }
     }
@@ -39,6 +44,7 @@ impl TakerBehaviour for AnyOrder {
     fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
         match self {
             AnyOrder::Limit(o) => o.with_updated_time(time).map_succ(AnyOrder::Limit),
+            AnyOrder::Auction(o) => o.with_updated_time(time).map_succ(AnyOrder::Auction),
             AnyOrder::Grid(o) => o.with_updated_time(time).map_succ(AnyOrder::Grid),
         }
     }
@@ -52,6 +58,9 @@ impl TakerBehaviour for AnyOrder {
             AnyOrder::Limit(o) => o
                 .with_applied_trade(removed_input, added_output)
                 .map_succ(AnyOrder::Limit),
+            AnyOrder::Auction(o) => o
+                .with_applied_trade(removed_input, added_output)
+                .map_succ(AnyOrder::Auction),
             AnyOrder::Grid(o) => o
                 .with_applied_trade(removed_input, added_output)
                 .map_succ(AnyOrder::Grid),
@@ -64,6 +73,10 @@ impl TakerBehaviour for AnyOrder {
                 let (d, s) = o.with_budget_corrected(delta);
                 (d, AnyOrder::Limit(s))
             }
+            AnyOrder::Auction(o) => {
+                let (d, s) = o.with_budget_corrected(delta);
+                (d, AnyOrder::Auction(s))
+            }
             AnyOrder::Grid(o) => {
                 let (d, s) = o.with_budget_corrected(delta);
                 (d, AnyOrder::Grid(s))
@@ -74,6 +87,7 @@ impl TakerBehaviour for AnyOrder {
     fn with_fee_charged(self, fee: u64) -> Self {
         match self {
             AnyOrder::Limit(o) => AnyOrder::Limit(o.with_fee_charged(fee)),
+            AnyOrder::Auction(o) => AnyOrder::Auction(o.with_fee_charged(fee)),
             AnyOrder::Grid(o) => AnyOrder::Grid(o.with_fee_charged(fee)),
         }
     }
@@ -81,13 +95,39 @@ impl TakerBehaviour for AnyOrder {
     fn with_output_added(self, added_output: u64) -> Self {
         match self {
             AnyOrder::Limit(o) => AnyOrder::Limit(o.with_output_added(added_output)),
+            AnyOrder::Auction(o) => AnyOrder::Auction(o.with_output_added(added_output)),
             AnyOrder::Grid(o) => AnyOrder::Grid(o.with_output_added(added_output)),
+        }
+    }
+
+    fn accepts_excess_output(&self) -> bool {
+        match self {
+            AnyOrder::Limit(o) => o.accepts_excess_output(),
+            AnyOrder::Auction(o) => o.accepts_excess_output(),
+            AnyOrder::Grid(o) => o.accepts_excess_output(),
+        }
+    }
+
+    fn exact_price_required(&self) -> bool {
+        match self {
+            AnyOrder::Limit(o) => o.exact_price_required(),
+            AnyOrder::Auction(o) => o.exact_price_required(),
+            AnyOrder::Grid(o) => o.exact_price_required(),
+        }
+    }
+
+    fn exact_output_for_input(&self, input: InputAsset<u64>) -> Option<OutputAsset<u64>> {
+        match self {
+            AnyOrder::Limit(o) => o.exact_output_for_input(input),
+            AnyOrder::Auction(o) => o.exact_output_for_input(input),
+            AnyOrder::Grid(o) => o.exact_output_for_input(input),
         }
     }
 
     fn try_terminate(self) -> Next<Self, TerminalTake> {
         match self {
             AnyOrder::Limit(o) => o.try_terminate().map_succ(AnyOrder::Limit),
+            AnyOrder::Auction(o) => o.try_terminate().map_succ(AnyOrder::Auction),
             AnyOrder::Grid(o) => o.try_terminate().map_succ(AnyOrder::Grid),
         }
     }
@@ -105,10 +145,14 @@ where
         + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<AuctionOrderRegistry>
+        + Has<Time>
         + Has<LimitOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        LimitOrder::try_from_ledger(repr, ctx).map(AnyOrder::Limit)
+        LimitOrder::try_from_ledger(repr, ctx)
+            .map(AnyOrder::Limit)
+            .or_else(|| AuctionOrder::try_from_ledger(repr, ctx).map(AnyOrder::Auction))
     }
 }
 

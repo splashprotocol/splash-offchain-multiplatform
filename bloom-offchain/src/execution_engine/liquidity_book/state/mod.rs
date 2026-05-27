@@ -1,5 +1,7 @@
-use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MarketMaker, PoolQuality};
+use crate::execution_engine::liquidity_book::core::{Next, Trans};
+use crate::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, MakerBehavior, MarketMaker, PoolQuality,
+};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -693,6 +695,18 @@ where
     None
 }
 
+fn exact_taker_pool_compatible<T, M>(taker: &T, side: Side, input: u64, maker: &M) -> bool
+where
+    T: MarketTaker + TakerBehaviour + Copy,
+    M: MarketMaker + MakerBehavior + Copy,
+{
+    let Some(exact_output) = taker.exact_output_for_input(input) else {
+        return true;
+    };
+    let preview = Trans::new(*maker, maker.swap(side.wrap(input)));
+    preview.loss().map(|output| output.unwrap()) == Some(exact_output)
+}
+
 impl<T, M> TLBState<T, M>
 where
     M: Stable + Copy,
@@ -707,7 +721,7 @@ where
     ) -> Option<(M::StableId, FillPreview)>
     where
         T: MarketTaker + TakerBehaviour + Copy,
-        M: MarketMaker,
+        M: MarketMaker + MakerBehavior,
     {
         let pools = self
             .pools()
@@ -715,12 +729,13 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                if optimized {
+                let preview = if optimized {
                     try_optimized_swap(target_taker, price, demand, side, p)
                         .or_else(|| dummy_swap(target_taker, demand, side, p))
                 } else {
                     dummy_swap(target_taker, demand, side, p)
-                }
+                }?;
+                exact_taker_pool_compatible(target_taker, side, preview.1.input, p).then_some(preview)
             })
             .filter(|(_, preview)| side.wrap(price).overlaps(preview.price));
         match side {
@@ -845,11 +860,9 @@ where
     T: MarketTaker + TakerBehaviour + Ord + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
-        let new_slot = self
-            .inactive
-            .remove(&new_time)
-            .unwrap_or_else(|| MarketTakers::new());
-        let MarketTakers { asks, bids } = mem::replace(&mut self.active, new_slot);
+        let future = self.inactive.split_off(&new_time.saturating_add(1));
+        let due = mem::replace(&mut self.inactive, future);
+        let MarketTakers { asks, bids } = mem::replace(&mut self.active, MarketTakers::new());
         for fr in asks {
             if let Next::Succ(next_fr) = fr.with_updated_time(new_time) {
                 self.active.asks.insert(next_fr);
@@ -858,6 +871,18 @@ where
         for fr in bids {
             if let Next::Succ(next_fr) = fr.with_updated_time(new_time) {
                 self.active.bids.insert(next_fr);
+            }
+        }
+        for (_, MarketTakers { asks, bids }) in due {
+            for fr in asks {
+                if let Next::Succ(next_fr) = fr.with_updated_time(new_time) {
+                    self.active.asks.insert(next_fr);
+                }
+            }
+            for fr in bids {
+                if let Next::Succ(next_fr) = fr.with_updated_time(new_time) {
+                    self.active.bids.insert(next_fr);
+                }
             }
         }
         self.time_now = new_time;
