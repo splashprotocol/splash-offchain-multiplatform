@@ -355,8 +355,6 @@ Evidence:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/docs/offchain-service-guide.md
 - Auditor flow README:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/README.md
-- Resolution plan and implementation notes:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/docs/plans/2026-05-26-auction-order-preprod-resolution.md
 - This Proof of Achievement report: `milestone-2.md` in the current branch.
 
 ### Building an Off-Chain Service with the Bloom/Splash Libraries

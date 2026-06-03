@@ -58,11 +58,69 @@ SUBMIT=1 deno run --allow-env --allow-read --allow-net \
 
 Required shared inputs:
 
-- `WALLET_SEED_FILE`
-- `PROVIDER=blockfrost` with `BLOCKFROST_PROJECT_ID`, or `PROVIDER=maestro` with
-  `MAESTRO_API_KEY`, or `PROVIDER=koios`
-- `DEPLOYMENT_CONFIG`, defaulting to
-  `bloom-cardano-agent/resources/preprod.deployment.json`
+- `WALLET_SEED_FILE`: path to a mnemonic seed file for the wallet that signs
+  pool and order transactions. The supervised auditor wrapper creates a fresh
+  seed automatically; standalone scripts require this file to exist.
+
+  Example:
+
+  ```bash
+  WALLET_SEED_FILE=testing/preprod/amm-limit-auction-flow/.run/wallets/example.seed
+  ```
+
+  Example file content:
+
+  ```text
+  abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+  ```
+
+- `PROVIDER`: Lucid data provider used by the transaction scripts.
+
+  Examples:
+
+  ```bash
+  PROVIDER=blockfrost
+  BLOCKFROST_PROJECT_ID=preprodXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  ```
+
+  ```bash
+  PROVIDER=maestro
+  MAESTRO_API_KEY=maestro-preprod-api-key
+  ```
+
+  ```bash
+  PROVIDER=koios
+  ```
+
+  Pass real API keys through environment variables or prompts; do not commit
+  them.
+
+- `NODE_SOCKET`: Cardano node socket path used by the supervised flow to query
+  and submit local-node transactions. The wrapper prompts for this value.
+
+  Example:
+
+  ```bash
+  NODE_SOCKET=/path/to/cardano-node.socket
+  ```
+
+- `DEPLOYMENT_CONFIG`: deployed validator/reference configuration used by the
+  script builders. Defaults to the checked-in preprod deployment file.
+
+  Example:
+
+  ```bash
+  DEPLOYMENT_CONFIG=bloom-cardano-agent/resources/preprod.deployment.json
+  ```
+
+- `VALIDATION_RULES`: validation rules template consumed when generating the
+  run-specific Bloom agent config.
+
+  Example:
+
+  ```bash
+  VALIDATION_RULES=bloom-cardano-agent/resources/validation-rules.json.template
+  ```
 
 AMM pool defaults:
 
