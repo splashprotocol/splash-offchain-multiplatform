@@ -2,16 +2,35 @@
 
 Project Catalyst milestone reference: https://milestones.projectcatalyst.io/projects/1100283/milestones/2
 
-This report describes the delivered auction order support for the Splash/Bloom Cardano execution engine and provides preprod transaction evidence showing that an auction order is created, matched, executed by `bloom-cardano-agent`, and verified on-chain.
+This report describes the delivered Bloom/Splash off-chain service support for AMM pools, limit orders, and auction orders. It also includes documentation on building off-chain services with the library and an example real off-chain bot integration. The preprod evidence shows that a limit order and auction order are created, matched, executed by `bloom-cardano-agent`, and verified on-chain.
 
 No wallet seed phrases, signing keys, Blockfrost keys, node socket contents, or other secrets are included in this report.
 
-## A. Output: Auction Order Support in the Off-Chain Execution Engine
+Milestone requirement map:
 
-Acceptance criteria: The Bloom/Splash execution engine can ingest auction order UTxOs, model them as timed taker orders, advance auction clocks from ledger time, match auction orders against compatible liquidity, and build valid execution transactions.
+- **Implementation supporting AMM pool, limit order, and auction order**: covered in section A with direct code links for AMM pool models/creation, limit order implementation/sending, and auction order implementation/execution.
+- **Documentation on building off-chain services with the library**: covered in section E, including architecture, initialization, event/order handling, configuration, and a small end-to-end service example.
+- **Example real off-chain bot integration**: covered by the `bloom-cardano-agent` executable links in section A and the live preprod execution evidence in sections B-D.
+
+## A. Output: AMM Pool, Limit Order, and Auction Order Support
+
+Acceptance criteria: The Bloom/Splash execution engine supports AMM pool liquidity, limit order takers, and auction order takers. The service can ingest pool/order UTxOs, classify them into domain entities, match compatible liquidity, and build valid execution transactions.
 
 Evidence:
 
+- AMM pool support:
+  - Generic pool classification for the execution engine: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/pools/classified.rs
+  - Constant-function AMM pool ledger model and datum parsing: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/spectrum-offchain-cardano/src/data/cfmm_pool.rs
+  - AMM pool math used by pool transitions: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/spectrum-offchain-cardano/src/pool_math/cfmm_math.rs
+  - Real pool-creation integration script: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/splash-testing-cardano/src/balancePool.ts
+  - Additional real pool deployment examples:
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/splash-testing-cardano/src/royaltyPool/deployPool.ts
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/splash-testing-cardano/src/stablePool/stablePool.ts
+- Limit order support:
+  - Limit order domain implementation and execution behavior: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/orders/limit.rs
+  - Limit order transaction builder / sender integration script: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/splash-testing-cardano/src/limitOrder.ts
+  - Preprod auditor flow limit-order sender used for the verified run: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-counter-limit-order.ts
+  - The verified preprod order transaction includes the counter limit order at output `#0`: https://preprod.cexplorer.io/tx/e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407
 - Auction order domain implementation: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/orders/auction.rs
 - Auction order wiring in Cardano event handling and entity decoding:
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/entity.rs
@@ -27,6 +46,10 @@ Evidence:
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/core.rs
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/market_taker.rs
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/state/mod.rs
+- Real off-chain bot integration:
+  - `bloom-cardano-agent` executable composition: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
+  - agent configuration model: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/config.rs
+  - preprod agent config example: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/resources/preprod.config.json
 
 Auditor reference branch:
 
@@ -189,12 +212,12 @@ The production example in this repository is `bloom-cardano-agent`. A smaller se
 
 A Bloom/Splash off-chain service has six moving parts:
 
-1. **Chain source**: reads ledger transactions from a Cardano node and turns them into typed transaction views.
-2. **Mempool source**: optionally reads unconfirmed transactions so the service can react before ledger confirmation.
-3. **Event handlers**: classify transaction outputs and inputs into domain events such as pool updates, order creation, order elimination, and funding box changes.
-4. **Execution engine**: keeps per-pair liquidity books, matches compatible orders/pools, and produces execution recipes.
-5. **Cardano interpreter**: converts recipes into Cardano transactions using deployed validator references, collateral, funding boxes, and operator credentials.
-6. **Submission and health services**: submit transactions, track confirmation, report execution status, and expose a health endpoint.
+1. **Chain source**: reads ledger transactions from a Cardano node and turns them into typed transaction views. Code: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/cardano-chain-sync/src/lib.rs and agent wiring in https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
+2. **Mempool source**: optionally reads unconfirmed transactions so the service can react before ledger confirmation. Code: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/cardano-mempool-sync/src/lib.rs and agent wiring in https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
+3. **Event handlers**: classify transaction outputs and inputs into domain events such as pool updates, order creation, order elimination, and funding box changes. Code: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/event_sink/handler.rs
+4. **Execution engine**: keeps per-pair liquidity books, matches compatible orders/pools, and produces execution recipes. Code: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/mod.rs and liquidity book implementation in https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/mod.rs
+5. **Cardano interpreter**: converts recipes into Cardano transactions using deployed validator references, collateral, funding boxes, and operator credentials. Code: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/interpreter.rs and order/pool execution instances in https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/instances.rs
+6. **Submission and health services**: submit transactions, track confirmation, report execution status, and expose a health endpoint. Code: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/spectrum-offchain-cardano/src/tx_submission.rs and https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/health.rs
 
 In `bloom-cardano-agent`, these pieces are wired in `bloom-cardano-agent/src/main.rs`.
 
