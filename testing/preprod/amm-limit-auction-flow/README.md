@@ -7,7 +7,7 @@ and auction orders.
 This README is the flow-specific auditor runbook. General documentation on
 building and operating an off-chain service with the Bloom/Splash libraries is
 in `docs/offchain-service-guide.md` and is also included in `milestone-2.md`,
-section E.
+Milestone Output 5.
 
 ## Auditor Command
 

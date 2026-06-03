@@ -1,10 +1,10 @@
-# Proof of Achievement Report: AMM, Limit Order, and Auction Order Support in Bloom/Splash Off-Chain Agent
+# Proof of Achievement Report: Milestone 2
 
 Project Catalyst milestone reference:
 https://milestones.projectcatalyst.io/projects/1100283/milestones/2
 
-This report describes the delivered Bloom/Splash off-chain service support for
-AMM pools, limit orders, and auction orders. It also includes documentation on
+This proof covers the delivered Bloom/Splash off-chain service support for AMM
+pools, limit orders, and auction orders. It also includes documentation on
 building off-chain services with the library and an example real off-chain bot
 integration. The preprod evidence shows that a limit order and auction order are
 created, matched, executed by `bloom-cardano-agent`, and verified on-chain.
@@ -12,25 +12,20 @@ created, matched, executed by `bloom-cardano-agent`, and verified on-chain.
 No wallet seed phrases, signing keys, Blockfrost keys, node socket contents, or
 other secrets are included in this report.
 
-Milestone requirement map:
+Auditor reference branch:
+https://github.com/splashprotocol/splash-offchain-multiplatform/tree/bromel777/auction-orders-support
 
-- **Implementation supporting AMM pool, limit order, and auction order**:
-  covered in section A with direct code links for AMM pool models/creation,
-  limit order implementation/sending, and auction order
-  implementation/execution.
-- **Documentation on building off-chain services with the library**: covered in
-  section E, including architecture, initialization, event/order handling,
-  configuration, and a small end-to-end service example.
-- **Example real off-chain bot integration**: covered by the
-  `bloom-cardano-agent` executable links in section A and the live preprod
-  execution evidence in sections B-D.
+Auditor reference pull request:
+https://github.com/splashprotocol/splash-offchain-multiplatform/pull/256
 
-## A. Output: AMM Pool, Limit Order, and Auction Order Support
+## Milestone Output 1 — Implementation Supporting AMM Pool, Limit Order, and Auction Order
 
-Acceptance criteria: The Bloom/Splash execution engine supports AMM pool
-liquidity, limit order takers, and auction order takers. The service can ingest
-pool/order UTxOs, classify them into domain entities, match compatible
-liquidity, and build valid execution transactions.
+Description:
+
+The Bloom/Splash execution engine supports AMM pool liquidity, limit order
+takers, and auction order takers. The service can ingest pool/order UTxOs,
+classify them into domain entities, match compatible liquidity, and build valid
+execution transactions.
 
 Evidence:
 
@@ -60,45 +55,46 @@ Evidence:
   - The verified preprod order transaction includes the counter limit order at
     output `#0`:
     https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440
-- Auction order domain implementation:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/orders/auction.rs
-- Auction order wiring in Cardano event handling and entity decoding:
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/entity.rs
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/event_sink/handler.rs
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/event_sink/context.rs
-- Auction order execution transition support:
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/instances.rs
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/execution_state.rs
-- Timed order clock support in the generic execution engine:
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/types.rs
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/mod.rs
-- Liquidity book support for timed auction order activation:
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/core.rs
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/market_taker.rs
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/state/mod.rs
-- Real off-chain bot integration:
-  - `bloom-cardano-agent` executable composition:
-    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
-  - agent configuration model:
-    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/config.rs
-  - preprod agent config example:
-    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/resources/preprod.config.json
+- Auction order support:
+  - Auction order domain implementation:
+    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/orders/auction.rs
+  - Auction order wiring in Cardano event handling and entity decoding:
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/entity.rs
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/event_sink/handler.rs
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/event_sink/context.rs
+  - Auction order execution transition support:
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/instances.rs
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/execution_state.rs
+  - Timed order clock support in the generic execution engine:
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/types.rs
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/mod.rs
+  - Liquidity book support for timed auction order activation:
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/core.rs
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/market_taker.rs
+    - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/state/mod.rs
 
-Auditor reference branch:
+Acceptance Criteria Verification:
 
-- https://github.com/splashprotocol/splash-offchain-multiplatform/tree/bromel777/auction-orders-support
+- Review the AMM evidence links and verify that pool classification, constant
+  function pool parsing, pool math, and pool deployment scripts are present.
+- Review the limit order evidence links and verify that the order domain logic,
+  execution logic, and transaction builders are present.
+- Review the auction order evidence links and verify that auction order domain
+  parsing, entity wiring, event handling, timed activation, and execution
+  transition support are present.
+- Confirm that the verified preprod order transaction contains the counter limit
+  order at output `#0`:
+  https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440
 
-Auditor reference pull request:
+## Milestone Output 2 — Preprod AMM, Limit Order, and Auction Auditor Flow
 
-- https://github.com/splashprotocol/splash-offchain-multiplatform/pull/256
+Description:
 
-## B. Output: Preprod AMM, Limit Order, and Auction Auditor Flow
-
-Acceptance criteria: Auditors can run one script from a fresh checkout, provide
-a Blockfrost preprod key and Cardano node socket path, fund a fresh generated
-wallet with tADA, and observe a full preprod flow that deploys AMM liquidity,
-publishes a limit order, publishes a matching auction/counter limit-order pair,
-and verifies auction execution by `bloom-cardano-agent`.
+Auditors can run one script from a fresh checkout, provide a Blockfrost preprod
+key and Cardano node socket path, fund a fresh generated wallet with tADA, and
+observe a full preprod flow that deploys AMM liquidity, publishes a limit order,
+publishes a matching auction/counter limit-order pair, and verifies auction
+execution by `bloom-cardano-agent`.
 
 Evidence:
 
@@ -126,41 +122,44 @@ Evidence:
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/generate-agent-config.sh
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/run-agent.sh
 
-Auditor command:
+Acceptance Criteria Verification:
 
-```bash
-./testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
-```
+- From the repository root, run:
 
-Additional AMM pool and limit-order demo command:
+  ```bash
+  ./testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
+  ```
 
-```bash
-./testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
-```
+- When prompted, provide:
+  - a preprod Blockfrost project id;
+  - a Cardano node socket path;
+  - funding confirmation after sending at least `500 tADA` to the generated
+    preprod wallet address.
+- Verify that the script:
+  - starts `bloom-cardano-agent` with fresh run-local state;
+  - funds the agent funding addresses;
+  - deploys AMM liquidity;
+  - publishes a limit order;
+  - publishes a matching auction/counter limit-order pair;
+  - verifies that the auction order was spent by the agent execution
+    transaction.
+- Verify that on failure the script kills the agent and removes run-local
+  RocksDB/state directories so later runs start cleanly.
+- Verify that the generated agent config sets `disableMempool=true`, waits for
+  setup/order transactions to be confirmed on preprod, and then uses ledger
+  chain sync for deterministic audit behavior.
+- Optional AMM pool and limit-order demo command:
 
-The script asks the auditor for:
+  ```bash
+  ./testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
+  ```
 
-- Preprod Blockfrost project id.
-- Cardano node socket path. If a common socket path is detected, it is shown as
-  the default and can be accepted with Enter.
-- Funding confirmation after at least `500 tADA` is sent to the generated
-  preprod wallet address.
+## Milestone Output 3 — Tests and Local Verification
 
-On failure, the script kills the agent and removes the run-local RocksDB/state
-directory so a later run starts cleanly. Wallet seed files remain local under
-`.run/wallets` so leftover preprod funds can be recovered by the operator.
+Description:
 
-For deterministic auditor evidence the generated agent config sets
-`disableMempool=true`. The flow waits for setup/order transactions to be
-confirmed on preprod, then the agent observes them through ledger chain sync and
-submits the execution transaction. This avoids non-deterministic local mempool
-rollback events during repeated audit runs.
-
-## C. Output: Tests and Local Verification
-
-Acceptance criteria: The code and scripts are covered by local verification
-commands that auditors and reviewers can run before executing a live preprod
-flow.
+The code and scripts are covered by local verification commands that auditors
+and reviewers can run before executing a live preprod flow.
 
 Evidence:
 
@@ -203,15 +202,25 @@ test orders::auction::tests::computes_decayed_price_for_span ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out
 ```
 
-`cargo check -p bloom-cardano-agent` completed successfully. Existing repository
-warnings were emitted, but no build errors were reported.
+Acceptance Criteria Verification:
 
-## D. Output: Reproducible Preprod Execution Evidence
+- Run the shell syntax checks listed above and verify they exit with code `0`.
+- Run the Deno type-check command listed above and verify it exits with code
+  `0`.
+- Run `cargo check -p bloom-cardano-agent` and verify there are no build errors.
+  Existing repository warnings are acceptable.
+- Run `cargo test -p bloom-offchain-cardano orders::auction::tests` and verify
+  that `computes_decayed_price_for_span` passes.
 
-Acceptance criteria: The delivered auditor flow demonstrates real preprod
-transactions that create AMM liquidity, publish a limit order, publish a
-matching auction/counter limit-order pair, and execute the auction order through
-`bloom-cardano-agent`.
+## Milestone Output 4 — Reproducible Preprod Execution Evidence
+
+Description:
+
+The delivered auditor flow demonstrates real preprod transactions that create
+AMM liquidity, publish a limit order, publish a matching auction/counter
+limit-order pair, and execute the auction order through `bloom-cardano-agent`.
+
+Evidence:
 
 Latest successful preprod auditor run:
 
@@ -243,26 +252,15 @@ Latest successful preprod auditor run:
 Public explorer links:
 
 - Funding / mint transaction:
-  [eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3](https://preprod.cexplorer.io/tx/eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3).
-  This confirms the generated run assets and agent funding outputs.
+  https://preprod.cexplorer.io/tx/eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3
 - AMM pool deployment transaction:
-  [02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703](https://preprod.cexplorer.io/tx/02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703).
-  This creates the classic AMM pool for the fresh run asset pair.
+  https://preprod.cexplorer.io/tx/02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703
 - AMM-pair limit order publication transaction:
-  [55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4](https://preprod.cexplorer.io/tx/55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4).
-  This publishes a limit order using the AMM pool asset pair. The auditor flow
-  records this as `published_on_preprod`; the auction execution proof below also
-  executes a counter limit order through the agent.
+  https://preprod.cexplorer.io/tx/55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4
 - Paired counter limit order and auction order transaction:
-  [8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440](https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440).
-  This contains the counter limit order at output `#0` and auction order at
-  output `#1`.
+  https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440
 - Agent execution transaction:
-  [f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08](https://preprod.cexplorer.io/tx/f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08).
-  This is the transaction submitted by `bloom-cardano-agent` that spends auction
-  order ref `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#1`
-  and the matching counter limit order ref
-  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#0`.
+  https://preprod.cexplorer.io/tx/f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08
 
 Validator references used by the run:
 
@@ -340,14 +338,31 @@ Agent log checkpoints from the run:
 - The execution transaction was later confirmed and removed from pending
   transaction tracking.
 
-## E. Output: Documentation for Building and Operating Off-Chain Services
+Acceptance Criteria Verification:
 
-Acceptance criteria: The repository includes Markdown documentation that
-explains how to build an off-chain service with the Bloom/Splash libraries,
-including minimal architecture, initialization, event/order handling,
-configuration, and a small end-to-end example. It also includes auditor/operator
-documentation for running the full preprod auditor flow and interpreting
-success.
+- Open the public explorer links and verify the funding/mint, AMM pool
+  deployment, limit order publication, paired counter/auction order, and agent
+  execution transactions are present on preprod.
+- Verify that the paired order transaction contains the counter limit order at
+  output `#0` and auction order at output `#1`.
+- Verify that the agent execution transaction spends auction order ref
+  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#1` and the
+  matching counter limit order ref
+  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#0`.
+- Verify that the generated JSON report status is `ok`.
+- Verify that the verifier status is `spent_by_agent_flow` and the spending
+  transaction is
+  `f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08`.
+
+## Milestone Output 5 — Documentation on Building and Operating Off-Chain Services
+
+Description:
+
+The repository includes Markdown documentation that explains how to build an
+off-chain service with the Bloom/Splash libraries, including minimal
+architecture, initialization, event/order handling, configuration, and a small
+end-to-end example. It also includes auditor/operator documentation for running
+the full preprod auditor flow and interpreting success.
 
 Evidence:
 
@@ -357,347 +372,102 @@ Evidence:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/README.md
 - This Proof of Achievement report: `milestone-2.md` in the current branch.
 
-### Building an Off-Chain Service with the Bloom/Splash Libraries
+Acceptance Criteria Verification:
 
-This guide explains how to assemble a Cardano off-chain service using the
-Bloom/Splash off-chain libraries in this repository. It is intentionally
-separate from the preprod auditor flow runbook: the runbook proves AMM pool,
-limit-order, and auction-order behavior, while this section explains the
-reusable service architecture and integration points.
+- Open the general off-chain service guide and verify it is separate from the
+  preprod auditor flow runbook.
+- Verify that the guide explains the minimal architecture:
+  - chain source;
+  - mempool source;
+  - event handlers;
+  - execution engine;
+  - Cardano interpreter;
+  - submission and health services.
+- Verify that the guide explains crate roles for:
+  - `bloom-offchain`;
+  - `bloom-offchain-cardano`;
+  - `spectrum-offchain-cardano`;
+  - `cardano-chain-sync`;
+  - `cardano-mempool-sync`;
+  - `bloom-cardano-agent`.
+- Verify that the guide explains initialization:
+  - loading service config, deployment config, validation rules, and logging
+    config;
+  - validating configuration;
+  - creating explorer access;
+  - pulling deployed validators;
+  - building auction order registries;
+  - opening local state;
+  - connecting node clients;
+  - deriving operator credentials;
+  - creating event channels and handlers;
+  - creating execution contexts.
+- Verify that the guide includes a configuration checklist with the required
+  chain sync, node, network, operator, explorer, execution, partitioning, and
+  health fields.
+- Verify that auction order support configuration is shown with an
+  `auctionOrders` JSON example.
+- Verify that event and order handling are documented for pair updates,
+  specialized order updates, funding events, order decoding, entity wiring,
+  handler context, and execution instances.
+- Verify that the small end-to-end example shows:
+  - creating a preprod config;
+  - providing deployment and validation files;
+  - running `bloom-cardano-agent`;
+  - funding operator addresses;
+  - publishing supported order or pool UTxOs;
+  - watching logs for batch formation, transaction creation, acceptance, and
+    confirmation;
+  - querying the health endpoint.
+- Verify that the auditor flow README documents the one-command entry point,
+  required inputs, expected prompts, expected success output, local verification
+  commands, and the last verified preprod run.
 
-The production example in this repository is `bloom-cardano-agent`. A smaller
+## Milestone Output 6 — Example Real Off-Chain Bot Integration
+
+Description:
+
+The production example in this repository is `bloom-cardano-agent`, an
+executable composition of the Bloom/Splash off-chain libraries. A smaller
 service can reuse the same pieces and disable features it does not need.
 
-#### Minimal Architecture
+Evidence:
 
-A Bloom/Splash off-chain service has six moving parts:
+- `bloom-cardano-agent` executable composition:
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
+- Agent configuration model:
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/config.rs
+- Preprod agent config example:
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/resources/preprod.config.json
+- Full preprod auditor flow that runs the agent and verifies execution:
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
 
-1. **Chain source**: reads ledger transactions from a Cardano node and turns
-   them into typed transaction views. Code:
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/cardano-chain-sync/src/lib.rs
-   and agent wiring in
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
-2. **Mempool source**: optionally reads unconfirmed transactions so the service
-   can react before ledger confirmation. Code:
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/cardano-mempool-sync/src/lib.rs
-   and agent wiring in
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-cardano-agent/src/main.rs
-3. **Event handlers**: classify transaction outputs and inputs into domain
-   events such as pool updates, order creation, order elimination, and funding
-   box changes. Code:
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/event_sink/handler.rs
-4. **Execution engine**: keeps per-pair liquidity books, matches compatible
-   orders/pools, and produces execution recipes. Code:
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/mod.rs
-   and liquidity book implementation in
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/execution_engine/liquidity_book/mod.rs
-5. **Cardano interpreter**: converts recipes into Cardano transactions using
-   deployed validator references, collateral, funding boxes, and operator
-   credentials. Code:
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/interpreter.rs
-   and order/pool execution instances in
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/execution_engine/instances.rs
-6. **Submission and health services**: submit transactions, track confirmation,
-   report execution status, and expose a health endpoint. Code:
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/spectrum-offchain-cardano/src/tx_submission.rs
-   and
-   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain/src/health.rs
+Acceptance Criteria Verification:
 
-In `bloom-cardano-agent`, these pieces are wired in
-`bloom-cardano-agent/src/main.rs`.
-
-#### Crate Roles
-
-- `bloom-offchain`: generic execution engine, temporal liquidity book, state
-  index, backlog, matching, and execution stream orchestration.
-- `bloom-offchain-cardano`: Cardano-specific order/pool decoding, event
-  handlers, recipe interpretation, validation rules, and transaction building.
-- `spectrum-offchain-cardano`: Cardano data types, validator deployment models,
-  credentials, transaction submission, and node helpers.
-- `cardano-chain-sync` and `cardano-mempool-sync`: node-to-client ledger and
-  mempool streams.
-- `bloom-cardano-agent`: executable composition of the above libraries.
-
-#### Initialization Flow
-
-A service should initialize components in this order:
-
-1. **Load configuration**:
-   - service config, for example
-     `bloom-cardano-agent/resources/preprod.config.json`;
-   - validator deployment config, for example
-     `bloom-cardano-agent/resources/preprod.deployment.json`;
-   - validation rules, for example
-     `bloom-cardano-agent/resources/validation-rules.json.template`;
-   - logging config, for example `bloom-cardano-agent/resources/log4rs.yaml`.
-2. **Validate configuration** with the local integrity checks. The agent uses
-   `CheckIntegrity` to reject malformed partitioning, fee, and graduation
-   settings before connecting to the node.
-3. **Create explorer access** through `cardano_explorer::AnyExplorer`. The
-   explorer is used to pull validator reference UTxOs and collateral/funding
-   state.
-4. **Pull deployed validators** with `ProtocolDeployment::unsafe_pull`.
-5. **Build optional order registries**, such as `AuctionOrderRegistry`, from
-   configured validator references and cost limits.
-6. **Open local state**:
-   - chain-sync RocksDB cache;
-   - optional graduation RocksDB state;
-   - in-memory entity/order/funding indexes.
-7. **Connect node clients**:
-   - `ChainSyncClient` for ledger events;
-   - `LocalTxMonitorClient` for mempool events;
-   - local transaction submission client.
-8. **Derive operator credentials**, collateral address, and funding addresses
-   from the operator signing key.
-9. **Create event channels and handlers** for pair updates, specialized order
-   updates, and funding events.
-10. **Create execution contexts** and start one or more execution streams.
-
-The agent uses four execution streams in production. A minimal service can use
-one partition and one execution stream.
-
-#### Configuration Checklist
-
-The minimal config fields are:
-
-- `chainSync.startingPoint`: ledger point where the service starts scanning.
-- `chainSync.replayFromPoint`: optional earlier point for replaying indexed
-  events.
-- `chainSync.disableRollbacksUntil`: rollback guard point.
-- `chainSync.dbPath`: local RocksDB path for the ledger cache.
-- `node.path`: Cardano node socket path.
-- `node.magic`: network magic, for example `1` for preprod.
-- `networkId`: Cardano network id, for example `0` for testnet.
-- `operatorKey`: operator signing key material or configured key source.
-- `explorer`: Blockfrost or Maestro configuration, depending on the build and
-  deployment environment.
-- `execution.executionCap`: soft and hard execution-unit caps for batches.
-- `execution.o2oAllowed`: whether order-to-order matching is enabled.
-- `partitioning`: total partitions and assigned partitions for this service
-  instance.
-- `daoConfig`, `royaltyWithdraw`, and other protocol-specific contexts required
-  by enabled validators.
-- `healthListenAddr`: optional HTTP health endpoint.
-
-Auction order support additionally requires:
-
-```json
-{
-  "auctionOrders": [
-    {
-      "validator": {
-        "hash": "<auction-validator-hash>",
-        "referenceUtxo": {
-          "txHash": "<reference-script-tx>",
-          "outputIndex": 0
-        },
-        "cost": {
-          "mem": 210000,
-          "steps": 80000000
-        },
-        "marginalCost": {
-          "mem": 210000,
-          "steps": 80000000
-        }
-      },
-      "maxCostPerExStep": {
-        "asset": "lovelace",
-        "quantity": 1
-      },
-      "minMarginalOutput": {
-        "asset": "out",
-        "quantity": 1
-      }
-    }
-  ]
-}
-```
-
-Use the deployed values for the target network. Do not hardcode private keys,
-API keys, or local node socket paths into committed config.
-
-#### Event and Order Handling
-
-The service receives `TxViewMut` values from ledger and mempool streams. Event
-handlers inspect each transaction and produce typed domain events:
-
-- **Pair updates** for evolving entities such as pools.
-- **Specialized order updates** for atomic order entities such as limit,
-  instant, grid, and auction orders.
-- **Funding events** for operator funding boxes used by transaction building.
-
-The main handlers are:
-
-- `PairUpdateHandler`: classifies pool and evolving entity transitions.
-- `SpecializedHandler`: classifies order creation and elimination.
-- `FundingEventHandler`: tracks funding boxes belonging to operator-derived
-  funding addresses.
-
-Order support is usually added in four places:
-
-1. **Domain decoder**: parse the on-chain datum/redeemer into a Rust order type.
-   Auction orders are implemented in
-   `bloom-offchain-cardano/src/orders/auction.rs`.
-2. **Entity wiring**: include the order in the agent entity enum so ledger and
-   mempool handlers can see it. See `bloom-cardano-agent/src/entity.rs`.
-3. **Event handling context**: provide validator hashes, deployment references,
-   and validation rules through `HandlerContext`.
-4. **Execution instances**: implement how the order executes and how the Cardano
-   interpreter spends it. See
-   `bloom-offchain-cardano/src/execution_engine/instances.rs`.
-
-Auction orders are timed taker orders. The liquidity book advances clocks from
-ledger time, activates the order only in its valid time span, computes the
-current auction price, and matches it against compatible counter liquidity.
-
-#### Execution Engine Flow
-
-The execution stream consumes pair/order/funding events and performs this loop:
-
-1. Resolve the latest known state of every affected entity through the state
-   index.
-2. Update the per-pair `TLB` liquidity book.
-3. Select candidate takers and makers for the pair.
-4. Form a `MatchmakingRecipe` when prices, time bounds, and execution caps allow
-   a valid batch.
-5. Convert the recipe into a Cardano transaction blueprint.
-6. Pull collateral and funding boxes.
-7. Balance fees and execution budgets.
-8. Submit the transaction through the local submission agent.
-9. Track mempool acceptance and ledger confirmation.
-10. Commit or roll back predicted state depending on confirmation.
-
-The generic stream entry point is `execution_part_stream` in
-`bloom-offchain/src/execution_engine/mod.rs`.
-
-#### Minimal End-to-End Example
-
-This example describes the smallest practical service that follows the same
-architecture as `bloom-cardano-agent`.
-
-1. Create a config file for preprod:
-
-```json
-{
-  "eventFeedBufferSize": 1024,
-  "chainSync": {
-    "startingPoint": { "Specific": [64919047, "<block-hash>"] },
-    "replayFromPoint": { "Specific": [64919047, "<block-hash>"] },
-    "disableRollbacksUntil": 64919047,
-    "dbPath": "state/preprod-chain-sync.rocksdb"
-  },
-  "node": {
-    "path": "/path/to/node.socket",
-    "magic": 1
-  },
-  "txSubmissionBufferSize": 64,
-  "backlogCapacity": 128,
-  "networkId": 0,
-  "eventCacheTtl": { "secs": 120, "nanos": 0 },
-  "operatorKey": "<operator-signing-key>",
-  "takeResidualFee": false,
-  "explorer": {
-    "blockfrostKeyPath": "secrets/preprod.blockfrost.key"
-  },
-  "execution": {
-    "executionCap": {
-      "soft": { "mem": 5000000, "steps": 4000000000 },
-      "hard": { "mem": 14000000, "steps": 10000000000 }
-    },
-    "o2oAllowed": true
-  },
-  "eventFeedBufferingDuration": { "secs": 0, "nanos": 50000 },
-  "partitioning": {
-    "numPartitionsTotal": 1,
-    "assignedPartitions": [0]
-  },
-  "daoConfig": {
-    "publicKeys": [],
-    "threshold": 0,
-    "exFee": 1500000
-  },
-  "royaltyWithdraw": {
-    "transactionFee": 1500000
-  },
-  "reportingEndpoint": "127.0.0.1:9021",
-  "healthListenAddr": "127.0.0.1:9024",
-  "auctionOrders": []
-}
-```
-
-2. Provide deployment and validation files:
-
-```text
-bloom-cardano-agent/resources/preprod.deployment.json
-bloom-cardano-agent/resources/validation-rules.json.template
-```
-
-3. Build and run the agent:
-
-```bash
-cargo run -p bloom-cardano-agent -- \
-  --config-path path/to/preprod.config.json \
-  --deployment-path bloom-cardano-agent/resources/preprod.deployment.json \
-  --validation-rules-path bloom-cardano-agent/resources/validation-rules.json.template \
-  --log4rs-path bloom-cardano-agent/resources/log4rs.yaml
-```
-
-4. Fund the derived operator funding addresses and collateral address.
-
-5. Publish supported order or pool UTxOs on-chain.
-
-6. Watch logs for:
-
-```text
-Successfully formed a batch
-Finished Tx: <transaction-hash>
-Tx <transaction-hash> was accepted
-Removed confirmed Tx <transaction-hash>: true
-```
-
-7. Query the health endpoint if configured:
-
-```bash
-curl http://127.0.0.1:9024/health
-```
-
-The preprod auditor flow in
-`testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh` is a
-concrete example of steps 1-6. It generates a wallet, asks for external inputs,
-funds the agent, deploys AMM liquidity, publishes a limit order, publishes a
-matching auction/counter limit-order pair, waits for execution, and writes a
-JSON report.
-
-#### Operational Notes
-
-- Start chain sync far enough before the order UTxOs so the service sees
-  validator references, funding boxes, and orders.
-- Keep RocksDB paths unique per run or clean them before replaying the same
-  scenario.
-- Keep operator keys, API keys, and wallet seed files outside committed docs.
-- Prefer a health endpoint in auditor and production deployments.
-- Use mempool support for faster reaction; disable it only when a deployment
-  intentionally wants ledger-confirmed events only.
-- When adding a new order family, add a small unit test for order math and a
-  live-network runbook or integration flow showing that the order is observed,
-  matched, submitted, and confirmed.
-
-The preprod auditor flow README documents:
-
-- The one-command auditor entry point.
-- Required inputs: Blockfrost preprod key, Cardano node socket, and tADA
-  funding.
-- What the script does at each stage.
-- Expected success output.
-- Local verification commands.
-- Last verified preprod run and transaction hashes.
+- Review `bloom-cardano-agent/src/main.rs` and verify it wires together chain
+  sync, mempool sync, event handlers, execution streams, transaction
+  interpretation/submission, and health reporting.
+- Review `bloom-cardano-agent/src/config.rs` and verify the executable is
+  configured through typed service configuration rather than hardcoded runtime
+  values.
+- Review `bloom-cardano-agent/resources/preprod.config.json` as a concrete
+  preprod configuration example.
+- Run the full preprod auditor flow and verify that the real bot observes the
+  AMM pool and orders, forms a valid auction/counter limit-order batch, submits
+  the execution transaction, and confirms it on preprod.
 
 ## Summary
 
-The milestone delivery includes the auction order implementation and wiring
-referenced above, plus a demonstrated preprod execution path, a reproducible
-auditor flow, local verification commands, Markdown documentation, and concrete
-preprod transaction evidence.
+This milestone delivery includes:
+
+1. AMM pool support.
+2. Limit order support.
+3. Auction order implementation and wiring.
+4. A reproducible preprod auditor flow.
+5. Local verification commands.
+6. Markdown documentation for building off-chain services with the library.
+7. A real off-chain bot integration through `bloom-cardano-agent`.
+8. Concrete preprod transaction evidence.
 
 The latest completed preprod run demonstrates that:
 
