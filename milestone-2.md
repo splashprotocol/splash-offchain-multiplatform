@@ -168,17 +168,27 @@ Agent log checkpoints from the run:
 - The execution transaction `fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4` was accepted.
 - The execution transaction was later confirmed and removed from pending transaction tracking.
 
-## E. Output: Documentation for Auditors and Operators
+## E. Output: Documentation for Building and Operating Off-Chain Services
 
-Acceptance criteria: The repository includes Markdown documentation that explains how to run the auction order test flow and how to interpret success.
+Acceptance criteria: The repository includes Markdown documentation that explains how to build an off-chain service with the Bloom/Splash libraries, including minimal architecture, initialization, event/order handling, configuration, and a small end-to-end example. It also includes auditor/operator documentation for running the auction order test flow and interpreting success.
 
 Evidence:
 
+- General off-chain service guide: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/docs/offchain-service-guide.md
 - Auditor flow README: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/README.md
 - Resolution plan and implementation notes: https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/docs/plans/2026-05-26-auction-order-preprod-resolution.md
-- This Proof of Achievement report: `report.md` in the current branch.
+- This Proof of Achievement report: `milestone-2.md` in the current branch.
 
-The README documents:
+The general off-chain service guide documents:
+
+- The minimal service architecture: chain source, mempool source, event handlers, execution engine, Cardano interpreter, submission, and health services.
+- Initialization order for config, deployed validators, explorer access, local state, node clients, event channels, contexts, and execution streams.
+- Configuration fields required to run a service and optional auction-order registry configuration.
+- Event and order handling responsibilities, including where to add a new order family.
+- Execution-engine data flow from ledger/mempool events to matched recipes, transaction building, submission, and confirmation.
+- A small end-to-end preprod service example with config shape, command line, funding requirements, expected logs, and health endpoint.
+
+The auction flow README documents:
 
 - The one-command auditor entry point.
 - Required inputs: Blockfrost preprod key, Cardano node socket, and tADA funding.
