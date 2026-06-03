@@ -99,7 +99,7 @@ function tokenAsset(
 
 export async function readFlowEnv(): Promise<FlowEnv> {
   const envPath = Deno.env.get("FLOW_ENV_FILE") ??
-    "testing/preprod/auction-order-flow/.env";
+    "testing/preprod/amm-limit-auction-flow/.env";
   const dotenv = await load({
     envPath,
     export: false,

@@ -1,4 +1,4 @@
-# Proof of Achievement Report: Auction Order Support in Bloom/Splash Off-Chain Agent
+# Proof of Achievement Report: AMM, Limit Order, and Auction Order Support in Bloom/Splash Off-Chain Agent
 
 Project Catalyst milestone reference:
 https://milestones.projectcatalyst.io/projects/1100283/milestones/2
@@ -42,7 +42,7 @@ Evidence:
   - AMM pool math used by pool transitions:
     https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/spectrum-offchain-cardano/src/pool_math/cfmm_math.rs
   - Preprod auditor AMM pool deployment script:
-    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/deploy-amm-pool.ts
+    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/deploy-amm-pool.ts
   - Real pool-creation integration script:
     https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/splash-testing-cardano/src/balancePool.ts
   - Additional real pool deployment examples:
@@ -52,11 +52,11 @@ Evidence:
   - Limit order domain implementation and execution behavior:
     https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/orders/limit.rs
   - Preprod auditor standalone limit-order sender:
-    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-limit-order.ts
+    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/create-limit-order.ts
   - Limit order transaction builder / sender integration script:
     https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/splash-testing-cardano/src/limitOrder.ts
   - Preprod auditor flow limit-order sender used for the verified run:
-    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-counter-limit-order.ts
+    https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/create-counter-limit-order.ts
   - The verified preprod order transaction includes the counter limit order at
     output `#0`:
     https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440
@@ -92,48 +92,50 @@ Auditor reference pull request:
 
 - https://github.com/splashprotocol/splash-offchain-multiplatform/pull/256
 
-## B. Output: Preprod Auction Order Auditor Flow
+## B. Output: Preprod AMM, Limit Order, and Auction Auditor Flow
 
 Acceptance criteria: Auditors can run one script from a fresh checkout, provide
 a Blockfrost preprod key and Cardano node socket path, fund a fresh generated
-wallet with tADA, and observe a full auction order flow on preprod.
+wallet with tADA, and observe a full preprod flow that deploys AMM liquidity,
+publishes a limit order, publishes a matching auction/counter limit-order pair,
+and verifies auction execution by `bloom-cardano-agent`.
 
 Evidence:
 
 - Auditor script:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/run-auction-flow.sh
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
 - AMM pool and standalone limit-order demo wrapper:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/run-amm-limit-demo.sh
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
 - Standalone AMM pool deployment script:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/deploy-amm-pool.ts
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/deploy-amm-pool.ts
 - Standalone limit-order deployment script:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-limit-order.ts
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/create-limit-order.ts
 - Auditor README:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/README.md
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/README.md
 - Fresh preprod setup script:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/setup-preprod-flow.ts
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/setup-preprod-flow.ts
 - Paired limit/auction order creation script:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-order-pair.ts
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/create-order-pair.ts
 - Execution verifier:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/verify-auction-flow.ts
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/verify-auction-flow.ts
 - Limit-order publication verifier:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/verify-limit-order-flow.ts
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/verify-limit-order-flow.ts
 - Local wallet and agent config helpers:
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/wallet-info.ts
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/agent-info.ts
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/generate-agent-config.sh
-  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/run-agent.sh
+  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/wallet-info.ts
+  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/agent-info.ts
+  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/generate-agent-config.sh
+  - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/run-agent.sh
 
 Auditor command:
 
 ```bash
-./testing/preprod/auction-order-flow/run-auction-flow.sh
+./testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
 ```
 
 Additional AMM pool and limit-order demo command:
 
 ```bash
-./testing/preprod/auction-order-flow/run-amm-limit-demo.sh
+./testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
 ```
 
 The script asks the auditor for:
@@ -165,24 +167,24 @@ Evidence:
 Commands run successfully:
 
 ```bash
-bash -n testing/preprod/auction-order-flow/run-auction-flow.sh
+bash -n testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
 # exit code: 0, no output
 
-bash -n testing/preprod/auction-order-flow/run-amm-limit-demo.sh
+bash -n testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
 # exit code: 0, no output
 
-bash -n testing/preprod/auction-order-flow/generate-agent-config.sh
+bash -n testing/preprod/amm-limit-auction-flow/generate-agent-config.sh
 # exit code: 0, no output
 
-deno check --config testing/preprod/auction-order-flow/deno.json \
-  testing/preprod/auction-order-flow/deploy-amm-pool.ts \
-  testing/preprod/auction-order-flow/create-limit-order.ts \
-  testing/preprod/auction-order-flow/create-order-pair.ts \
-  testing/preprod/auction-order-flow/src/submit.ts \
-  testing/preprod/auction-order-flow/setup-preprod-flow.ts \
-  testing/preprod/auction-order-flow/verify-limit-order-flow.ts \
-  testing/preprod/auction-order-flow/verify-auction-flow.ts \
-  testing/preprod/auction-order-flow/wallet-info.ts
+deno check --config testing/preprod/amm-limit-auction-flow/deno.json \
+  testing/preprod/amm-limit-auction-flow/deploy-amm-pool.ts \
+  testing/preprod/amm-limit-auction-flow/create-limit-order.ts \
+  testing/preprod/amm-limit-auction-flow/create-order-pair.ts \
+  testing/preprod/amm-limit-auction-flow/src/submit.ts \
+  testing/preprod/amm-limit-auction-flow/setup-preprod-flow.ts \
+  testing/preprod/amm-limit-auction-flow/verify-limit-order-flow.ts \
+  testing/preprod/amm-limit-auction-flow/verify-auction-flow.ts \
+  testing/preprod/amm-limit-auction-flow/wallet-info.ts
 # exit code: 0
 
 cargo check -p bloom-cardano-agent
@@ -216,7 +218,7 @@ Latest successful preprod auditor run:
 - Run ID: `auditor-20260603-172625`
 - Network: Cardano preprod
 - Report file generated locally:
-  `testing/preprod/auction-order-flow/.run/reports/auditor-20260603-172625.json`
+  `testing/preprod/amm-limit-auction-flow/.run/reports/auditor-20260603-172625.json`
 - Final report status: `ok`
 - Generated wallet address:
   `addr_test1qz73hwwm5ry5zckdj2zmwf5p0t0sydn0jgf6axv3dw9ncgf005pcv8djrx9nx2a9map76uvf5vea7t20pg2362kq5lcqzsjx4s`
@@ -299,7 +301,7 @@ Verifier output from the run:
   "txHash": "8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440",
   "outputIndex": "1",
   "spendingTx": "f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08",
-  "agentLog": "testing/preprod/auction-order-flow/.run/logs/auditor-20260603-172625/agent.log"
+  "agentLog": "testing/preprod/amm-limit-auction-flow/.run/logs/auditor-20260603-172625/agent.log"
 }
 ```
 
@@ -344,14 +346,15 @@ Acceptance criteria: The repository includes Markdown documentation that
 explains how to build an off-chain service with the Bloom/Splash libraries,
 including minimal architecture, initialization, event/order handling,
 configuration, and a small end-to-end example. It also includes auditor/operator
-documentation for running the auction order test flow and interpreting success.
+documentation for running the full preprod auditor flow and interpreting
+success.
 
 Evidence:
 
 - General off-chain service guide:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/docs/offchain-service-guide.md
 - Auditor flow README:
-  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/README.md
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/amm-limit-auction-flow/README.md
 - Resolution plan and implementation notes:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/docs/plans/2026-05-26-auction-order-preprod-resolution.md
 - This Proof of Achievement report: `milestone-2.md` in the current branch.
@@ -360,9 +363,9 @@ Evidence:
 
 This guide explains how to assemble a Cardano off-chain service using the
 Bloom/Splash off-chain libraries in this repository. It is intentionally
-separate from the auction-order preprod runbook: the runbook proves one flow,
-while this section explains the reusable service architecture and integration
-points.
+separate from the preprod auditor flow runbook: the runbook proves AMM pool,
+limit-order, and auction-order behavior, while this section explains the
+reusable service architecture and integration points.
 
 The production example in this repository is `bloom-cardano-agent`. A smaller
 service can reuse the same pieces and disable features it does not need.
@@ -660,11 +663,12 @@ Removed confirmed Tx <transaction-hash>: true
 curl http://127.0.0.1:9024/health
 ```
 
-The preprod auction-order auditor flow in
-`testing/preprod/auction-order-flow/run-auction-flow.sh` is a concrete example
-of steps 1-6 for one order family. It generates a wallet, asks for external
-inputs, funds the agent, publishes a matching auction/limit order pair, waits
-for execution, and writes a JSON report.
+The preprod auditor flow in
+`testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh` is a
+concrete example of steps 1-6. It generates a wallet, asks for external inputs,
+funds the agent, deploys AMM liquidity, publishes a limit order, publishes a
+matching auction/counter limit-order pair, waits for execution, and writes a
+JSON report.
 
 #### Operational Notes
 
@@ -680,7 +684,7 @@ for execution, and writes a JSON report.
   live-network runbook or integration flow showing that the order is observed,
   matched, submitted, and confirmed.
 
-The auction flow README documents:
+The preprod auditor flow README documents:
 
 - The one-command auditor entry point.
 - Required inputs: Blockfrost preprod key, Cardano node socket, and tADA

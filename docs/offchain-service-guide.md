@@ -2,9 +2,9 @@
 
 This guide explains how to assemble a Cardano off-chain service using the
 Bloom/Splash off-chain libraries in this repository. It is intentionally
-separate from the auction-order preprod runbook: the runbook proves one flow,
-while this document explains the reusable service architecture and integration
-points.
+separate from the preprod auditor flow runbook: the runbook proves AMM pool,
+limit-order, and auction-order behavior, while this document explains the
+reusable service architecture and integration points.
 
 The production example in this repository is `bloom-cardano-agent`. A smaller
 service can reuse the same pieces and disable features it does not need.
@@ -48,7 +48,8 @@ In `bloom-cardano-agent`, these pieces are wired in
 A service should initialize components in this order:
 
 1. **Load configuration**:
-   - service config, for example `bloom-cardano-agent/resources/preprod.config.json`;
+   - service config, for example
+     `bloom-cardano-agent/resources/preprod.config.json`;
    - validator deployment config, for example
      `bloom-cardano-agent/resources/preprod.deployment.json`;
    - validation rules, for example
@@ -166,8 +167,8 @@ Order support is usually added in four places:
    mempool handlers can see it. See `bloom-cardano-agent/src/entity.rs`.
 3. **Event handling context**: provide validator hashes, deployment references,
    and validation rules through `HandlerContext`.
-4. **Execution instances**: implement how the order executes and how the
-   Cardano interpreter spends it. See
+4. **Execution instances**: implement how the order executes and how the Cardano
+   interpreter spends it. See
    `bloom-offchain-cardano/src/execution_engine/instances.rs`.
 
 Auction orders are timed taker orders. The liquidity book advances clocks from
@@ -182,8 +183,8 @@ The execution stream consumes pair/order/funding events and performs this loop:
    index.
 2. Update the per-pair `TLB` liquidity book.
 3. Select candidate takers and makers for the pair.
-4. Form a `MatchmakingRecipe` when prices, time bounds, and execution caps
-   allow a valid batch.
+4. Form a `MatchmakingRecipe` when prices, time bounds, and execution caps allow
+   a valid batch.
 5. Convert the recipe into a Cardano transaction blueprint.
 6. Pull collateral and funding boxes.
 7. Balance fees and execution budgets.
@@ -285,11 +286,12 @@ Removed confirmed Tx <transaction-hash>: true
 curl http://127.0.0.1:9024/health
 ```
 
-The preprod auction-order auditor flow in
-`testing/preprod/auction-order-flow/run-auction-flow.sh` is a concrete example
-of steps 1-6 for one order family. It generates a wallet, asks for external
-inputs, funds the agent, publishes a matching auction/limit order pair, waits
-for execution, and writes a JSON report.
+The preprod auditor flow in
+`testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh` is a
+concrete example of steps 1-6. It generates a wallet, asks for external inputs,
+funds the agent, deploys AMM liquidity, publishes a limit order, publishes a
+matching auction/counter limit-order pair, waits for execution, and writes a
+JSON report.
 
 ## Operational Notes
 

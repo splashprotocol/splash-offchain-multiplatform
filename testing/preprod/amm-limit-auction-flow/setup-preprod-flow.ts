@@ -24,7 +24,7 @@ type PlutusBlueprint = {
   }>;
 };
 
-const flowDir = "testing/preprod/auction-order-flow";
+const flowDir = "testing/preprod/amm-limit-auction-flow";
 const runDir = `${flowDir}/.run`;
 const envPath = Deno.env.get("FLOW_ENV_FILE") ?? `${flowDir}/.env`;
 const seedPath = Deno.env.get("WALLET_SEED_FILE") ??

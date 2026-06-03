@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-FLOW_DIR="$ROOT/testing/preprod/auction-order-flow"
+FLOW_DIR="$ROOT/testing/preprod/amm-limit-auction-flow"
 ENV_FILE="${FLOW_ENV_FILE:-$FLOW_DIR/.env}"
 RUN_DIR="$FLOW_DIR/.run"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"

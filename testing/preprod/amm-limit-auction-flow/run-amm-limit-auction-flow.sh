@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-FLOW_DIR="$ROOT/testing/preprod/auction-order-flow"
+FLOW_DIR="$ROOT/testing/preprod/amm-limit-auction-flow"
 DEFAULT_ENV_FILE="$FLOW_DIR/.env"
 EXAMPLE_ENV_FILE="$FLOW_DIR/env.example"
 if [[ -n "${FLOW_ENV_FILE:-}" ]]; then

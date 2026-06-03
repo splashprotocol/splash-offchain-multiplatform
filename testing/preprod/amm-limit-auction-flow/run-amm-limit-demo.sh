@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
 
-FLOW_ENV_FILE="${FLOW_ENV_FILE:-testing/preprod/auction-order-flow/.env}"
+FLOW_ENV_FILE="${FLOW_ENV_FILE:-testing/preprod/amm-limit-auction-flow/.env}"
 export FLOW_ENV_FILE
 
 env_file_has() {
@@ -44,11 +44,11 @@ fi
 
 printf "Deploying demo AMM pool...\n"
 deno run --allow-env --allow-read --allow-net \
-  --config testing/preprod/auction-order-flow/deno.json \
-  testing/preprod/auction-order-flow/deploy-amm-pool.ts
+  --config testing/preprod/amm-limit-auction-flow/deno.json \
+  testing/preprod/amm-limit-auction-flow/deploy-amm-pool.ts
 
 printf "Creating demo limit order...\n"
 deno run --allow-env --allow-read --allow-net \
-  --config testing/preprod/auction-order-flow/deno.json \
-  testing/preprod/auction-order-flow/create-limit-order.ts
+  --config testing/preprod/amm-limit-auction-flow/deno.json \
+  testing/preprod/amm-limit-auction-flow/create-limit-order.ts
 

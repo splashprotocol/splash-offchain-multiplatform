@@ -1,4 +1,4 @@
-# Preprod Auction Order Auditor Flow
+# Preprod AMM, Limit Order, and Auction Auditor Flow
 
 This harness verifies that `bloom-cardano-agent` can execute the main Splash
 preprod surfaces required by the milestone: AMM pool liquidity, limit orders,
@@ -14,14 +14,14 @@ section E.
 Run from the repository root:
 
 ```bash
-./testing/preprod/auction-order-flow/run-auction-flow.sh
+./testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
 ```
 
 The script is intentionally interactive. It prompts for missing local inputs,
 prints a fresh wallet address, waits for funding, creates a fresh batcher,
 starts the agent, deploys an AMM pool, publishes and confirms a limit order
-using that pool's asset pair, publishes the auction order flow, verifies auction
-execution, and writes a JSON report.
+using that pool's asset pair, publishes the auction/counter limit-order flow,
+verifies auction execution, and writes a JSON report.
 
 For this auditor flow the generated agent config sets `disableMempool=true`. The
 proof is ledger-driven: all setup/order transactions are first confirmed on
@@ -37,23 +37,23 @@ The lower-level AMM and limit-order scripts remain available for focused
 debugging:
 
 ```bash
-./testing/preprod/auction-order-flow/run-amm-limit-demo.sh
+./testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
 ```
 
 The lower-level wrapper does not start or fund `bloom-cardano-agent`; it is only
-for script-level transaction checks. Use `run-auction-flow.sh` for auditor
-acceptance evidence.
+for script-level transaction checks. Use `run-amm-limit-auction-flow.sh` for
+auditor acceptance evidence.
 
 The lower-level scripts can also be run independently:
 
 ```bash
 SUBMIT=1 deno run --allow-env --allow-read --allow-net \
-  --config testing/preprod/auction-order-flow/deno.json \
-  testing/preprod/auction-order-flow/deploy-amm-pool.ts
+  --config testing/preprod/amm-limit-auction-flow/deno.json \
+  testing/preprod/amm-limit-auction-flow/deploy-amm-pool.ts
 
 SUBMIT=1 deno run --allow-env --allow-read --allow-net \
-  --config testing/preprod/auction-order-flow/deno.json \
-  testing/preprod/auction-order-flow/create-limit-order.ts
+  --config testing/preprod/amm-limit-auction-flow/deno.json \
+  testing/preprod/amm-limit-auction-flow/create-limit-order.ts
 ```
 
 Required shared inputs:
@@ -84,7 +84,7 @@ Limit order defaults:
 
 ## What The Script Does
 
-1. Creates an isolated run under `testing/preprod/auction-order-flow/.run`.
+1. Creates an isolated run under `testing/preprod/amm-limit-auction-flow/.run`.
 2. Generates a fresh wallet seed for the run.
 3. Prompts for a preprod Blockfrost project id if `BLOCKFROST_PROJECT_ID` is not
    set.
@@ -133,7 +133,7 @@ Optional environment overrides:
 ```bash
 BLOCKFROST_PROJECT_ID=preprod... \
 NODE_SOCKET=/path/to/node.socket \
-./testing/preprod/auction-order-flow/run-auction-flow.sh
+./testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
 ```
 
 The wrapper uses the already deployed preprod auction validator reference from
@@ -167,16 +167,16 @@ The agent log for the run should contain `Successfully formed a batch`,
 Run these before handing the script to auditors:
 
 ```bash
-bash -n testing/preprod/auction-order-flow/run-auction-flow.sh
-bash -n testing/preprod/auction-order-flow/run-amm-limit-demo.sh
-deno check --config testing/preprod/auction-order-flow/deno.json \
-  testing/preprod/auction-order-flow/deploy-amm-pool.ts \
-  testing/preprod/auction-order-flow/create-limit-order.ts \
-  testing/preprod/auction-order-flow/create-order-pair.ts \
-  testing/preprod/auction-order-flow/setup-preprod-flow.ts \
-  testing/preprod/auction-order-flow/verify-limit-order-flow.ts \
-  testing/preprod/auction-order-flow/verify-auction-flow.ts \
-  testing/preprod/auction-order-flow/wallet-info.ts
+bash -n testing/preprod/amm-limit-auction-flow/run-amm-limit-auction-flow.sh
+bash -n testing/preprod/amm-limit-auction-flow/run-amm-limit-demo.sh
+deno check --config testing/preprod/amm-limit-auction-flow/deno.json \
+  testing/preprod/amm-limit-auction-flow/deploy-amm-pool.ts \
+  testing/preprod/amm-limit-auction-flow/create-limit-order.ts \
+  testing/preprod/amm-limit-auction-flow/create-order-pair.ts \
+  testing/preprod/amm-limit-auction-flow/setup-preprod-flow.ts \
+  testing/preprod/amm-limit-auction-flow/verify-limit-order-flow.ts \
+  testing/preprod/amm-limit-auction-flow/verify-auction-flow.ts \
+  testing/preprod/amm-limit-auction-flow/wallet-info.ts
 cargo check -p bloom-cardano-agent
 ```
 

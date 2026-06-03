@@ -9,7 +9,7 @@ function required(vars: Record<string, string>, key: string): string {
 }
 
 const envPath = Deno.env.get("FLOW_ENV_FILE") ??
-  "testing/preprod/auction-order-flow/.env";
+  "testing/preprod/amm-limit-auction-flow/.env";
 const dotenv = await load({ envPath, export: false });
 const vars = { ...dotenv, ...Deno.env.toObject() };
 const seed = await Deno.readTextFile(required(vars, "WALLET_SEED_FILE"));
