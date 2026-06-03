@@ -1,5 +1,5 @@
 import { CML } from "@lucid-evolution/lucid";
-import { blockfrostBaseUrl, FlowEnv } from "./env.ts";
+import { blockfrostBaseUrl, ProviderEnv } from "./env.ts";
 
 const SUBMIT_TIMEOUT_MS = 20_000;
 const LOOKUP_TIMEOUT_MS = 10_000;
@@ -28,7 +28,7 @@ async function fetchWithTimeout(
 }
 
 export async function submitSignedTx(
-  env: FlowEnv,
+  env: ProviderEnv,
   signed: { submit(): Promise<string>; toCBOR(): string },
 ): Promise<string> {
   if (env.provider !== "koios") return await signed.submit();
@@ -64,7 +64,7 @@ export async function submitSignedTx(
 }
 
 export async function fetchSubmittedOutputIndex(
-  env: FlowEnv,
+  env: ProviderEnv,
   txHash: string,
   address: string,
   datum: string,

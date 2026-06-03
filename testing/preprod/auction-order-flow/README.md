@@ -15,12 +15,62 @@ The script is intentionally interactive. It prompts for missing local inputs,
 prints a fresh wallet address, waits for funding, runs the agent, publishes the
 orders, verifies execution, and writes a JSON report.
 
+## AMM Pool And Limit Order Demo Scripts
+
+The auction flow above is the primary end-to-end execution proof. Auditors can
+also run standalone preprod scripts that create a classic Splash AMM pool output
+and a limit order output with the deployed validators:
+
+```bash
+./testing/preprod/auction-order-flow/run-amm-limit-demo.sh
+```
+
+The wrapper prompts for a wallet seed file and provider key if they are not set
+in the environment or `FLOW_ENV_FILE`. It runs in dry-run mode unless the
+auditor types `1` at the submit prompt.
+
+The lower-level scripts can also be run independently:
+
+```bash
+SUBMIT=1 deno run --allow-env --allow-read --allow-net \
+  --config testing/preprod/auction-order-flow/deno.json \
+  testing/preprod/auction-order-flow/deploy-amm-pool.ts
+
+SUBMIT=1 deno run --allow-env --allow-read --allow-net \
+  --config testing/preprod/auction-order-flow/deno.json \
+  testing/preprod/auction-order-flow/create-limit-order.ts
+```
+
+Required shared inputs:
+
+- `WALLET_SEED_FILE`
+- `PROVIDER=blockfrost` with `BLOCKFROST_PROJECT_ID`, or `PROVIDER=maestro` with
+  `MAESTRO_API_KEY`, or `PROVIDER=koios`
+- `DEPLOYMENT_CONFIG`, defaulting to
+  `bloom-cardano-agent/resources/preprod.deployment.json`
+
+AMM pool defaults:
+
+- If `POOL_X_*` and `POOL_Y_*` are absent, the script mints fresh demo pool
+  assets under the wallet native policy.
+- If `POOL_X_POLICY`/`POOL_X_NAME_HEX` and `POOL_Y_POLICY`/`POOL_Y_NAME_HEX` are
+  set, those assets are used instead.
+
+Limit order defaults:
+
+- `LIMIT_INPUT_*` defaults to `AUCTION_QUOTE_*` when present.
+- `LIMIT_OUTPUT_*` defaults to `AUCTION_BASE_*` when present.
+- `LIMIT_TRADABLE_INPUT`, `LIMIT_BASE_PRICE_*`, `LIMIT_FEE`, and
+  `LIMIT_LOVELACE_BUDGET` can be overridden through environment variables.
+
 ## What The Script Does
 
 1. Creates an isolated run under `testing/preprod/auction-order-flow/.run`.
 2. Generates a fresh wallet seed for the run.
-3. Prompts for a preprod Blockfrost project id if `BLOCKFROST_PROJECT_ID` is not set.
-4. Prompts for a Cardano node socket, showing an auto-detected path as the default when available.
+3. Prompts for a preprod Blockfrost project id if `BLOCKFROST_PROJECT_ID` is not
+   set.
+4. Prompts for a Cardano node socket, showing an auto-detected path as the
+   default when available.
 5. Prints the wallet address and asks the auditor to send at least `500 tADA`.
 6. Mints a unique token pair for the run.
 7. Funds the agent funding addresses.
@@ -91,7 +141,10 @@ Run these before handing the script to auditors:
 
 ```bash
 bash -n testing/preprod/auction-order-flow/run-auction-flow.sh
+bash -n testing/preprod/auction-order-flow/run-amm-limit-demo.sh
 deno check --config testing/preprod/auction-order-flow/deno.json \
+  testing/preprod/auction-order-flow/deploy-amm-pool.ts \
+  testing/preprod/auction-order-flow/create-limit-order.ts \
   testing/preprod/auction-order-flow/create-order-pair.ts \
   testing/preprod/auction-order-flow/setup-preprod-flow.ts \
   testing/preprod/auction-order-flow/verify-auction-flow.ts \
@@ -104,5 +157,7 @@ cargo check -p bloom-cardano-agent
 - Run ID: `auditor-20260526-234158`
 - Funding tx: `4f86a41c1cdceadf94aa344dd0754e56e17f41782dec0fd2f2965d5f08fda96a`
 - Auction tx: `949ac2a90cbc834afbdeb1a795a5340f5fb3ba171e21713866787b2c9df99465`
-- Auction ref: `949ac2a90cbc834afbdeb1a795a5340f5fb3ba171e21713866787b2c9df99465#1`
-- Execution tx: `f9bba6f9e7e135fae2883580c36feb627264dc6858b86e0e96bf5b86a7425e36`
+- Auction ref:
+  `949ac2a90cbc834afbdeb1a795a5340f5fb3ba171e21713866787b2c9df99465#1`
+- Execution tx:
+  `f9bba6f9e7e135fae2883580c36feb627264dc6858b86e0e96bf5b86a7425e36`

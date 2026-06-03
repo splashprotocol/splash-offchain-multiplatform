@@ -135,3 +135,23 @@ export const LimitOrderLimitOrder: { conf: any } = {
     }],
   },
 };
+
+export const ClassicCfmmPool: { conf: any } = {
+  conf: {
+    title: "LegacyCFMMPoolConfig",
+    anyOf: [{
+      title: "LegacyCFMMPoolConfig",
+      dataType: "constructor",
+      index: 0,
+      fields: [
+        { title: "poolNft", anyOf: [assetSchema] },
+        { title: "assetX", anyOf: [assetSchema] },
+        { title: "assetY", anyOf: [assetSchema] },
+        { title: "assetLq", anyOf: [assetSchema] },
+        { dataType: "integer", title: "lpFeeNum" },
+        { dataType: "integer", title: "treasuryFeeNum" },
+        { dataType: "integer", title: "lqLowerBound" },
+      ],
+    }],
+  },
+};

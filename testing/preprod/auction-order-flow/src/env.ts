@@ -5,7 +5,7 @@ export type Asset = {
   nameHex: string;
 };
 
-export type FlowEnv = {
+export type ProviderEnv = {
   network: "preprod";
   submit: boolean;
   provider: "blockfrost" | "maestro" | "koios";
@@ -13,6 +13,9 @@ export type FlowEnv = {
   maestroApiKey?: string;
   walletSeedFile: string;
   deploymentConfig: string;
+};
+
+export type FlowEnv = ProviderEnv & {
   auctionValidatorHash: string;
   auctionValidatorRefTxHash: string;
   auctionValidatorRefOutputIndex: bigint;
@@ -178,10 +181,10 @@ export async function readFlowEnv(): Promise<FlowEnv> {
   };
 }
 
-export function cardanoNetwork(_env: FlowEnv): "Preprod" {
+export function cardanoNetwork(_env: ProviderEnv): "Preprod" {
   return "Preprod";
 }
 
-export function blockfrostBaseUrl(_env: FlowEnv): string {
+export function blockfrostBaseUrl(_env: ProviderEnv): string {
   return "https://cardano-preprod.blockfrost.io/api/v0";
 }

@@ -5,9 +5,9 @@ import {
   LucidEvolution,
   Maestro,
 } from "@lucid-evolution/lucid";
-import { blockfrostBaseUrl, cardanoNetwork, FlowEnv } from "./env.ts";
+import { blockfrostBaseUrl, cardanoNetwork, ProviderEnv } from "./env.ts";
 
-export async function makeLucid(env: FlowEnv): Promise<LucidEvolution> {
+export async function makeLucid(env: ProviderEnv): Promise<LucidEvolution> {
   if (env.provider === "koios") {
     return await Lucid(
       new Koios("https://preprod.koios.rest/api/v1"),
