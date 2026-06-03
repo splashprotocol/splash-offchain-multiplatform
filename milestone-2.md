@@ -59,7 +59,7 @@ Evidence:
     https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-counter-limit-order.ts
   - The verified preprod order transaction includes the counter limit order at
     output `#0`:
-    https://preprod.cexplorer.io/tx/e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407
+    https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440
 - Auction order domain implementation:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/bloom-offchain-cardano/src/orders/auction.rs
 - Auction order wiring in Cardano event handling and entity decoding:
@@ -116,6 +116,8 @@ Evidence:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/create-order-pair.ts
 - Execution verifier:
   https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/verify-auction-flow.ts
+- Limit-order publication verifier:
+  https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/verify-limit-order-flow.ts
 - Local wallet and agent config helpers:
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/wallet-info.ts
   - https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/auction-orders-support/testing/preprod/auction-order-flow/agent-info.ts
@@ -146,6 +148,12 @@ On failure, the script kills the agent and removes the run-local RocksDB/state
 directory so a later run starts cleanly. Wallet seed files remain local under
 `.run/wallets` so leftover preprod funds can be recovered by the operator.
 
+For deterministic auditor evidence the generated agent config sets
+`disableMempool=true`. The flow waits for setup/order transactions to be
+confirmed on preprod, then the agent observes them through ledger chain sync and
+submits the execution transaction. This avoids non-deterministic local mempool
+rollback events during repeated audit runs.
+
 ## C. Output: Tests and Local Verification
 
 Acceptance criteria: The code and scripts are covered by local verification
@@ -163,11 +171,16 @@ bash -n testing/preprod/auction-order-flow/run-auction-flow.sh
 bash -n testing/preprod/auction-order-flow/run-amm-limit-demo.sh
 # exit code: 0, no output
 
+bash -n testing/preprod/auction-order-flow/generate-agent-config.sh
+# exit code: 0, no output
+
 deno check --config testing/preprod/auction-order-flow/deno.json \
   testing/preprod/auction-order-flow/deploy-amm-pool.ts \
   testing/preprod/auction-order-flow/create-limit-order.ts \
   testing/preprod/auction-order-flow/create-order-pair.ts \
+  testing/preprod/auction-order-flow/src/submit.ts \
   testing/preprod/auction-order-flow/setup-preprod-flow.ts \
+  testing/preprod/auction-order-flow/verify-limit-order-flow.ts \
   testing/preprod/auction-order-flow/verify-auction-flow.ts \
   testing/preprod/auction-order-flow/wallet-info.ts
 # exit code: 0
@@ -193,47 +206,61 @@ warnings were emitted, but no build errors were reported.
 
 ## D. Output: Reproducible Preprod Execution Evidence
 
-Acceptance criteria: The delivered auditor flow demonstrates a real preprod
-execution transaction that spends an auction order UTxO and is produced by
+Acceptance criteria: The delivered auditor flow demonstrates real preprod
+transactions that create AMM liquidity, publish a limit order, publish a
+matching auction/counter limit-order pair, and execute the auction order through
 `bloom-cardano-agent`.
 
 Latest successful preprod auditor run:
 
-- Run ID: `auditor-20260527-001856`
+- Run ID: `auditor-20260603-172625`
 - Network: Cardano preprod
 - Report file generated locally:
-  `testing/preprod/auction-order-flow/.run/reports/auditor-20260527-001856.json`
+  `testing/preprod/auction-order-flow/.run/reports/auditor-20260603-172625.json`
 - Final report status: `ok`
 - Generated wallet address:
-  `addr_test1qpzn3896cvp8nklf0xqd2v53az7zsmqe3k5fjw472zqwmglgcx60fyhevv9fyta4umtdjsqmxwtm0wm67hzhc8d4prmstkucy9`
+  `addr_test1qz73hwwm5ry5zckdj2zmwf5p0t0sydn0jgf6axv3dw9ncgf005pcv8djrx9nx2a9map76uvf5vea7t20pg2362kq5lcqzsjx4s`
 - Agent funding address used by the report:
-  `addr_test1qqz8nghr3dy00gh645h2t2a3kpsmtt5j7jgqfvsmgjsgvmh43fqc6fwscrcvv3qqx3kh3s7u8ggsfgzdjvh5rjp342ast3aymt`
+  `addr_test1qrhjakt8vtykk57h7sv9yvcms0yd60k9eulaxpfegpafxw2sjwuf4654k2qjnzrf8cmu8xwp3d8ujx6z69xjxtm6q6jqx36ehj`
 - Agent funding amount: `50,000,000` lovelace
 - Funding / mint transaction:
-  `7c38987158e3667ff1bd35724aa162aa46f35f5b7011b238e82f074e13444984`
-- Paired order transaction:
-  `e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407`
+  `eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3`
+- AMM pool deployment transaction:
+  `02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703`
+- AMM-pair limit order publication transaction:
+  `55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4`
+- Paired counter limit order and auction order transaction:
+  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440`
 - Counter limit order ref:
-  `e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407#0`
+  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#0`
 - Auction order ref:
-  `e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407#1`
+  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#1`
 - Agent execution transaction:
-  `fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4`
+  `f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08`
 
 Public explorer links:
 
 - Funding / mint transaction:
-  [7c38987158e3667ff1bd35724aa162aa46f35f5b7011b238e82f074e13444984](https://preprod.cexplorer.io/tx/7c38987158e3667ff1bd35724aa162aa46f35f5b7011b238e82f074e13444984).
-  This confirms creation of the generated run assets and funding outputs used by
-  the agent.
+  [eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3](https://preprod.cexplorer.io/tx/eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3).
+  This confirms the generated run assets and agent funding outputs.
+- AMM pool deployment transaction:
+  [02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703](https://preprod.cexplorer.io/tx/02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703).
+  This creates the classic AMM pool for the fresh run asset pair.
+- AMM-pair limit order publication transaction:
+  [55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4](https://preprod.cexplorer.io/tx/55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4).
+  This publishes a limit order using the AMM pool asset pair. The auditor flow
+  records this as `published_on_preprod`; the auction execution proof below also
+  executes a counter limit order through the agent.
 - Paired counter limit order and auction order transaction:
-  [e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407](https://preprod.cexplorer.io/tx/e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407).
+  [8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440](https://preprod.cexplorer.io/tx/8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440).
   This contains the counter limit order at output `#0` and auction order at
   output `#1`.
 - Agent execution transaction:
-  [fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4](https://preprod.cexplorer.io/tx/fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4).
-  This is the transaction submitted by the agent flow that spends auction order
-  ref `e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407#1`.
+  [f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08](https://preprod.cexplorer.io/tx/f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08).
+  This is the transaction submitted by `bloom-cardano-agent` that spends auction
+  order ref `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#1`
+  and the matching counter limit order ref
+  `8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#0`.
 
 Validator references used by the run:
 
@@ -252,10 +279,11 @@ Validator references used by the run:
 
 Generated test assets:
 
-- Base unit:
-  `72689a5a6a6507e64431146ea7899314a0293a782a23631d95088b4b61756374696f6e426173652d36303532372d303031383536`
-- Quote unit:
-  `72689a5a6a6507e64431146ea7899314a0293a782a23631d95088b4b61756374696f6e51756f74652d36303532372d303031383536`
+- Minting policy: `24c33fdd6e66e84023b6f01549aba36461a321a9ff67f2d68e04d535`
+- AMM pool asset X name hex: `706f6f6c582d36303630332d313732363235`
+- AMM pool asset Y name hex: `706f6f6c592d36303630332d313732363235`
+- Auction base name hex: `61756374696f6e426173652d36303630332d313732363235`
+- Auction quote name hex: `61756374696f6e51756f74652d36303630332d313732363235`
 - Auction input amount: `1000` units of the generated base asset
 - Counter order input amount: `2000` units of the generated quote asset
 - Active auction price: `2/1`
@@ -268,21 +296,44 @@ Verifier output from the run:
 ```json
 {
   "status": "spent_by_agent_flow",
-  "txHash": "e0e71a2aa1a30cae126cdb7bfb3cfa1c6b458ed23c2d59133907fe00fbdb3407",
+  "txHash": "8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440",
   "outputIndex": "1",
-  "spendingTx": "fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4",
-  "agentLog": "testing/preprod/auction-order-flow/.run/logs/auditor-20260527-001856/agent.log"
+  "spendingTx": "f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08",
+  "agentLog": "testing/preprod/auction-order-flow/.run/logs/auditor-20260603-172625/agent.log"
+}
+```
+
+Generated JSON report from the run:
+
+```json
+{
+  "status": "ok",
+  "runId": "auditor-20260603-172625",
+  "fundingTx": "eecdb897a2cb1816a5ec51934c1aba27fb2db0139c2902b34d4eb25250cf00c3",
+  "ammPoolTx": "02b55c2ee92589f4510284cab33dbf96cfee107ec6193fe8f7e4dc97781d4703",
+  "ammLimitTx": "55f5bf36091fccc7acf5584e27a58d5f5db793032337519849c05cb1b8e2cef4",
+  "counterTx": "8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440",
+  "auctionTx": "8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440",
+  "auctionRef": "8e300ad3a876277be43a120d505aa960b5d9df349da24a147bb9135893192440#1",
+  "executionTx": "f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08"
 }
 ```
 
 Agent log checkpoints from the run:
 
+- The generated config contained `disableMempool: true`, so the proof used
+  ledger-confirmed events for deterministic audit behavior.
+- The AMM pool was observed from ledger and added to the active frontier.
+- The AMM-pair limit order was observed from ledger and added to the active
+  frontier.
 - The liquidity book formed a batch containing the auction ask and counter limit
   bid.
 - `AuctionOrder::exec(removed_input=1000, added_output=2000, consumed_budget=0, consumed_fee=0)`
   was executed.
+- `LimitOrder::exec(removed_input=2000, added_output=1000, consumed_budget=358900, consumed_fee=500000)`
+  was executed in the final fee-corrected transaction.
 - The execution transaction
-  `fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4` was
+  `f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08` was
   accepted.
 - The execution transaction was later confirmed and removed from pending
   transaction tracking.
@@ -648,15 +699,17 @@ preprod transaction evidence.
 
 The latest completed preprod run demonstrates that:
 
-1. A fresh test token pair was minted on preprod.
-2. A matching counter limit order and auction order were published in one
+1. Fresh test assets were minted on preprod.
+2. A classic AMM pool was deployed for the generated run asset pair.
+3. A limit order using that AMM pool asset pair was published on preprod.
+4. A matching counter limit order and auction order were published in one
    transaction.
-3. `bloom-cardano-agent` observed both orders.
-4. The liquidity book formed a valid batch.
-5. The auction order execution transition ran.
-6. The agent submitted execution transaction
-   `fdae75c77dd175e384ed6a83de5311173d6f6cbfd643dbd1caf6f069a6d00ec4`.
-7. The verifier confirmed that the auction order UTxO was spent by the agent
+5. `bloom-cardano-agent` observed the pool and orders from ledger sync.
+6. The liquidity book formed a valid auction/counter limit-order batch.
+7. The auction order and counter limit-order execution transitions ran.
+8. The agent submitted execution transaction
+   `f1fcc5d146dbe6c9296c80818b156006261b8970e7df385e37000ca18b0d0a08`.
+9. The verifier confirmed that the auction order UTxO was spent by the agent
    flow.
 
 Sensitive-information confirmation: this Proof of Achievement contains public

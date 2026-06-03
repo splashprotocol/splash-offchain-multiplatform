@@ -46,6 +46,12 @@ function configuredOrMintedAsset(
   policy: string,
   defaultNameHex: string,
 ): { asset: Asset; shouldMint: boolean } {
+  if (vars["POOL_MINT_DEMO_ASSETS"] === "1") {
+    return {
+      asset: assetFromNative(policy, defaultNameHex),
+      shouldMint: true,
+    };
+  }
   if (
     optional(vars, `${prefix}_POLICY`) !== undefined ||
     optional(vars, `${fallbackPrefix}_POLICY`) !== undefined
@@ -98,6 +104,8 @@ const y = configuredOrMintedAsset(
 
 const xAmount = bigintVar(vars, "POOL_X_AMOUNT", "1000000");
 const yAmount = bigintVar(vars, "POOL_Y_AMOUNT", "2000000");
+const walletXAmount = bigintVar(vars, "POOL_WALLET_X_AMOUNT", "2000");
+const walletYAmount = bigintVar(vars, "POOL_WALLET_Y_AMOUNT", "0");
 const poolLovelace = bigintVar(vars, "POOL_LOVELACE", "3000000");
 const initialLiquidity = bigintVar(vars, "POOL_INITIAL_LIQUIDITY", "1000000");
 const lpFeeNum = bigintVar(vars, "POOL_LP_FEE_NUM", "3");
@@ -148,8 +156,14 @@ const minted: Record<string, bigint> = {
 };
 if (x.shouldMint) minted[unitOf(x.asset)] = xAmount;
 if (y.shouldMint) minted[unitOf(y.asset)] = yAmount;
+if (x.shouldMint) minted[unitOf(x.asset)] += walletXAmount;
+if (y.shouldMint) minted[unitOf(y.asset)] += walletYAmount;
 
-const tx = await lucid
+const walletValue: Record<string, bigint> = {};
+if (walletXAmount > 0n) walletValue[unitOf(x.asset)] = walletXAmount;
+if (walletYAmount > 0n) walletValue[unitOf(y.asset)] = walletYAmount;
+
+let txBuilder = lucid
   .newTx()
   .attach.MintingPolicy(nativePolicy)
   .mintAssets(minted)
@@ -157,14 +171,18 @@ const tx = await lucid
     poolAddress,
     { kind: "inline", value: datum },
     poolValue,
-  )
-  .complete();
+  );
+if (Object.keys(walletValue).length > 0) {
+  txBuilder = txBuilder.pay.ToAddress(walletAddress, walletValue);
+}
+const tx = await txBuilder.complete();
 
 const output = {
   submit: env.submit,
   address: poolAddress,
   datum,
   value: poolValue,
+  walletValue,
   minted,
   poolNft,
   assetX: x.asset,

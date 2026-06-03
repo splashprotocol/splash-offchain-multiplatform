@@ -23,8 +23,13 @@ DENO_STEP_TIMEOUT_SECS="${DENO_STEP_TIMEOUT_SECS:-240}"
 PROVIDER="${PROVIDER:-blockfrost}"
 PUBLISH_ORDERS_IN_ONE_TX="${PUBLISH_ORDERS_IN_ONE_TX:-1}"
 START_AGENT_BEFORE_ORDERS="${START_AGENT_BEFORE_ORDERS:-1}"
+RUN_AMM_LIMIT_PHASE="${RUN_AMM_LIMIT_PHASE:-1}"
+AGENT_DISABLE_MEMPOOL="${AGENT_DISABLE_MEMPOOL:-1}"
+RESTART_AGENT_AFTER_AUCTION_CONFIRM="${RESTART_AGENT_AFTER_AUCTION_CONFIRM:-0}"
 export AUDITOR_FRESH_SETUP DENO_STEP_TIMEOUT_SECS PROVIDER PUBLISH_ORDERS_IN_ONE_TX
 export START_AGENT_BEFORE_ORDERS
+export RUN_AMM_LIMIT_PHASE
+export AGENT_DISABLE_MEMPOOL RESTART_AGENT_AFTER_AUCTION_CONFIRM
 
 NODE_SOCKET_ARG=""
 AUTO_CONFIRM=0
@@ -257,6 +262,38 @@ wait_tx_info() {
   return 1
 }
 
+wait_wallet_funded() {
+  local address="$1"
+  local required_lovelace="$2"
+  local collateral_lovelace="${3:-5000000}"
+  if [[ "${PROVIDER:-koios}" != "blockfrost" ]]; then
+    return 0
+  fi
+  local deadline=$((SECONDS + 600))
+  echo "Waiting for Blockfrost to show funded wallet $address..."
+  while (( SECONDS < deadline )); do
+    local body
+    local err_file="$LOG_DIR/wait-wallet-funded.err"
+    if body="$(blockfrost_get "addresses/$address/utxos?order=desc&count=100" 2>"$err_file")"; then
+      local total
+      total="$(printf '%s' "$body" | jq '[.[]?.amount[]? | select(.unit == "lovelace") | .quantity | tonumber] | add // 0')"
+      local collateral_ready
+      collateral_ready="$(printf '%s' "$body" | jq --argjson min "$collateral_lovelace" \
+        'any(.[]?; (.amount | length) == 1 and (.amount[0].unit == "lovelace") and ((.amount[0].quantity | tonumber) >= $min))')"
+      echo "Observed wallet funding: $total lovelace, collateral_ready=$collateral_ready"
+      if (( total >= required_lovelace )) && [[ "$collateral_ready" == "true" ]]; then
+        echo "Wallet funded: $total lovelace."
+        return 0
+      fi
+    elif [[ -s "$err_file" ]]; then
+      echo "Blockfrost wallet lookup failed: $(tr '\n' ' ' < "$err_file")"
+    fi
+    sleep 5
+  done
+  echo "Timed out waiting for funded wallet $address in Blockfrost" >&2
+  return 1
+}
+
 wait_provider_settle() {
   if [[ "${PROVIDER:-koios}" == "blockfrost" ]]; then
     local settle_secs="${BLOCKFROST_SETTLE_SECS:-20}"
@@ -343,6 +380,17 @@ start_agent_from_tx_info() {
   echo "Agent PID: $AGENT_PID"
 }
 
+restart_agent_from_tx_info() {
+  local tx_info_file="$1"
+  if [[ -n "${AGENT_PID:-}" ]]; then
+    kill "$AGENT_PID" 2>/dev/null || true
+    wait "$AGENT_PID" 2>/dev/null || true
+    AGENT_PID=""
+  fi
+  rm -rf "$RUN_STATE_DIR"
+  start_agent_from_tx_info "$tx_info_file"
+}
+
 require_cmd curl
 require_cmd jq
 require_cmd perl
@@ -353,7 +401,11 @@ rm -rf "$RUN_STATE_DIR" "$LOG_DIR"
 rm -f "$REPORT_FILE"
 mkdir -p "$RUN_DIR/env" "$RUN_DIR/wallets" "$LOG_DIR" "$(dirname "$REPORT_FILE")"
 cp "$BASE_ENV_FILE" "$RUN_ENV_FILE"
-if [[ -f "$RUN_WALLET_SEED_FILE" ]]; then
+if [[ "${AUDITOR_FRESH_SETUP:-0}" == "1" && "${REUSE_RUN_WALLET:-0}" != "1" ]]; then
+  deno run --allow-write "$FLOW_DIR/generate-wallet-seed.ts" "$RUN_WALLET_SEED_FILE" >/dev/null
+  chmod 600 "$RUN_WALLET_SEED_FILE"
+  echo "Generated fresh run wallet seed: $RUN_WALLET_SEED_FILE"
+elif [[ -f "$RUN_WALLET_SEED_FILE" ]]; then
   echo "Using existing run wallet seed: $RUN_WALLET_SEED_FILE"
 else
   deno run --allow-write "$FLOW_DIR/generate-wallet-seed.ts" "$RUN_WALLET_SEED_FILE" >/dev/null
@@ -380,10 +432,12 @@ NODE_SOCKET_PATH="${NODE_SOCKET_ARG:-${NODE_SOCKET:-}}"
 if [[ -z "$NODE_SOCKET_PATH" || "$NODE_SOCKET_PATH" == "/data/cardano-node/ipc/node.socket" ]]; then
   NODE_SOCKET_PATH="$(
     first_existing_socket \
-      "/Users/aleksandr/node-external/node.socket" \
       "$ROOT/node.socket" \
-      "$HOME/node-external/node.socket" \
+      "${CARDANO_NODE_SOCKET_PATH:-}" \
+      "${CARDANO_NODE_SOCKET:-}" \
+      "$HOME/.cardano-node/node.socket" \
       "/data/cardano-node/ipc/node.socket" \
+      "/var/lib/cardano-node/node.socket" \
       2>/dev/null || true
   )"
 fi
@@ -408,6 +462,7 @@ set_env_value NETWORK preprod
 set_env_value PROVIDER "${PROVIDER:-koios}"
 set_env_value SUBMIT 1
 set_env_value NODE_SOCKET "$NODE_SOCKET_PATH"
+set_env_value AGENT_DISABLE_MEMPOOL "$AGENT_DISABLE_MEMPOOL"
 if [[ "${PROVIDER:-koios}" == "blockfrost" ]]; then
   activate_blockfrost
 fi
@@ -435,6 +490,7 @@ if [[ "$FRESH_SETUP" == "1" ]]; then
     read -r
     FUNDING_CONFIRMED=1
   fi
+  wait_wallet_funded "$PRE_SETUP_WALLET_ADDRESS" "$REQUIRED_WALLET_LOVELACE"
   echo "Running fresh preprod setup for isolated assets..."
   export NODE_SOCKET="$NODE_SOCKET_PATH"
   export SETUP_TOKEN_SUFFIX="${RUN_ID: -12}"
@@ -522,8 +578,66 @@ else
   FUNDING_TX_HASH="$(jq -r '.txHash' "$LOG_DIR/fund-agent.json")"
 fi
 wait_tx_info "$FUNDING_TX_HASH" "$LOG_DIR/funding-tx-info.json"
+wait_blockfrost_address_utxo "$WALLET_ADDRESS" "$FUNDING_TX_HASH" "*"
+wait_provider_settle
 if [[ "${START_AGENT_BEFORE_ORDERS:-0}" == "1" ]]; then
   start_agent_from_tx_info "$LOG_DIR/funding-tx-info.json"
+  wait_for_agent_ready
+fi
+
+AMM_POOL_TX_HASH=""
+AMM_LIMIT_TX_HASH=""
+AMM_LIMIT_EXECUTION_TX=""
+if [[ "${RUN_AMM_LIMIT_PHASE:-1}" == "1" ]]; then
+  echo "Deploying AMM pool for auditor limit-order execution check..."
+  export POOL_TOKEN_SUFFIX="${RUN_ID: -12}"
+  export POOL_MINT_DEMO_ASSETS=1
+  export POOL_WALLET_X_AMOUNT="${POOL_WALLET_X_AMOUNT:-0}"
+  export POOL_WALLET_Y_AMOUNT="${POOL_WALLET_Y_AMOUNT:-3000}"
+  run_deno_json "$LOG_DIR/deploy-amm-pool.json" "$FLOW_DIR/deploy-amm-pool.ts"
+  AMM_POOL_TX_HASH="$(jq -r '.txHash' "$LOG_DIR/deploy-amm-pool.json")"
+  wait_tx_info "$AMM_POOL_TX_HASH" "$LOG_DIR/amm-pool-tx-info.json"
+  wait_blockfrost_address_utxo "$WALLET_ADDRESS" "$AMM_POOL_TX_HASH" "*"
+  wait_provider_settle
+
+  LIMIT_INPUT_POLICY="$(jq -r '.assetY.policy' "$LOG_DIR/deploy-amm-pool.json")"
+  LIMIT_INPUT_NAME_HEX="$(jq -r '.assetY.nameHex' "$LOG_DIR/deploy-amm-pool.json")"
+  LIMIT_OUTPUT_POLICY="$(jq -r '.assetX.policy' "$LOG_DIR/deploy-amm-pool.json")"
+  LIMIT_OUTPUT_NAME_HEX="$(jq -r '.assetX.nameHex' "$LOG_DIR/deploy-amm-pool.json")"
+  export LIMIT_INPUT_POLICY LIMIT_INPUT_NAME_HEX LIMIT_OUTPUT_POLICY LIMIT_OUTPUT_NAME_HEX
+  export LIMIT_TRADABLE_INPUT="${AMM_LIMIT_TRADABLE_INPUT:-2000}"
+  export LIMIT_MIN_MARGINAL_OUTPUT="${AMM_LIMIT_MIN_MARGINAL_OUTPUT:-900}"
+  export LIMIT_BASE_PRICE_NUM="${AMM_LIMIT_BASE_PRICE_NUM:-1}"
+  export LIMIT_BASE_PRICE_DENOM="${AMM_LIMIT_BASE_PRICE_DENOM:-3}"
+  export LIMIT_LOVELACE_BUDGET="${AMM_LIMIT_LOVELACE_BUDGET:-2100000}"
+  export LIMIT_MINT_DEMO_INPUT=0
+  set_env_value LIMIT_INPUT_POLICY "$LIMIT_INPUT_POLICY"
+  set_env_value LIMIT_INPUT_NAME_HEX "$LIMIT_INPUT_NAME_HEX"
+  set_env_value LIMIT_OUTPUT_POLICY "$LIMIT_OUTPUT_POLICY"
+  set_env_value LIMIT_OUTPUT_NAME_HEX "$LIMIT_OUTPUT_NAME_HEX"
+
+  echo "Creating limit order against deployed AMM pool..."
+  run_deno_json "$LOG_DIR/create-amm-limit-order.json" "$FLOW_DIR/create-limit-order.ts"
+  AMM_LIMIT_TX_HASH="$(jq -r '.txHash' "$LOG_DIR/create-amm-limit-order.json")"
+  AMM_LIMIT_OUTPUT_INDEX="$(jq -r '.outputIndex' "$LOG_DIR/create-amm-limit-order.json")"
+  export LIMIT_TX_HASH="$AMM_LIMIT_TX_HASH"
+  export LIMIT_OUTPUT_INDEX="$AMM_LIMIT_OUTPUT_INDEX"
+  wait_tx_info "$AMM_LIMIT_TX_HASH" "$LOG_DIR/amm-limit-tx-info.json"
+
+  if [[ "${RUN_AMM_LIMIT_EXECUTION_VERIFY:-0}" == "1" ]]; then
+    echo "Verifying AMM-backed limit order execution..."
+    VERIFY_TIMEOUT_SECS="${VERIFY_TIMEOUT_SECS:-900}" \
+    VERIFY_POLL_SECS="${VERIFY_POLL_SECS:-10}" \
+    run_deno_json "$LOG_DIR/verify-limit-order-flow.json" "$FLOW_DIR/verify-limit-order-flow.ts"
+    AMM_LIMIT_EXECUTION_TX="$(jq -r '.spendingTx // empty' "$LOG_DIR/verify-limit-order-flow.json")"
+  else
+    jq -n \
+      --arg status "published_on_preprod" \
+      --arg txHash "$AMM_LIMIT_TX_HASH" \
+      --arg outputIndex "$AMM_LIMIT_OUTPUT_INDEX" \
+      '{status:$status, txHash:$txHash, outputIndex:($outputIndex | tonumber)}' \
+      | tee "$LOG_DIR/verify-limit-order-flow.json"
+  fi
 fi
 
 if [[ -n "${REUSE_ORDER_LOG_DIR:-}" ]]; then
@@ -576,6 +690,10 @@ wait_tx_info "$AUCTION_TX_HASH" "$LOG_DIR/auction-tx-info.json"
 if [[ "${START_AGENT_BEFORE_ORDERS:-0}" != "1" ]]; then
   wait_provider_settle
 fi
+if [[ "${RESTART_AGENT_AFTER_AUCTION_CONFIRM:-1}" == "1" ]]; then
+  echo "Restarting agent from confirmed auction-order block..."
+  restart_agent_from_tx_info "$LOG_DIR/auction-tx-info.json"
+fi
 
 if [[ -z "${AGENT_PID:-}" ]]; then
   EARLIEST_BLOCK_HASH="$(
@@ -604,8 +722,11 @@ jq -n \
   --arg auctionTx "$AUCTION_TX_HASH" \
   --arg auctionRef "$AUCTION_TX_HASH#$AUCTION_OUTPUT_INDEX" \
   --arg executionTx "$(jq -r '.spendingTx // empty' "$LOG_DIR/verify-auction-flow.json")" \
+  --arg ammPoolTx "$AMM_POOL_TX_HASH" \
+  --arg ammLimitTx "$AMM_LIMIT_TX_HASH" \
+  --arg ammLimitExecutionTx "$AMM_LIMIT_EXECUTION_TX" \
   --arg logs "$LOG_DIR" \
-  '{status:"ok", runId:$runId, wallet:$wallet, fundingAddress:$fundingAddress, fundingTx:$fundingTx, counterTx:$counterTx, auctionTx:$auctionTx, auctionRef:$auctionRef, executionTx:$executionTx, logs:$logs}' \
+  '{status:"ok", runId:$runId, wallet:$wallet, fundingAddress:$fundingAddress, fundingTx:$fundingTx, ammPoolTx:$ammPoolTx, ammLimitTx:$ammLimitTx, ammLimitExecutionTx:$ammLimitExecutionTx, counterTx:$counterTx, auctionTx:$auctionTx, auctionRef:$auctionRef, executionTx:$executionTx, logs:$logs}' \
   | tee "$REPORT_FILE"
 
 echo "Auditor flow completed. Report: $REPORT_FILE"

@@ -5,10 +5,15 @@ import {
   stakeCredentialOf,
   UTxO,
 } from "@lucid-evolution/lucid";
-import { credentialToAddress } from "@lucid-evolution/utils";
+import {
+  credentialToAddress,
+  mintingPolicyToId,
+  scriptFromNative,
+} from "@lucid-evolution/utils";
 import { blake2b } from "hash-wasm";
 import { jsonStringify, unitOf } from "./src/auction.ts";
-import { assetVar, bigintVar, readDemoEnv } from "./src/demo-env.ts";
+import { assetVar, bigintVar, boolVar, readDemoEnv } from "./src/demo-env.ts";
+import { Asset } from "./src/env.ts";
 import { cardanoNetwork } from "./src/env.ts";
 import { makeLucid } from "./src/lucid.ts";
 import { LimitOrderLimitOrder } from "./src/plutus.ts";
@@ -68,9 +73,32 @@ function addAssetValue(
   }
 }
 
+function optional(
+  vars: Record<string, string>,
+  key: string,
+): string | undefined {
+  return vars[key] || undefined;
+}
+
+function textToHex(text: string): string {
+  return Array.from(new TextEncoder().encode(text))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function hasAssetEnv(
+  vars: Record<string, string>,
+  prefix: string,
+  fallbackPrefix?: string,
+): boolean {
+  return optional(vars, `${prefix}_POLICY`) !== undefined ||
+    optional(vars, `${prefix}_NAME_HEX`) !== undefined ||
+    (fallbackPrefix !== undefined &&
+      (optional(vars, `${fallbackPrefix}_POLICY`) !== undefined ||
+        optional(vars, `${fallbackPrefix}_NAME_HEX`) !== undefined));
+}
+
 const { env, vars } = await readDemoEnv();
-const inputAsset = assetVar(vars, "LIMIT_INPUT", "AUCTION_QUOTE", true);
-const outputAsset = assetVar(vars, "LIMIT_OUTPUT", "AUCTION_BASE", true);
 const tradableInput = bigintVar(vars, "LIMIT_TRADABLE_INPUT", "2000");
 const costPerExStep = bigintVar(vars, "LIMIT_COST_PER_EX_STEP", "600000");
 const minMarginalOutput = bigintVar(vars, "LIMIT_MIN_MARGINAL_OUTPUT", "1");
@@ -92,14 +120,68 @@ const orderAddress = credentialToAddress(cardanoNetwork(env), {
   type: "Script",
 });
 const walletAddress = await lucid.wallet().address();
+const paymentKeyHash = paymentCredentialOf(walletAddress).hash;
+const nativePolicy = scriptFromNative({ type: "sig", keyHash: paymentKeyHash });
+const nativePolicyId = mintingPolicyToId(nativePolicy);
+const runSuffix = optional(vars, "LIMIT_TOKEN_SUFFIX") ??
+  new Date().toISOString().replaceAll(/[-:.TZ]/g, "").slice(0, 14);
+const mintDemoInput = boolVar(vars, "LIMIT_MINT_DEMO_INPUT") ||
+  !hasAssetEnv(vars, "LIMIT_INPUT", "AUCTION_QUOTE");
+const inputAsset: Asset = mintDemoInput
+  ? {
+    policy: nativePolicyId,
+    nameHex: optional(vars, "LIMIT_DEMO_INPUT_NAME_HEX") ??
+      textToHex(`limitIn-${runSuffix}`),
+  }
+  : assetVar(vars, "LIMIT_INPUT", "AUCTION_QUOTE", true);
+const outputAsset: Asset = hasAssetEnv(vars, "LIMIT_OUTPUT", "AUCTION_BASE")
+  ? assetVar(vars, "LIMIT_OUTPUT", "AUCTION_BASE", true)
+  : { policy: "", nameHex: "" };
+const inputUnit = unitOf(inputAsset);
+
+function assetQuantity(utxo: UTxO, unit: string): bigint {
+  return BigInt(utxo.assets[unit] ?? 0);
+}
+
+function isPlainWalletUtxo(utxo: UTxO): boolean {
+  return !utxo.scriptRef && !utxo.datum && !utxo.datumHash;
+}
+
 const walletUtxos = await lucid.wallet().getUtxos();
-const input = walletUtxos.find((utxo) =>
-  !utxo.scriptRef && !utxo.datum && !utxo.datumHash
-);
+const plainUtxos = walletUtxos.filter(isPlainWalletUtxo);
+const input = mintDemoInput
+  ? plainUtxos.find((utxo) => assetQuantity(utxo, "lovelace") > 0n)
+  : plainUtxos.find((utxo) => assetQuantity(utxo, inputUnit) >= tradableInput);
 if (!input) {
   throw new Error(
-    "Wallet has no plain UTxOs for limit order beacon derivation",
+    mintDemoInput
+      ? "Wallet has no plain UTxOs for limit order beacon derivation"
+      : `Wallet has no plain UTxO with ${tradableInput} ${inputUnit}`,
   );
+}
+
+const selectedInputs = [input];
+let selectedLovelace = assetQuantity(input, "lovelace");
+const requiredLovelace = lovelaceBudget + fee;
+if (selectedLovelace < requiredLovelace) {
+  const supplements = plainUtxos
+    .filter((utxo) =>
+      !(utxo.txHash === input.txHash && utxo.outputIndex === input.outputIndex)
+    )
+    .filter((utxo) => assetQuantity(utxo, inputUnit) === 0n)
+    .sort((left, right) =>
+      Number(assetQuantity(right, "lovelace") - assetQuantity(left, "lovelace"))
+    );
+  for (const supplement of supplements) {
+    selectedInputs.push(supplement);
+    selectedLovelace += assetQuantity(supplement, "lovelace");
+    if (selectedLovelace >= requiredLovelace) break;
+  }
+  if (selectedLovelace < requiredLovelace) {
+    throw new Error(
+      `Selected input has ${selectedLovelace} lovelace but needs ${requiredLovelace}`,
+    );
+  }
 }
 
 function limitOrderDatum(beacon: string): string {
@@ -137,9 +219,15 @@ const value: Record<string, bigint> = {
 };
 addAssetValue(value, unitOf(inputAsset), tradableInput);
 
-const tx = await lucid
+let txBuilder = lucid
   .newTx()
-  .collectFrom([input])
+  .collectFrom(selectedInputs);
+if (mintDemoInput) {
+  txBuilder = txBuilder
+    .attach.MintingPolicy(nativePolicy)
+    .mintAssets({ [unitOf(inputAsset)]: tradableInput });
+}
+const tx = await txBuilder
   .pay.ToAddressWithData(orderAddress, { kind: "inline", value: datum }, value)
   .complete();
 
@@ -150,6 +238,7 @@ const output = {
   value,
   inputAsset,
   outputAsset,
+  mintDemoInput,
   tradableInput,
   basePrice: { num: basePriceNum, denom: basePriceDenom },
   fee,

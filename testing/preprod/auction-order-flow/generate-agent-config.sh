@@ -60,6 +60,14 @@ if [[ -z "$AGENT_CHAIN_SYNC_SLOT" || "$AGENT_CHAIN_SYNC_SLOT" == "null" ||
   echo "Could not resolve preprod chain-sync start point" >&2
   exit 1
 fi
+case "${AGENT_DISABLE_MEMPOOL:-1}" in
+  1|true|TRUE|yes|YES) DISABLE_MEMPOOL_JSON=true ;;
+  0|false|FALSE|no|NO) DISABLE_MEMPOOL_JSON=false ;;
+  *)
+    echo "AGENT_DISABLE_MEMPOOL must be 1/0 or true/false." >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "$RUN_STATE_DIR" "$RUN_DIR/logs"
 
@@ -80,10 +88,12 @@ jq \
   --argjson max_cost "$AUCTION_MAX_COST_PER_EX_STEP" \
   --argjson min_out "$AUCTION_MIN_MARGINAL_OUTPUT" \
   --argjson explorer "$EXPLORER_CONFIG" \
+  --argjson disable_mempool "$DISABLE_MEMPOOL_JSON" \
   '
   .node.path = $node_socket
   | .operatorKey = $operator_key
   | .explorer = $explorer
+  | .disableMempool = $disable_mempool
   | .chainSync.startingPoint = { Specific: [$chain_sync_slot, $chain_sync_hash] }
   | .chainSync.replayFromPoint = { Specific: [$chain_sync_slot, $chain_sync_hash] }
   | .chainSync.disableRollbacksUntil = $chain_sync_slot

@@ -31,7 +31,42 @@ export async function submitSignedTx(
   env: ProviderEnv,
   signed: { submit(): Promise<string>; toCBOR(): string },
 ): Promise<string> {
-  if (env.provider !== "koios") return await signed.submit();
+  if (env.provider !== "koios") {
+    const txHash = CML.hash_transaction(
+      CML.Transaction.from_cbor_hex(signed.toCBOR()).body(),
+    ).to_hex();
+    try {
+      return await signed.submit();
+    } catch (error) {
+      const message = String(error);
+      if (
+        message.includes("All inputs are spent") ||
+        message.includes("already been included")
+      ) {
+        if (env.provider === "blockfrost" && env.blockfrostProjectId) {
+          const url = `${blockfrostBaseUrl(env)}/txs/${txHash}`;
+          const headers = { project_id: env.blockfrostProjectId };
+          for (let attempt = 0; attempt < 30; attempt++) {
+            try {
+              const res = await fetchWithTimeout(
+                url,
+                { method: "GET", headers },
+                LOOKUP_TIMEOUT_MS,
+              );
+              if (res.ok) return txHash;
+            } catch {
+              // Keep polling: Blockfrost can lag behind successful submit.
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        }
+        throw new Error(
+          `Provider rejected tx as already submitted/spent, but ${txHash} was not visible after polling: ${message}`,
+        );
+      }
+      throw error;
+    }
+  }
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
