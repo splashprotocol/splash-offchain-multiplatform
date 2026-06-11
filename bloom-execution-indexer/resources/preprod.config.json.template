@@ -1,0 +1,25 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        0,
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    },
+    "disableRollbacksUntil": 0,
+    "dbPath": "state/execution-indexer-chain-sync.rocksdb"
+  },
+  "node": {
+    "path": "/path/to/node.socket",
+    "magic": 1
+  },
+  "networkId": 0,
+  "trackedLimitOrderScriptHashes": [
+    "<limit-order-validator-script-hash>"
+  ],
+  "indexDbPath": "state/execution-indexer.rocksdb",
+  "http": {
+    "host": "127.0.0.1",
+    "port": 9030
+  }
+}

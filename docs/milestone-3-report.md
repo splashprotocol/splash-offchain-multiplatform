@@ -12,13 +12,13 @@ This report covers both implementation and auditor evidence.
 ## Repository and Revision Context
 
 - GitHub repository:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform`
 - working branch used for this report:
   `bromel777/batcher-indexer-app`
 - local HEAD at report generation:
   `219064548c6ad918524467071dc1b7ab8440569e`
 - branch source browser root:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/tree/bromel777/batcher-indexer-app`
 
 At the time this report was generated, the milestone evidence was validated from
 the local branch and local preprod runs listed below. A GitHub pull request URL
@@ -35,17 +35,17 @@ list directly in the order datum and enforcing it in off-chain execution logic.
 Key implementation points:
 
 - Limit-order datum includes `permitted_executors`:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L268`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L268`
 - Parsed observations preserve the executor allowlist and derive
   `requires_executor_sig` from it:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L284`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L284`
 - Execution eligibility is checked against the operator credential:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L341`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L341`
 - Ledger decoding rejects orders for operators not present in the allowlist:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L505`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L505`
 - When the order is steered, the execution engine adds the operator as a
   required signer:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/execution_engine/instances.rs#L166`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/execution_engine/instances.rs#L166`
 
 Operational meaning:
 
@@ -63,13 +63,13 @@ auditor harness.
 Primary components:
 
 - Indexer flow:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow/run-batcher-indexer-flow.sh`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow/run-batcher-indexer-flow.sh`
 - Indexer README:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow/README.md`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow/README.md`
 - AMM + indexer auditor flow:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow/run-amm-limit-indexer-flow.sh`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow/run-amm-limit-indexer-flow.sh`
 - AMM + indexer README:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow/README.md`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow/README.md`
 
 What the indexer proves:
 
@@ -249,13 +249,13 @@ execution window they want to inspect.
 Implementation and proof material are present in this repository:
 
 - order steering logic in:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L268`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/orders/limit.rs#L268`
 - execution signer enforcement in:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/execution_engine/instances.rs#L166`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/blob/bromel777/batcher-indexer-app/bloom-offchain-cardano/src/execution_engine/instances.rs#L166`
 - batcher indexer harness:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow`
 - integrated AMM auditor harness:
-  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow`
+  `https://github.com/splashprotocol/splash-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow`
 - successful milestone generated evidence paths:
   `testing/preprod/amm-limit-indexer-flow/.run/reports/amm-limit-indexer-20260610-093703.json`
   and
