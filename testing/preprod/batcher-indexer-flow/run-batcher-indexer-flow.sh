@@ -12,6 +12,12 @@ REPORT_DIR="${RUN_BASE}/reports"
 REPORT_FILE="${REPORT_DIR}/${RUN_ID}.json"
 INDEXER_PID=""
 
+to_repo_relative() {
+  local path="$1"
+  path="${path#"${REPO_ROOT}/"}"
+  printf '%s\n' "$path"
+}
+
 cleanup() {
   local status=$?
   if [[ -n "${INDEXER_PID:-}" ]] && ps -p "${INDEXER_PID}" >/dev/null 2>&1; then
@@ -202,6 +208,8 @@ PY
 )"
   echo "Waiting for indexer to sync and expose batcher data..."
   local allow_partial_flag=()
+  local log_dir_rel
+  log_dir_rel="$(to_repo_relative "$LOG_DIR")"
   if [[ "${BATCHER_INDEXER_ALLOW_PARTIAL:-0}" == "1" ]]; then
     allow_partial_flag=(--allow-partial)
   fi
@@ -212,7 +220,7 @@ PY
     --report "$REPORT_FILE" \
     --run-id "$RUN_ID" \
     --chain-point "${RUN_ROOT}/chain-point.json" \
-    --log-dir "$LOG_DIR" \
+    --log-dir "$log_dir_rel" \
     --timeout-secs "${BATCHER_INDEXER_WAIT_SECS:-900}" \
     ${allow_partial_flag:+"${allow_partial_flag[@]}"} \
     > "${LOG_DIR}/report.stdout.json" 2> "${LOG_DIR}/report.stderr.log"
