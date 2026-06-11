@@ -16,7 +16,7 @@ This report covers both implementation and auditor evidence.
 - working branch used for this report:
   `bromel777/batcher-indexer-app`
 - local HEAD at report generation:
-  `f5540d80dc98ac4be6acaaf1e694bf6b8bb45d8b`
+  `f041fe10299ca5e112a1a6f038a4f1710507e9fc`
 - branch source browser root:
   `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app`
 
@@ -226,6 +226,18 @@ The script prompts for:
 - funding transfer confirmation after it prints a fresh wallet address.
 - depending on local Deno permission cache, an FFI permission prompt may appear;
   allow it for the run.
+
+Committed helper scripts used by this integrated flow live under:
+
+- `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/amm-limit-auction-flow`
+
+In particular, the integrated wrapper calls the checked-in royalty pool helper:
+
+- `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/testing/preprod/amm-limit-auction-flow/deploy-royalty-pool.ts`
+
+Auditors do not need to create or patch any local helper scripts. The rerun is
+expected to work from the committed branch contents plus local runtime inputs
+only.
 
 What it does:
 
