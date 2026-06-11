@@ -196,6 +196,82 @@ For this run:
 10 = 10 + 0 + 0
 ```
 
+### Supplemental pre-submission verification rerun
+
+After the milestone baseline run above, the integrated flow was rerun again on
+June 11, 2026 as a fresh pre-submission verification pass:
+
+- run id:
+  `amm-limit-indexer-20260611-091343`
+- run root:
+  `testing/preprod/amm-limit-indexer-flow/.run/runs/amm-limit-indexer-20260611-091343`
+
+This rerun is supplementary evidence. It demonstrates that the current branch
+still executes the AMM proof flow on preprod. The authoritative milestone
+acceptance baseline remains the fully completed successful run
+`amm-limit-indexer-20260610-093703` described above.
+
+Confirmed setup and pool transactions from the June 11 rerun:
+
+- setup tx:
+  `7eccade32a21891469792da9b9ecbd9f0fed9835a591a109e63f6889d2118cf0`
+- funding / mint tx:
+  `5d60cf33bd88d91b9e4f6163a0f0df20fc232096cf9ac8dfde971bd1be3c9401`
+- royalty pool deploy tx:
+  `af26448de9e041fe887f981b2a5cebadde157a084407ca7a3670cf3ecd13e2b7`
+
+Good-order publication and execution transactions recorded for this rerun:
+
+| Order | Create tx | Execution tx |
+| --- | --- | --- |
+| `good-01` | `efe67ca6f617384d58acc3987e2cf72f648495105a5037a5024e6515c56ca742` | `b410390bf5fb7f16f371d014b3908e15898fbde5a7e806c24f82a71e7b5d7901` |
+| `good-02` | `cc7b5b5257220cd2e0994e312c26ef6b1d079e8722017af9ba63544f2be95c4b` | `6f81f7834f340558a522831f096ef8e01bbffdb1b5fa977d7be2c0dab66fd8f2` |
+| `good-03` | `e00294515fe790a94ab83baede482064746efb097d4b56dba0a73deca13ca42b` | `19e47686fb42ef5560a903f36bda5ca3ac52567f3f021e1e80514d613b20547c` |
+| `good-04` | `833b8f44fa3b822e47ec6ff2d48eb29010e1b1591b977c4e9ef54ab863ac8d08` | `016c188f8caefbb48ce7e7cc9bb20bf52b38e169e6973b2f1fabbf57c6967869` |
+| `good-05` | `1bd370c42b47741272ff4d5edbd3798cf4d5c91f4b85718a13f45e9c366760fa` | `c3f85087f61d58a53340e33a3e1b86f514eb1a568db97a7f8dfcda178ec4141e` |
+| `good-06` | `717ab574dcce5f1e42f78d25c3e7139236ac745ec220b691b08913c2625a788e` | `65851b881df782a0b5f1e2548b986a25d7002cd1c0bf0db7f7e479817f1cb867` |
+| `good-07` | `3a004aa912bef813d0042634ab48e43ce463a9ea2bac7bd28c437f159a1a1d49` | `1b54ccce85ec755bb6e7666f8ba087eb51ce0ec6414fde07daeff6f8d035362a` |
+| `good-08` | `ab7c414576be04c1af1ecac04ad2864d5000b649fd41d7112acf70a6c492074f` | `17e6f547d059f94fd4e30a3285926db4ac2d72154f873839340a7bca6381cfd0` |
+| `good-09` | `0fef95ffb28015147e2d85731d8cf20a90f5c83659f767179eaef042c93c0174` | `f6a5a14be5e5c3b1a93a014831fff2c4c560163df57de48657d1e6b1dbdef2de` |
+| `good-10` | `2dadee425f024432226aa53c14e98c8b7928432dbf1efac506d2e1af1ec68d27` | `201abe8fca420f7468a56e4b0e6581e22f5d94aedd9633c6aeb5a1afe6ae6a97` |
+
+Bad-order transaction recorded for this rerun:
+
+- bad-order create tx:
+  `32a9622b35f72d717bb1d461107ece552d732b6a3020e60da52fc4ba2d475d71`
+- bad-order final verifier state:
+  `still_open_after_window`
+- observation window:
+  `180` seconds
+
+Relevant local artifact paths for this rerun:
+
+- good-order artifacts:
+  `testing/preprod/amm-limit-indexer-flow/.run/runs/amm-limit-indexer-20260611-091343/logs/orders/good/`
+- bad-order artifacts:
+  `testing/preprod/amm-limit-indexer-flow/.run/runs/amm-limit-indexer-20260611-091343/logs/orders/bad/`
+
+Verifier file format note:
+
+- `good-01-verify.json`, `good-05-verify.json`, `good-06-verify.json`,
+  `good-08-verify.json`, `good-09-verify.json`, and `bad-verify.json` contain
+  intermediate polling snapshots appended as newline-delimited JSON before the
+  final result.
+- for auditor interpretation, the final JSON object in each verifier file is the
+  authoritative terminal status.
+
+At the time this report was refreshed, this June 11 rerun had already proven:
+
+- fresh setup and funding on preprod;
+- royalty pool deployment and parsing by `bloom-cardano-agent`;
+- `10` separate good AMM limit-order executions;
+- `1` separate bad AMM limit order remaining open for the full observation
+  window.
+
+The nested batcher-indexer report for this supplementary rerun is not used as
+the milestone acceptance baseline in this document. The completed milestone
+baseline remains `amm-limit-indexer-20260610-093703`.
+
 ## How auditors can run it locally
 
 ### Preconditions
