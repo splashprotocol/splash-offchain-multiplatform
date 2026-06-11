@@ -24,6 +24,12 @@ BAD_ORDER_LOG_DIR="${LOG_DIR}/orders/bad"
 INDEXER_RUN_ID="${RUN_ID}-indexer"
 INDEXER_REPORT_FILE="${BATCHER_FLOW_DIR}/.run/reports/${INDEXER_RUN_ID}.json"
 
+to_repo_relative() {
+  local path="$1"
+  path="${path#"${REPO_ROOT}/"}"
+  printf '%s\n' "$path"
+}
+
 cleanup() {
   local status=$?
   if [[ -n "${INDEXER_PID:-}" ]] && ps -p "${INDEXER_PID}" >/dev/null 2>&1; then
@@ -720,9 +726,12 @@ main() {
   metrics_json="$(jq '.metrics' "$INDEXER_REPORT_FILE")"
 
   local good_orders_json good_exec_json bad_order_verification_json
+  local indexer_report_rel logs_rel
   good_orders_json="$(printf '%s\n' "${good_order_txs[@]}" | jq -R . | jq -s .)"
   good_exec_json="$(printf '%s\n' "${good_order_exec_txs[@]}" | jq -R . | jq -s .)"
   bad_order_verification_json="$(jq -s '.' "${BAD_ORDER_LOG_DIR}/bad-verify.json")"
+  indexer_report_rel="$(to_repo_relative "$INDEXER_REPORT_FILE")"
+  logs_rel="$(to_repo_relative "$LOG_DIR")"
 
   jq -n \
     --arg status "ok" \
@@ -733,8 +742,8 @@ main() {
     --arg badOrderTx "$bad_tx_hash" \
     --arg badOrderRef "${bad_tx_hash}#${bad_output_index}" \
     --arg firstGoodTx "$first_good_tx_hash" \
-    --arg indexerReport "$INDEXER_REPORT_FILE" \
-    --arg logs "$LOG_DIR" \
+    --arg indexerReport "$indexer_report_rel" \
+    --arg logs "$logs_rel" \
     --argjson goodOrderTxs "$good_orders_json" \
     --argjson goodExecutionTxs "$good_exec_json" \
     --argjson badOrderVerification "$bad_order_verification_json" \
