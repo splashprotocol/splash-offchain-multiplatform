@@ -16,7 +16,7 @@ This report covers both implementation and auditor evidence.
 - working branch used for this report:
   `bromel777/batcher-indexer-app`
 - local HEAD at report generation:
-  `219064548c6ad918524467071dc1b7ab8440569e`
+  `00fd27091e23c86eed08e2d9840d367fdb8fb137`
 - branch source browser root:
   `https://github.com/splashprotocol/splash-offchain-multiplatform/tree/bromel777/batcher-indexer-app`
 
@@ -147,6 +147,19 @@ From the top-level run report:
 
 From the indexer report:
 
+- `status = ok`
+- `completeness = synced`
+- `healthStatus = 200`
+- `fromMs = 1781084493000`
+- `toMs = 1781087353443`
+- resolved chain point:
+  - `slot = 125401287`
+  - `hash = 9e8ddaa87ebaa5a33fc453b14ae7a30f22eb45e558fd9910866b316a6bfd1bf8`
+  - `provider = blockfrost`
+  - `blockHeight = 4806555`
+- fast-forwarded script activity:
+  - address: `addr_test1wpryamhgnuz6lau86sqytte2gz5rlktv2yce05e0h3207qst4n9nh`
+  - tx: `6675f5b61ae951a4f4793dea0f216259548bf2f675b5a17739b5c395c15dd83a`
 - batcher:
   `cc7dbe5cc9cfa8046adc7bbbe8316cd598d55ef90dda77c5bc1eb6fa`
 - `eligibleOrders = 10`
@@ -156,6 +169,17 @@ From the indexer report:
 - `captureRate = 1.0000`
 - `medianResponseMs = 18000`
 - `p95ResponseMs = 48000`
+- `ambiguousExecutions = 0`
+- `unknownExecutions = 0`
+- eligible input volume:
+  `20000` units of
+  `79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolY-60610-093703`
+- executed input volume:
+  `20000` units of
+  `79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolY-60610-093703`
+- executed output volume:
+  `0` units of
+  `79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolX-60610-093703`
 
 These values satisfy the milestone execution-assessment invariant:
 
@@ -179,6 +203,13 @@ For this run:
 - Blockfrost preprod project id;
 - `500 tADA` available to fund the temporary wallet printed by the harness;
 - build toolchain for the Rust and Deno components already used by this repo.
+- required command-line tools available in the local environment:
+  `cargo`, `deno`, `curl`, `jq`, `lsof`, `python3`, `perl`, `pkill`
+- for the standalone batcher indexer flow only:
+  - historical datetime mode works with Blockfrost and does not require
+    `cardano-cli`
+  - `BATCHER_INDEXER_FROM=now` currently requires a working `cardano-cli`
+    because the script queries the local node tip directly
 
 ### Integrated AMM + indexer proof
 
@@ -243,6 +274,16 @@ bash testing/preprod/batcher-indexer-flow/run-batcher-indexer-flow.sh
 
 This standalone flow is useful when auditors already know the historical
 execution window they want to inspect.
+
+Recommended auditor mode for the standalone flow:
+
+1. choose a historical ISO-8601 UTC start datetime rather than `now`;
+2. provide the preprod node socket path;
+3. provide the Blockfrost preprod project id when prompted;
+4. wait for the script to produce the report under
+   `testing/preprod/batcher-indexer-flow/.run/reports/`;
+5. verify that the report status is `ok`, completeness is `synced`, and the
+   per-batcher metric invariant holds.
 
 ## Repository evidence
 

@@ -23,6 +23,7 @@ members = [
     "engine-telemetry",
     "cardano-mempool-proxy",
     "cardano-utxo-monitor",
+    "bloom-execution-indexer",
     "graphite",
     "splash-lp-indexer",
     "intent-relay",
