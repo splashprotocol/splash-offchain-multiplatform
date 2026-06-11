@@ -116,10 +116,10 @@ The milestone evidence in this report is based on the latest fully completed
 successful integrated auditor run:
 
 - run id: `amm-limit-indexer-20260610-093703`
-- top-level generated report path:
-  `testing/preprod/amm-limit-indexer-flow/.run/reports/amm-limit-indexer-20260610-093703.json`
-- indexer generated report path:
-  `testing/preprod/batcher-indexer-flow/.run/reports/amm-limit-indexer-20260610-093703-indexer.json`
+- committed top-level evidence report:
+  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/docs/evidence/milestone-3/amm-limit-indexer-20260610-093703.json`
+- committed indexer evidence report:
+  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/blob/bromel777/batcher-indexer-app/docs/evidence/milestone-3/amm-limit-indexer-20260610-093703-indexer.json`
 
 ### What that run demonstrated
 
@@ -243,13 +243,6 @@ Bad-order transaction recorded for this rerun:
   `still_open_after_window`
 - observation window:
   `180` seconds
-
-Relevant local artifact paths for this rerun:
-
-- good-order artifacts:
-  `testing/preprod/amm-limit-indexer-flow/.run/runs/amm-limit-indexer-20260611-091343/logs/orders/good/`
-- bad-order artifacts:
-  `testing/preprod/amm-limit-indexer-flow/.run/runs/amm-limit-indexer-20260611-091343/logs/orders/bad/`
 
 Verifier file format note:
 
@@ -394,10 +387,8 @@ Implementation and proof material are present in this repository:
   `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/batcher-indexer-flow`
 - integrated AMM auditor harness:
   `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app/testing/preprod/amm-limit-indexer-flow`
-- successful milestone generated evidence paths:
-  `testing/preprod/amm-limit-indexer-flow/.run/reports/amm-limit-indexer-20260610-093703.json`
-  and
-  `testing/preprod/batcher-indexer-flow/.run/reports/amm-limit-indexer-20260610-093703-indexer.json`
+- committed successful milestone evidence files:
+  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app/docs/evidence/milestone-3`
 
 ## Conclusion
 
