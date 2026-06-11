@@ -15,8 +15,13 @@ This report covers both implementation and auditor evidence.
   `https://github.com/splashprotocol/spectrum-offchain-multiplatform`
 - working branch used for this report:
   `bromel777/batcher-indexer-app`
+- audited source revision for the milestone-3 implementation and rerun
+  instructions:
+  `2c6904237cb229cb787fee41ccbd10fcb434990d`
 - branch source browser root:
   `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/bromel777/batcher-indexer-app`
+- immutable source browser root for the audited revision:
+  `https://github.com/splashprotocol/spectrum-offchain-multiplatform/tree/2c6904237cb229cb787fee41ccbd10fcb434990d`
 
 At the time this report was generated, the milestone evidence was validated from
 the local branch and local preprod runs listed below. A GitHub pull request URL
@@ -197,6 +202,12 @@ For this run:
 
 - repository checkout;
 - checkout branch `bromel777/batcher-indexer-app`;
+- checkout the audited revision used by this report:
+
+  ```bash
+  git checkout 2c6904237cb229cb787fee41ccbd10fcb434990d
+  ```
+
 - preprod Cardano node socket;
 - Blockfrost preprod project id;
 - `500 tADA` available to fund the temporary wallet printed by the harness;
