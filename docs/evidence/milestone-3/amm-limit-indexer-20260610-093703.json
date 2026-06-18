@@ -1,0 +1,131 @@
+{
+  "status": "ok",
+  "runId": "amm-limit-indexer-20260610-093703",
+  "wallet": "addr_test1qq0vfvyf8tphddhefccx42qhellpvhdt446ygk6ndwm30leah9x9t8333k8ssq7s6zc7xfpu0q0725699ypdhu4xqpcqydz338",
+  "fundingTx": "62b7839c32f7f0014bbfe925e9c262341b816e59e0cabdc0754a8b8a87313775",
+  "poolTx": "5f476de826e34fea6be69a38887c0aa67113c414ff51934161cbdbd4d6b5731b",
+  "firstGoodOrderTx": "6675f5b61ae951a4f4793dea0f216259548bf2f675b5a17739b5c395c15dd83a",
+  "goodOrderTxs": [
+    "157a42d18fa336a1df2d78dda832c393300dbe08bdb18d876a3ca9cb3962b2f9",
+    "4e50556a1d49d694a3d55d639e626a7af60760d0b49d6cc4f2e9799092430934",
+    "514e8c6f7e7a543755df6a8467a3c0673975b926cc5271ba4970e09f6799326e",
+    "6675f5b61ae951a4f4793dea0f216259548bf2f675b5a17739b5c395c15dd83a",
+    "6a428aeaefd1b90277fce60e466a011c3061174857e4af7e05cae992bece6783",
+    "72a8e62001e447a88b7a1a6f00578c07d1e60d2596896ad0aefcf90b44243631",
+    "b7081a5c7993defecb293cfc2c44e09dc6176eb7055b29364d1c8449e7f8e440",
+    "b91052f7623a4e2d7ecba8f9f3f5eb6e529b127a34128fa207d21a51cf154f56",
+    "c36d9190ad6593541be7aea7f0ddaccf3aa0863c65dd69bfea8c22852e51e943",
+    "f26ce93c40499c5c51d206487fb63a6e8a920becc0c89d59fdc0fb717f63c73e"
+  ],
+  "goodExecutionTxs": [
+    "146b3f3de9da372d22b74299fb6eae572a1ba311ef84ef3adacbe88a8df58863",
+    "30745017b4506070832451aa57092583b9ec6a4c70299b1d55cfa18accaa702d",
+    "404e7e1acbd62edf6d23d527f44ae9e8798f8ac6b93f1cd3dd1da3e91906c1bc",
+    "8b70b663b2cfa9acbdc8ca522db422fe67562b72f31622196f8d4ce493da0706",
+    "a3834b9bda67128de16aa80ba62a96df4e0bbc1a510b8caf16770c1f158d5bf6",
+    "b5333ba45c3e55d0bf7566f9a472d01de684273173029c1d49eb0ce6a1e76720",
+    "cddc09d6cb747bc246bb1b2518221faaae9146c180ac93d84a0c6e6bc969a8db",
+    "d9a4a4956359b0c4ce339cc1d24c010d7b39b6b1f4b2de84ffa5cd8b5f81d8c6",
+    "db226d2bff008f017f59eaeb3ba2d5c53b9f9d25f146b11d383b4ca690ecf245",
+    "fe5c497ef97e3c097d025aba1c77bca5d056e76c1cf35674e789cfa7a4c83fa6"
+  ],
+  "badOrderTx": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+  "badOrderRef": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b#0",
+  "badOrderVerification": [
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_unspent",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0
+    },
+    {
+      "status": "still_open_after_window",
+      "txHash": "24124d10d18cd63b42139cbb62b46dfe271ca4788aafab7c8e0e443dd2c7802b",
+      "outputIndex": 0,
+      "observedForSecs": 180
+    }
+  ],
+  "indexerReport": "testing/preprod/batcher-indexer-flow/.run/reports/amm-limit-indexer-20260610-093703-indexer.json",
+  "batchers": [
+    {
+      "pkh": "cc7dbe5cc9cfa8046adc7bbbe8316cd598d55ef90dda77c5bc1eb6fa",
+      "firstSeenSlot": 125401361,
+      "firstSeenMs": 1781084561000,
+      "lastSeenSlot": 125403821,
+      "lastSeenMs": 1781087021000,
+      "source": "executionSigner"
+    }
+  ],
+  "metrics": [
+    {
+      "batcher": "cc7dbe5cc9cfa8046adc7bbbe8316cd598d55ef90dda77c5bc1eb6fa",
+      "fromMs": 1781084493000,
+      "toMs": 1781087353442,
+      "pair": null,
+      "eligibleOrders": 10,
+      "executedOrders": 10,
+      "stillOpenEligibleOrders": 0,
+      "missedEligibleOrders": 0,
+      "captureRate": "1.0000",
+      "medianResponseMs": 18000,
+      "p95ResponseMs": 48000,
+      "ambiguousExecutions": 0,
+      "unknownExecutions": 0,
+      "eligibleInputVolumeByAsset": {
+        "79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolY-60610-093703": 20000
+      },
+      "executedInputVolumeByAsset": {
+        "79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolY-60610-093703": 20000
+      },
+      "executedOutputVolumeByAsset": {
+        "79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolX-60610-093703": 0
+      },
+      "feesCollectedLovelace": null
+    }
+  ],
+  "logs": "testing/preprod/amm-limit-indexer-flow/.run/runs/amm-limit-indexer-20260610-093703/logs"
+}

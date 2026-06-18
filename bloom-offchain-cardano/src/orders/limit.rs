@@ -268,6 +268,80 @@ struct Datum {
     pub permitted_executors: Vec<Ed25519KeyHash>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitOrderObservation {
+    pub beacon: PolicyId,
+    pub input_asset: AssetClass,
+    pub output_asset: AssetClass,
+    pub tradable_input: InputAsset<u64>,
+    pub output_amount: OutputAsset<u64>,
+    pub base_price: RelativePrice,
+    pub fee: FeeAsset<u64>,
+    pub cost_per_ex_step: FeeAsset<u64>,
+    pub min_marginal_output: OutputAsset<u64>,
+    pub redeemer_address: PlutusAddress,
+    pub cancellation_pkh: Ed25519KeyHash,
+    pub permitted_executors: Vec<Ed25519KeyHash>,
+    pub total_input_asset_amount: u64,
+    pub execution_budget: Lovelace,
+    pub sufficient_input: bool,
+    pub sufficient_execution_budget: bool,
+    pub requires_executor_sig: bool,
+}
+
+impl LimitOrderObservation {
+    pub fn try_from_output(repr: &TransactionOutput) -> Option<Self> {
+        let value = repr.value().clone();
+        let datum = repr.datum()?.into_pd()?;
+        let conf = Datum::try_from_pd(datum)?;
+        let total_input_asset_amount = value.amount_of(conf.input)?;
+        let total_ada_input = value.amount_of(AssetClass::Native)?;
+        let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
+            (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
+            (_, AssetClass::Native) => (0, 0),
+            _ => (MIN_LOVELACE, 0),
+        };
+        let execution_budget = total_ada_input
+            .checked_sub(reserved_lovelace)
+            .and_then(|lov| lov.checked_sub(conf.fee))
+            .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
+        let base_output = linear_output_relative(conf.tradable_input, conf.base_price)?;
+        let min_marginal_output = min(conf.min_marginal_output, base_output);
+        let max_execution_steps_possible = base_output.checked_div(min_marginal_output);
+        let max_execution_steps_available = execution_budget.checked_div(conf.cost_per_ex_step);
+        let sufficient_input = total_input_asset_amount >= conf.tradable_input;
+        let sufficient_execution_budget = match (max_execution_steps_possible, max_execution_steps_available) {
+            (Some(possible), Some(available)) => available >= possible,
+            _ => false,
+        };
+        let output_amount = value.amount_of(conf.output).unwrap_or(0);
+        let requires_executor_sig = !conf.permitted_executors.is_empty();
+        Some(Self {
+            beacon: conf.beacon,
+            input_asset: conf.input,
+            output_asset: conf.output,
+            tradable_input: conf.tradable_input,
+            output_amount,
+            base_price: conf.base_price,
+            fee: conf.fee,
+            cost_per_ex_step: conf.cost_per_ex_step,
+            min_marginal_output,
+            redeemer_address: conf.redeemer_address,
+            cancellation_pkh: conf.cancellation_pkh,
+            permitted_executors: conf.permitted_executors,
+            total_input_asset_amount,
+            execution_budget,
+            sufficient_input,
+            sufficient_execution_budget,
+            requires_executor_sig,
+        })
+    }
+
+    pub fn is_executable_by(&self, operator: Ed25519KeyHash) -> bool {
+        self.permitted_executors.is_empty() || self.permitted_executors.contains(&operator)
+    }
+}
+
 struct DatumMapping {
     pub beacon: usize,
     pub input: usize,
@@ -631,7 +705,7 @@ mod tests {
         const IX: u64 = 0;
         const ORDER_IX: u64 = 0;
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
-        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let raw_deployment = std::fs::read_to_string("bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
@@ -675,7 +749,7 @@ mod tests {
         const IX: u64 = 0;
         const ORDER_IX: u64 = 0;
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
-        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let raw_deployment = std::fs::read_to_string("bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);

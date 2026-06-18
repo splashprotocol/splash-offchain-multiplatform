@@ -1,0 +1,63 @@
+{
+  "status": "ok",
+  "completeness": "synced",
+  "runId": "amm-limit-indexer-20260610-093703-indexer",
+  "baseUrl": "http://127.0.0.1:9030",
+  "healthStatus": 200,
+  "fromMs": 1781084493000,
+  "toMs": 1781087353443,
+  "chainPoint": {
+    "slot": 125401287,
+    "hash": "9e8ddaa87ebaa5a33fc453b14ae7a30f22eb45e558fd9910866b316a6bfd1bf8",
+    "resolvedFrom": "2026-06-10T09:41:33Z",
+    "provider": "blockfrost",
+    "blockTime": 1781084487,
+    "blockHeight": 4806555,
+    "requestedSlot": 125401287,
+    "requestedBlockHeight": 4806555,
+    "fastForwardedToScriptActivity": {
+      "address": "addr_test1wpryamhgnuz6lau86sqytte2gz5rlktv2yce05e0h3207qst4n9nh",
+      "txHash": "6675f5b61ae951a4f4793dea0f216259548bf2f675b5a17739b5c395c15dd83a",
+      "txBlockHeight": 4806556,
+      "direction": "afterRequestedPoint"
+    }
+  },
+  "batchers": [
+    {
+      "pkh": "cc7dbe5cc9cfa8046adc7bbbe8316cd598d55ef90dda77c5bc1eb6fa",
+      "firstSeenSlot": 125401361,
+      "firstSeenMs": 1781084561000,
+      "lastSeenSlot": 125403821,
+      "lastSeenMs": 1781087021000,
+      "source": "executionSigner"
+    }
+  ],
+  "metrics": [
+    {
+      "batcher": "cc7dbe5cc9cfa8046adc7bbbe8316cd598d55ef90dda77c5bc1eb6fa",
+      "fromMs": 1781084493000,
+      "toMs": 1781087353442,
+      "pair": null,
+      "eligibleOrders": 10,
+      "executedOrders": 10,
+      "stillOpenEligibleOrders": 0,
+      "missedEligibleOrders": 0,
+      "captureRate": "1.0000",
+      "medianResponseMs": 18000,
+      "p95ResponseMs": 48000,
+      "ambiguousExecutions": 0,
+      "unknownExecutions": 0,
+      "eligibleInputVolumeByAsset": {
+        "79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolY-60610-093703": 20000
+      },
+      "executedInputVolumeByAsset": {
+        "79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolY-60610-093703": 20000
+      },
+      "executedOutputVolumeByAsset": {
+        "79886abfd815c1c9444145232169acfcca1d3a56f169ac01c59e273c.poolX-60610-093703": 0
+      },
+      "feesCollectedLovelace": null
+    }
+  ],
+  "logs": "testing/preprod/batcher-indexer-flow/.run/runs/amm-limit-indexer-20260610-093703-indexer/logs"
+}
