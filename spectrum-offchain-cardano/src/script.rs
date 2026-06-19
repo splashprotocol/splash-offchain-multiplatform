@@ -54,14 +54,14 @@ pub fn delayed_cost(f: impl FnOnce(&ScriptContextPreview) -> ExUnits + 'static) 
 
 pub enum DelayedRedeemer {
     Ready(PlutusData),
-    Delayed(Box<dyn FnOnce(&TxInputsOrdering) -> PlutusData>),
+    Delayed(Box<dyn FnOnce(&TxInputsOrdering, &ScriptContextPreview) -> PlutusData>),
 }
 
 impl DelayedRedeemer {
-    pub fn compute(self, inputs_ordering: &TxInputsOrdering) -> PlutusData {
+    pub fn compute(self, inputs_ordering: &TxInputsOrdering, ctx: &ScriptContextPreview) -> PlutusData {
         match self {
             DelayedRedeemer::Ready(pd) => pd,
-            DelayedRedeemer::Delayed(closure) => closure(inputs_ordering),
+            DelayedRedeemer::Delayed(closure) => closure(inputs_ordering, ctx),
         }
     }
 }
@@ -70,6 +70,8 @@ pub fn ready_redeemer(r: PlutusData) -> DelayedRedeemer {
     DelayedRedeemer::Ready(r)
 }
 
-pub fn delayed_redeemer(f: impl FnOnce(&TxInputsOrdering) -> PlutusData + 'static) -> DelayedRedeemer {
+pub fn delayed_redeemer(
+    f: impl FnOnce(&TxInputsOrdering, &ScriptContextPreview) -> PlutusData + 'static,
+) -> DelayedRedeemer {
     DelayedRedeemer::Delayed(Box::new(f))
 }

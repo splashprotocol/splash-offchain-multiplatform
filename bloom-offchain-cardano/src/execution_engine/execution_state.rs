@@ -14,11 +14,12 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
-use cml_chain::{RequiredSigners, Value};
+use cml_chain::{RequiredSigners, Slot, Value};
 use either::Either;
 use log::trace;
 use spectrum_cardano_lib::funding::OperatorFunding;
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::time::posix_to_slot;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef};
@@ -46,6 +47,13 @@ pub struct TxBlueprint {
     pub script_io: Vec<(ScriptInputBlueprint, TransactionOutput)>,
     pub reference_inputs: HashSet<(TransactionInput, TransactionOutput)>,
     pub witness_scripts: HashMap<DeployedValidatorErased, (PlutusData, ScalingFactor)>,
+    pub validity_range: Option<PosixValidityRange>,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct PosixValidityRange {
+    pub from: u64,
+    pub until: u64,
 }
 
 impl Display for TxBlueprint {
@@ -87,6 +95,7 @@ impl TxBlueprint {
             script_io: Vec::new(),
             reference_inputs: HashSet::new(),
             witness_scripts: HashMap::new(),
+            validity_range: None,
         }
     }
 
@@ -110,6 +119,28 @@ impl TxBlueprint {
         }
     }
 
+    pub fn restrict_validity_range(&mut self, from: u64, until: u64) {
+        if from >= until {
+            panic!("empty validity range requested: [{from}, {until})");
+        }
+        self.validity_range = Some(match self.validity_range {
+            Some(current) => {
+                let merged = PosixValidityRange {
+                    from: current.from.max(from),
+                    until: current.until.min(until),
+                };
+                if merged.from >= merged.until {
+                    panic!(
+                        "incompatible validity ranges requested: [{}, {}) and [{from}, {until})",
+                        current.from, current.until
+                    );
+                }
+                merged
+            }
+            None => PosixValidityRange { from, until },
+        });
+    }
+
     pub fn project_onto_builder(
         self,
         mut txb: TransactionBuilder,
@@ -122,7 +153,12 @@ impl TxBlueprint {
             script_io,
             reference_inputs,
             witness_scripts,
+            validity_range,
         } = self;
+        if let Some(range) = validity_range {
+            txb.set_validity_start_interval(posix_to_slot(range.from, network_id) as Slot);
+            txb.set_ttl(posix_to_slot(range.until.saturating_sub(1), network_id) as Slot);
+        }
         let mut all_io = script_io.into_iter().map(Either::Left).collect::<Vec<_>>();
         let funding_io = if operator_interest > 0 {
             if operator_interest >= MIN_SAFE_LOVELACE_VALUE {
@@ -186,9 +222,10 @@ impl TxBlueprint {
                     },
                     output,
                 )) => {
+                    let ctx = ScriptContextPreview { self_index: ix };
                     let cml_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(script.hash),
-                        redeemer.compute(&inputs_ordering),
+                        redeemer.compute(&inputs_ordering, &ctx),
                     );
                     let input = SingleInputBuilder::new(reference.into(), utxo)
                         .plutus_script_inline_datum(cml_script, required_signers)
@@ -205,7 +242,6 @@ impl TxBlueprint {
                             .unwrap_or_else(|_| "_".to_string())
                     );
                     txb.add_output(output).expect("add script output ok");
-                    let ctx = ScriptContextPreview { self_index: ix };
                     txb.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                         script.cost.compute(&ctx).into(),

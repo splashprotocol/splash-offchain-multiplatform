@@ -724,6 +724,9 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
                 Side::Bid => &mut excess_base,
                 Side::Ask => &mut excess_quote,
             };
+            if *excess > 0 && !take.target.accepts_excess_output() {
+                return None;
+            }
             balanced_takes.push((id, take.finalized(*excess)));
             *excess = 0;
         }

@@ -11,6 +11,7 @@ use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::report::ExecutionReport;
 use crate::execution_engine::resolver::resolve_state;
 use crate::execution_engine::storage::StateIndex;
+use crate::execution_engine::types::LedgerClock;
 use async_primitives::beacon::{Beacon, Once};
 use either::Either;
 use futures::channel::mpsc;
@@ -168,7 +169,7 @@ where
     Meta: Clone + Unpin + 'a,
     Rep: Reporting<ExecutionReport<StableId, Ver, TxHash, Pair, Meta>> + Clone + 'a,
     Err: TryInto<HashSet<Ver>> + Clone + Unpin + Debug + Display + 'a,
-    LedgerCx: Unpin + 'a,
+    LedgerCx: LedgerClock + Unpin + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
     let executor = Executor::new(
@@ -315,7 +316,12 @@ where
     /// last_engine_status for local tracking.
     fn try_send_engine_status(&mut self, status: crate::health::EngineStatus) {
         if status != self.last_engine_status {
-            trace!("Engine stream {} status: {:?} -> {:?}", self.stream_id, self.last_engine_status, status);
+            trace!(
+                "Engine stream {} status: {:?} -> {:?}",
+                self.stream_id,
+                self.last_engine_status,
+                status
+            );
         }
         let _ = self.engine_status_sink.unbounded_send((self.stream_id, status));
         self.last_engine_status = status;
@@ -746,7 +752,15 @@ where
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + Maker<PR, MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
+        LCX: LedgerClock,
     {
+        let ledger_time = match &event {
+            Either::Left(Channel::Ledger(_, cx)) | Either::Right(Channel::Ledger(_, cx)) => cx.posix_time(),
+            _ => None,
+        };
+        if let Some(time) = ledger_time {
+            self.multi_book.get_mut(&pair).advance_clocks(time);
+        }
         match event {
             Either::Left(evolving_entity) => {
                 if let Some(upd) = self.update_state(evolving_entity) {
@@ -812,7 +826,7 @@ where
     PRV: TxProver<TC, TX> + Unpin,
     M: Unpin,
     E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
-    LCX: Unpin,
+    LCX: LedgerClock + Unpin,
 {
     type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
 
@@ -996,7 +1010,7 @@ where
     PRV: TxProver<TC, TX> + Unpin,
     M: Unpin,
     E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
-    LCX: Unpin,
+    LCX: LedgerClock + Unpin,
 {
     fn is_terminated(&self) -> bool {
         false

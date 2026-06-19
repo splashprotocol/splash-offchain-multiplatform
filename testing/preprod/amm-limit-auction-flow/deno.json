@@ -1,0 +1,12 @@
+{
+  "imports": {
+    "@lucid-evolution/lucid": "npm:@lucid-evolution/lucid@^0.3.44",
+    "@lucid-evolution/utils": "npm:@lucid-evolution/utils@^0.1.63",
+    "@lucid-evolution/wallet": "npm:@lucid-evolution/wallet@^0.1.65",
+    "@std/dotenv": "jsr:@std/dotenv",
+    "hash-wasm": "npm:hash-wasm"
+  },
+  "tasks": {
+    "check": "deno check src/*.ts *.ts"
+  }
+}

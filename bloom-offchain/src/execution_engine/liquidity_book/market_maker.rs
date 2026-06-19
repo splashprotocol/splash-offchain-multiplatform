@@ -111,8 +111,11 @@ where
 {
     let next_maker = maker.swap(input);
     let make = Trans::new(maker, next_maker);
-    let trade_output = make.loss().map(|val| val.unwrap()).unwrap_or(0);
-    let next_taker = target_taker.with_applied_trade(input.unwrap(), trade_output);
+    let input_amount = input.unwrap();
+    let trade_output = target_taker
+        .exact_output_for_input(input_amount)
+        .unwrap_or_else(|| make.loss().map(|val| val.unwrap()).unwrap_or(0));
+    let next_taker = target_taker.with_applied_trade(input_amount, trade_output);
     let take = Trans::new(target_taker, next_taker);
     (take, make)
 }

@@ -120,3 +120,22 @@ fn create_tx_builder_full(
         .unwrap();
     TransactionBuilder::new(cfg)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::constant_cost_models;
+
+    #[test]
+    fn plutus_v2_cost_model_matches_conway_protocol_params() {
+        let cost_models = constant_cost_models();
+        let plutus_v2 = cost_models.inner.get(&1).expect("PlutusV2 cost model exists");
+
+        assert_eq!(plutus_v2.len(), 332);
+        assert_eq!(&plutus_v2[59..63], &[30623, 28755, 75, 1]);
+        assert_eq!(
+            &plutus_v2[175..185],
+            &[1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1]
+        );
+        assert_eq!(&plutus_v2[326..], &[1, 11, 1000, 277577, 12, 21]);
+    }
+}

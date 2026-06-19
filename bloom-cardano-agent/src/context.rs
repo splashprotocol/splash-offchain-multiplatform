@@ -1,5 +1,6 @@
 use bloom_offchain::execution_engine::liquidity_book::config::ExecutionConfig;
 use bloom_offchain::execution_engine::types::Time;
+use bloom_offchain_cardano::orders::auction::AuctionOrderRegistry;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
@@ -27,6 +28,7 @@ pub struct MakerContext {
     pub time: Time,
     pub execution_conf: ExecutionConfig<ExUnits>,
     pub backlog_capacity: BacklogCapacity,
+    pub auction_order_registry: AuctionOrderRegistry,
 }
 
 impl Has<BacklogCapacity> for MakerContext {
@@ -47,6 +49,12 @@ impl Has<ExecutionConfig<ExUnits>> for MakerContext {
     }
 }
 
+impl Has<AuctionOrderRegistry> for MakerContext {
+    fn select<U: IsEqual<AuctionOrderRegistry>>(&self) -> AuctionOrderRegistry {
+        self.auction_order_registry.clone()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
@@ -58,6 +66,7 @@ pub struct ExecutionContext {
     pub operator_cred: OperatorCred,
     pub dao_ctx: DAOContext,
     pub royalty_context: RoyaltyWithdrawContext,
+    pub auction_order_registry: AuctionOrderRegistry,
 }
 
 impl Has<NetworkId> for ExecutionContext {
@@ -93,6 +102,12 @@ impl Has<Collateral> for ExecutionContext {
 impl Has<OperatorRewardAddress> for ExecutionContext {
     fn select<U: IsEqual<OperatorRewardAddress>>(&self) -> OperatorRewardAddress {
         self.reward_addr.clone()
+    }
+}
+
+impl Has<AuctionOrderRegistry> for ExecutionContext {
+    fn select<U: IsEqual<AuctionOrderRegistry>>(&self) -> AuctionOrderRegistry {
+        self.auction_order_registry.clone()
     }
 }
 
