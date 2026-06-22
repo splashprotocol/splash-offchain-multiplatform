@@ -29,7 +29,9 @@ members = [
     "intent-relay",
     "splash-testing",
     "splash-reward-distributor",
-    "splash-yf-offchain"
+    "splash-yf-offchain",
+    "dea-sdk",
+    "dea-sdk-example"
 ]
 
 [profile.release]

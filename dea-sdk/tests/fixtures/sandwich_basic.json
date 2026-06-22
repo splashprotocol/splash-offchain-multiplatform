@@ -1,0 +1,117 @@
+{
+  "assessmentWindow": {
+    "fromMs": 0,
+    "toMs": 200000
+  },
+  "observations": [
+    {
+      "txHash": "pre-leg",
+      "mempool": {
+        "firstSeenAt": 1000,
+        "lastSeenAt": 1000,
+        "mempoolSequence": 1
+      },
+      "ledger": {
+        "confirmedSlot": 10,
+        "confirmedBlockHash": "block-10",
+        "confirmedTxIndex": 0
+      },
+      "signers": [{ "pkh": "attacker-2" }],
+      "touches": [
+        {
+          "poolId": "pool-s",
+          "pairId": "a/b",
+          "role": "directSwap",
+          "direction": "buy",
+          "baseAsset": "a",
+          "quoteAsset": "b",
+          "inputAmount": 100,
+          "outputAmount": 50,
+          "outputLossAsset": null,
+          "outputLossAmount": null,
+          "counterfactualOutputAmount": null,
+          "executableAfter": true,
+          "stateDisplacementBps": 150,
+          "netBaseFlow": -100,
+          "netQuoteFlow": -100,
+          "dependsOnTxs": []
+        }
+      ],
+      "steeredOrder": null,
+      "attribution": null
+    },
+    {
+      "txHash": "victim-sandwich",
+      "mempool": {
+        "firstSeenAt": 1001,
+        "lastSeenAt": 1001,
+        "mempoolSequence": 2
+      },
+      "ledger": {
+        "confirmedSlot": 11,
+        "confirmedBlockHash": "block-11",
+        "confirmedTxIndex": 1
+      },
+      "signers": [{ "pkh": "victim-user" }],
+      "touches": [
+        {
+          "poolId": "pool-s",
+          "pairId": "a/b",
+          "role": "directSwap",
+          "direction": "buy",
+          "baseAsset": "a",
+          "quoteAsset": "b",
+          "inputAmount": 100,
+          "outputAmount": 90,
+          "outputLossAsset": "b",
+          "outputLossAmount": 10,
+          "counterfactualOutputAmount": 100,
+          "executableAfter": true,
+          "stateDisplacementBps": 0,
+          "netBaseFlow": -100,
+          "netQuoteFlow": 90,
+          "dependsOnTxs": []
+        }
+      ],
+      "steeredOrder": null,
+      "attribution": null
+    },
+    {
+      "txHash": "post-leg",
+      "mempool": {
+        "firstSeenAt": 1002,
+        "lastSeenAt": 1002,
+        "mempoolSequence": 3
+      },
+      "ledger": {
+        "confirmedSlot": 12,
+        "confirmedBlockHash": "block-12",
+        "confirmedTxIndex": 2
+      },
+      "signers": [{ "pkh": "attacker-2" }],
+      "touches": [
+        {
+          "poolId": "pool-s",
+          "pairId": "a/b",
+          "role": "directSwap",
+          "direction": "sell",
+          "baseAsset": "a",
+          "quoteAsset": "b",
+          "inputAmount": 100,
+          "outputAmount": 60,
+          "outputLossAsset": null,
+          "outputLossAmount": null,
+          "counterfactualOutputAmount": null,
+          "executableAfter": true,
+          "stateDisplacementBps": 120,
+          "netBaseFlow": 100,
+          "netQuoteFlow": 130,
+          "dependsOnTxs": []
+        }
+      ],
+      "steeredOrder": null,
+      "attribution": null
+    }
+  ]
+}
+
