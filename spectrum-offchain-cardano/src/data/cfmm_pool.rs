@@ -741,11 +741,14 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
+    use spectrum_cardano_lib::{
+        AssetClass, AssetName, Ed25519PublicKey, TaggedAmount, TaggedAssetClass, Token,
+    };
     use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
     use crate::data::cfmm_pool::fee_switch_pool::{FeeSwitchPool, FeeSwitchPoolVer};
+    use crate::data::cfmm_pool::royalty_pool::{RoyaltyPool, RoyaltyPoolVer};
     use crate::data::cfmm_pool::ConstFnPool;
     use crate::data::pool::PoolValidation;
     use crate::data::PoolId;
@@ -1033,6 +1036,80 @@ mod tests {
         assert_eq!(x_rec, 283321878);
         assert_eq!(inp, 60797);
         assert_eq!(out, 283321885);
+    }
+
+    #[test]
+    fn royalty_pool_with_native_reserve_below_untouchable_floor_has_no_bid_liquidity() {
+        let btc_asset = AssetClass::Token(Token(
+            ScriptHash::from([
+                37, 197, 222, 95, 91, 40, 96, 115, 197, 147, 237, 253, 119, 180, 138, 188, 122, 72, 229, 164,
+                243, 212, 205, 157, 66, 143, 249, 53,
+            ]),
+            AssetName::from((
+                3,
+                [
+                    66, 84, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0,
+                ],
+            )),
+        ));
+        let pool = RoyaltyPool {
+            id: PoolId::from(Token(
+                ScriptHash::from([
+                    110, 227, 143, 115, 181, 68, 105, 34, 6, 8, 75, 146, 86, 94, 31, 178, 237, 94, 193, 58,
+                    194, 10, 246, 157, 186, 31, 31, 188,
+                ]),
+                AssetName::from((
+                    11,
+                    [
+                        66, 84, 67, 95, 65, 68, 65, 95, 78, 70, 84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            )),
+            reserves_x: TaggedAmount::new(1_274_229_509),
+            reserves_y: TaggedAmount::new(379_448),
+            liquidity: TaggedAmount::new(0),
+            asset_x: TaggedAssetClass::new(AssetClass::Native),
+            asset_y: TaggedAssetClass::new(btc_asset),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token(Token(
+                ScriptHash::from([0; 28]),
+                AssetName::from((
+                    2,
+                    [
+                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            lp_fee: Ratio::new_raw(99_190, 100_000),
+            treasury_fee: Ratio::new_raw(90, 100_000),
+            treasury_x: TaggedAmount::new(2_860_453),
+            treasury_y: TaggedAmount::new(852),
+            first_royalty_fee: Ratio::new_raw(100, 100_000),
+            second_royalty_fee: Ratio::new_raw(0, 100_000),
+            first_royalty_x: TaggedAmount::new(1_271_312_249),
+            first_royalty_y: TaggedAmount::new(378_574),
+            second_royalty_x: TaggedAmount::new(0),
+            second_royalty_y: TaggedAmount::new(0),
+            lq_lower_bound: TaggedAmount::new(0),
+            admin_address: ScriptHash::from([0; 28]),
+            treasury_address: ScriptHash::from([0; 28]),
+            first_royalty_pub_key: Ed25519PublicKey::from([0; 32]),
+            second_royalty_pub_key: Ed25519PublicKey::from([0; 32]),
+            ver: RoyaltyPoolVer::V1,
+            marginal_cost: ExUnits { mem: 100, steps: 100 },
+            bounds: PoolValidation {
+                min_n2t_lovelace: 10_000_000,
+                min_t2t_lovelace: 10_000_000,
+            },
+            nonce: 3,
+            stake_part_script_hash: None,
+        };
+        let worst_price = AbsolutePrice::new(4_946, 15_647_843).unwrap();
+
+        assert!(pool.available_liquidity_on_side(Bid(worst_price)).is_none());
+        assert_eq!(pool.estimated_trade(Bid(4_946)).unwrap().output, 0);
     }
 
     #[test]

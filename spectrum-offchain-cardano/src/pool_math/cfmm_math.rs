@@ -32,12 +32,8 @@ pub fn classic_cfmm_output_amount<X, Y>(
         (asset_x.untag(), reserves_x.untag())
     };
     let capped_quote = if output_asset.is_native() {
-        let amount_left = liquidity - quote_amount as u64;
-        if amount_left < UNTOUCHABLE_LOVELACE_AMOUNT {
-            liquidity - UNTOUCHABLE_LOVELACE_AMOUNT
-        } else {
-            quote_amount as u64
-        }
+        let available_above_floor = liquidity.saturating_sub(UNTOUCHABLE_LOVELACE_AMOUNT);
+        min(quote_amount as u64, available_above_floor)
     } else {
         quote_amount as u64
     };
