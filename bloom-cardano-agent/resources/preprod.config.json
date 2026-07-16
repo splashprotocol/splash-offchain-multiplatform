@@ -1,5 +1,5 @@
 {
-  "channelBufferSize": 1024,
+  "eventFeedBufferSize": 1024,
   "chainSync": {
     "startingPoint": {
       "Specific": [
@@ -23,12 +23,13 @@
   "txSubmissionBufferSize": 64,
   "backlogCapacity": 128,
   "networkId": 0,
-  "cardanoFinalizationDelay": {
+  "eventCacheTtl": {
     "secs": 120,
     "nanos": 0
   },
   "operatorKey": "",
-  "explorerKeyPath": {
+  "takeResidualFee": false,
+  "explorer": {
     "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key"
   },
   "execution": {
@@ -44,11 +45,7 @@
     },
     "o2oAllowed": true
   },
-  "mempoolBufferingDuration": {
-    "secs": 1,
-    "nanos": 0
-  },
-  "ledgerBufferingDuration": {
+  "eventFeedBufferingDuration": {
     "secs": 0,
     "nanos": 50000
   },
@@ -62,6 +59,17 @@
     "exFee": 1500000
   },
   "royaltyWithdraw": {
-    "exFee": 1500000
-  }
+    "transactionFee": 1500000
+  },
+  "graduatedPoolFee": {
+    "enabled": true,
+    "relativeFeePercent": 1
+  },
+  "graduationStateDbPath": "bloom-cardano-agent/state/preprod.graduation-state.rocksdb",
+  "snekGraduation": {
+    "quadraticPoolV1ScriptHash": "905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d",
+    "quadraticPoolV1T2TScriptHash": "c876c435e1de1bd93ac71f0e9f956a844cd72493514d2740221bfea6"
+  },
+  "reportingEndpoint": "127.0.0.1:9021",
+  "healthListenAddr": "127.0.0.1:9024"
 }

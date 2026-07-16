@@ -1,5 +1,6 @@
 use cml_core::serialization::RawBytesEncoding;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use cml_core::Slot;
@@ -13,6 +14,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
 
+use bloom_offchain_cardano::graduation::{GraduatedPoolFeeConfig, SnekPoolScriptHashes};
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 use cardano_explorer::config::ExplorerConfig;
 use spectrum_offchain::data::small_vec::SmallVec;
@@ -39,6 +41,12 @@ pub struct AppConfig {
     pub partitioning: Partitioning,
     pub dao_config: DAOConfig,
     pub royalty_withdraw: RoyaltyWithdrawContext,
+    #[serde(default)]
+    pub graduated_pool_fee: GraduatedPoolFeeAppConfig,
+    #[serde(default)]
+    pub graduation_state_db_path: Option<PathBuf>,
+    #[serde(default)]
+    pub snek_graduation: SnekPoolScriptHashes,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
     pub health_listen_addr: Option<SocketAddr>,
@@ -46,6 +54,44 @@ pub struct AppConfig {
 
 fn default_disable_mempool() -> bool {
     false
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraduatedPoolFeeAppConfig {
+    #[serde(default = "default_graduated_pool_fee_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_graduated_pool_fee_percent")]
+    pub relative_fee_percent: u64,
+}
+
+fn default_graduated_pool_fee_enabled() -> bool {
+    false
+}
+
+fn default_graduated_pool_fee_percent() -> u64 {
+    1
+}
+
+impl Default for GraduatedPoolFeeAppConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            relative_fee_percent: 1,
+        }
+    }
+}
+
+impl TryFrom<GraduatedPoolFeeAppConfig> for GraduatedPoolFeeConfig {
+    type Error = String;
+
+    fn try_from(value: GraduatedPoolFeeAppConfig) -> Result<Self, Self::Error> {
+        if value.enabled {
+            GraduatedPoolFeeConfig::try_enabled(value.relative_fee_percent)
+        } else {
+            Ok(GraduatedPoolFeeConfig::default())
+        }
+    }
 }
 
 impl CheckIntegrity for AppConfig {
@@ -60,7 +106,40 @@ impl CheckIntegrity for AppConfig {
         } else {
             IntegrityViolations::one("Bad partitioning".to_string())
         };
-        partitioning_violations
+        let snek_graduation_violations = if self.graduated_pool_fee.enabled
+            && !self.snek_graduation.is_configured()
+        {
+            IntegrityViolations::one(
+                "graduatedPoolFee is enabled but snekGraduation script hashes are not configured".to_string(),
+            )
+        } else {
+            IntegrityViolations::empty()
+        };
+        let fee_percent_violations =
+            if self.graduated_pool_fee.enabled && self.graduated_pool_fee.relative_fee_percent > 99 {
+                IntegrityViolations::one(
+                    "graduatedPoolFee.relativeFeePercent must be between 0 and 99".to_string(),
+                )
+            } else {
+                IntegrityViolations::empty()
+            };
+        let graduation_state_violations =
+            if self.graduated_pool_fee.enabled && self.graduation_state_db_path.is_none() {
+                IntegrityViolations::one(
+                    "graduatedPoolFee is enabled but graduationStateDbPath is not configured".to_string(),
+                )
+            } else {
+                IntegrityViolations::empty()
+            };
+        IntegrityViolations(
+            partitioning_violations
+                .0
+                .into_iter()
+                .chain(snek_graduation_violations.0)
+                .chain(fee_percent_violations.0)
+                .chain(graduation_state_violations.0)
+                .collect(),
+        )
     }
 }
 
@@ -135,5 +214,46 @@ impl Into<DAOContext> for DAOConfig {
             signature_threshold: self.threshold,
             execution_fee: self.ex_fee,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GraduatedPoolFeeAppConfig;
+    use bloom_offchain_cardano::graduation::GraduatedPoolFeeConfig;
+
+    #[test]
+    fn graduated_pool_fee_config_defaults_to_disabled() {
+        let config: GraduatedPoolFeeAppConfig = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(
+            config,
+            GraduatedPoolFeeAppConfig {
+                enabled: false,
+                relative_fee_percent: 1,
+            }
+        );
+        let runtime_config = GraduatedPoolFeeConfig::try_from(config).unwrap();
+        assert!(!runtime_config.enabled);
+        assert_eq!(runtime_config.fee(10_000), 0);
+    }
+
+    #[test]
+    fn graduated_pool_fee_config_can_be_disabled() {
+        let config: GraduatedPoolFeeAppConfig =
+            serde_json::from_str(r#"{"enabled":false,"relativeFeePercent":1}"#).unwrap();
+
+        let runtime_config = GraduatedPoolFeeConfig::try_from(config).unwrap();
+        assert!(!runtime_config.enabled);
+        assert_eq!(runtime_config.fee(10_000), 0);
+    }
+
+    #[test]
+    fn graduated_pool_fee_config_rejects_one_hundred_percent() {
+        assert!(GraduatedPoolFeeConfig::try_from(
+            serde_json::from_str::<GraduatedPoolFeeAppConfig>(r#"{"enabled":true,"relativeFeePercent":100}"#)
+                .unwrap()
+        )
+        .is_err());
     }
 }

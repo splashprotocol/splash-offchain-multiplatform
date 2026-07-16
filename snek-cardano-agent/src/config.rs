@@ -9,6 +9,7 @@ use cardano_explorer::config::ExplorerConfig;
 use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
 use cml_chain::certs::Credential;
 use cml_core::Slot;
+use serde::de::{Error, Unexpected};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::small_vec::SmallVec;
@@ -84,16 +85,102 @@ pub struct SequencingConfig {
     pub disable: bool,
 }
 
-#[derive(Copy, Clone, Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct AdhocFeeConfig {
-    pub relative_fee_percent: BoundedU64<0, 100>,
+    pub relative_fee_bps: BoundedU64<0, 10000>,
+}
+
+impl<'de> serde::Deserialize<'de> for AdhocFeeConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let Some(object) = value.as_object() else {
+            return Err(D::Error::invalid_type(
+                Unexpected::Other("non-object"),
+                &"ad-hoc fee config object",
+            ));
+        };
+
+        if let Some(raw_bps) = object.get("relativeFeeBps") {
+            let bps = raw_bps.as_u64().ok_or_else(|| {
+                D::Error::invalid_type(Unexpected::Other("non-integer"), &"integer relativeFeeBps")
+            })?;
+            return Ok(Self {
+                relative_fee_bps: bounded_bps::<D::Error>(bps)?,
+            });
+        }
+
+        let raw_percent = object
+            .get("relativeFeePercent")
+            .ok_or_else(|| D::Error::missing_field("relativeFeeBps or legacy relativeFeePercent"))?;
+        let bps = percent_value_to_bps::<D::Error>(raw_percent)?;
+        Ok(Self {
+            relative_fee_bps: bounded_bps::<D::Error>(bps)?,
+        })
+    }
+}
+
+fn bounded_bps<E>(bps: u64) -> Result<BoundedU64<0, 10000>, E>
+where
+    E: Error,
+{
+    if bps <= 10_000 {
+        Ok(BoundedU64::new_saturating(bps))
+    } else {
+        Err(E::custom("relative fee must be between 0 and 10000 bps"))
+    }
+}
+
+fn percent_value_to_bps<E>(value: &serde_json::Value) -> Result<u64, E>
+where
+    E: Error,
+{
+    match value {
+        serde_json::Value::Number(number) => percent_str_to_bps::<E>(&number.to_string()),
+        serde_json::Value::String(value) => percent_str_to_bps::<E>(value),
+        _ => Err(E::invalid_type(
+            Unexpected::Other("non-number"),
+            &"number or string relativeFeePercent",
+        )),
+    }
+}
+
+fn percent_str_to_bps<E>(value: &str) -> Result<u64, E>
+where
+    E: Error,
+{
+    let value = value.trim();
+    let Some((whole, fractional)) = value.split_once('.') else {
+        return value
+            .parse::<u64>()
+            .ok()
+            .and_then(|percent| percent.checked_mul(100))
+            .ok_or_else(|| E::custom("relativeFeePercent must be a non-negative decimal"));
+    };
+
+    if fractional.len() > 2 {
+        return Err(E::custom(
+            "relativeFeePercent supports at most two decimal places",
+        ));
+    }
+    let whole = whole
+        .parse::<u64>()
+        .map_err(|_| E::custom("relativeFeePercent must be a non-negative decimal"))?;
+    let fractional = format!("{fractional:0<2}")
+        .parse::<u64>()
+        .map_err(|_| E::custom("relativeFeePercent must be a non-negative decimal"))?;
+    whole
+        .checked_mul(100)
+        .and_then(|whole_bps| whole_bps.checked_add(fractional))
+        .ok_or_else(|| E::custom("relativeFeePercent must be a non-negative decimal"))
 }
 
 impl From<AdhocFeeConfig> for AdhocFeeStructure {
     fn from(value: AdhocFeeConfig) -> Self {
         Self {
-            relative_fee_percent: value.relative_fee_percent,
+            relative_fee_bps: value.relative_fee_bps,
         }
     }
 }
@@ -138,5 +225,59 @@ impl ExecutionConfig {
             o2o_allowed: false,
             base_step_budget,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adhoc_fee_config_accepts_basis_points() {
+        let config: AdhocFeeConfig =
+            serde_json::from_str(r#"{"relativeFeeBps":130}"#).expect("config must parse");
+
+        assert_eq!(config.relative_fee_bps.get(), 130);
+        assert_eq!(AdhocFeeStructure::from(config).fee(1_000_000_000), 13_000_000);
+    }
+
+    #[test]
+    fn adhoc_fee_config_maps_legacy_percent_to_basis_points() {
+        let config: AdhocFeeConfig =
+            serde_json::from_str(r#"{"relativeFeePercent":1}"#).expect("config must parse");
+
+        assert_eq!(config.relative_fee_bps.get(), 100);
+    }
+
+    #[test]
+    fn adhoc_fee_config_accepts_decimal_percent() {
+        let config: AdhocFeeConfig =
+            serde_json::from_str(r#"{"relativeFeePercent":1.3}"#).expect("config must parse");
+
+        assert_eq!(config.relative_fee_bps.get(), 130);
+    }
+
+    #[test]
+    fn adhoc_fee_config_rejects_more_than_two_decimal_places() {
+        let error = serde_json::from_str::<AdhocFeeConfig>(r#"{"relativeFeePercent":1.333}"#)
+            .expect_err("config must reject sub-bps precision");
+
+        assert!(error.to_string().contains("at most two decimal places"));
+    }
+
+    #[test]
+    fn adhoc_fee_config_rejects_basis_points_above_one_hundred_percent() {
+        let error = serde_json::from_str::<AdhocFeeConfig>(r#"{"relativeFeeBps":10001}"#)
+            .expect_err("config must reject fees above 100%");
+
+        assert!(error.to_string().contains("between 0 and 10000 bps"));
+    }
+
+    #[test]
+    fn adhoc_fee_config_rejects_legacy_percent_above_one_hundred() {
+        let error = serde_json::from_str::<AdhocFeeConfig>(r#"{"relativeFeePercent":100.01}"#)
+            .expect_err("config must reject fees above 100%");
+
+        assert!(error.to_string().contains("between 0 and 10000 bps"));
     }
 }

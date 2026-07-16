@@ -648,12 +648,12 @@ pub struct FillPreview {
     pub input: u64,
 }
 
-pub fn dummy_swap<M: MarketMaker + Stable>(
-    demand: u64,
-    side: Side,
-    maker: &M,
-) -> Option<(M::StableId, FillPreview)> {
-    let real_price = maker.real_price(side.wrap(demand))?;
+pub fn dummy_swap<T, M>(taker: &T, demand: u64, side: Side, maker: &M) -> Option<(M::StableId, FillPreview)>
+where
+    T: MarketTaker + TakerBehaviour + Copy,
+    M: MarketMaker + Stable,
+{
+    let real_price = maker.effective_price(taker, side.wrap(demand))?;
     Some((
         maker.stable_id(),
         FillPreview {
@@ -663,17 +663,24 @@ pub fn dummy_swap<M: MarketMaker + Stable>(
     ))
 }
 
-pub fn try_optimized_swap<M: MarketMaker + Stable>(
+pub fn try_optimized_swap<T, M>(
+    taker: &T,
     price: AbsolutePrice,
     demand: u64,
     side: Side,
     maker: &M,
-) -> Option<(M::StableId, FillPreview)> {
+) -> Option<(M::StableId, FillPreview)>
+where
+    T: MarketTaker + TakerBehaviour + Copy,
+    M: MarketMaker + Stable,
+{
     let AvailableLiquidity { input, output } = maker.available_liquidity_on_side(side.wrap(price))?;
-    let absolute_price = match side {
-        Side::Bid => AbsolutePrice::new(input, output)?,
-        Side::Ask => AbsolutePrice::new(output, input)?,
-    };
+    let absolute_price = maker
+        .effective_price(taker, side.wrap(input))
+        .or_else(|| match side {
+            Side::Bid => AbsolutePrice::new(input, output),
+            Side::Ask => AbsolutePrice::new(output, input),
+        })?;
     if input > 0 && demand >= input {
         return Some((
             maker.stable_id(),
@@ -696,8 +703,10 @@ where
         demand: u64,
         side: Side,
         optimized: bool,
+        target_taker: &T,
     ) -> Option<(M::StableId, FillPreview)>
     where
+        T: MarketTaker + TakerBehaviour + Copy,
         M: MarketMaker,
     {
         let pools = self
@@ -707,11 +716,13 @@ where
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
                 if optimized {
-                    try_optimized_swap(price, demand, side, p).or_else(|| dummy_swap(demand, side, p))
+                    try_optimized_swap(target_taker, price, demand, side, p)
+                        .or_else(|| dummy_swap(target_taker, demand, side, p))
                 } else {
-                    dummy_swap(demand, side, p)
+                    dummy_swap(target_taker, demand, side, p)
                 }
-            });
+            })
+            .filter(|(_, preview)| side.wrap(price).overlaps(preview.price));
         match side {
             Side::Bid => pools.min_by_key(|(_, rp)| rp.price),
             Side::Ask => pools.max_by_key(|(_, rp)| rp.price),
@@ -1157,6 +1168,96 @@ pub mod tests {
             min_bid_price: None,
         };
         assert_eq!(range, expected_range);
+    }
+
+    #[test]
+    fn preselect_market_maker_filters_each_effective_preview_before_best_choice() {
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        struct PreviewPool {
+            id: u8,
+            gross_price: AbsolutePrice,
+            effective_price: AbsolutePrice,
+        }
+
+        impl Display for PreviewPool {
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&format!("PreviewPool({})", self.id))
+            }
+        }
+
+        impl Stable for PreviewPool {
+            type StableId = u8;
+            fn stable_id(&self) -> Self::StableId {
+                self.id
+            }
+            fn is_quasi_permanent(&self) -> bool {
+                true
+            }
+        }
+
+        impl MarketMaker for PreviewPool {
+            type U = u64;
+
+            fn static_price(&self) -> SpotPrice {
+                self.gross_price.into()
+            }
+
+            fn real_price(&self, _: OnSide<u64>) -> Option<AbsolutePrice> {
+                Some(self.gross_price)
+            }
+
+            fn effective_price<Taker>(&self, _: &Taker, _: OnSide<u64>) -> Option<AbsolutePrice>
+            where
+                Taker: MarketTaker + TakerBehaviour + Copy,
+            {
+                Some(self.effective_price)
+            }
+
+            fn quality(&self) -> PoolQuality {
+                PoolQuality::from(self.gross_price.numer().to_owned())
+            }
+
+            fn marginal_cost_hint(&self) -> Self::U {
+                0
+            }
+
+            fn liquidity(&self) -> AbsoluteReserves {
+                AbsoluteReserves { base: 1, quote: 1 }
+            }
+
+            fn available_liquidity_on_side(&self, _: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+                None
+            }
+
+            fn estimated_trade(&self, _: OnSide<u64>) -> Option<AvailableLiquidity> {
+                None
+            }
+
+            fn is_active(&self) -> bool {
+                true
+            }
+        }
+
+        let taker = SimpleOrderPF::new(Side::Ask, 100, AbsolutePrice::new_unsafe(10, 1), 0, 0);
+        let mut idle_st: IdleState<SimpleOrderPF, PreviewPool> = IdleState {
+            takers: Chronology::new(0),
+            makers: MarketMakers::new(),
+        };
+        idle_st.update_pool(PreviewPool {
+            id: 1,
+            gross_price: AbsolutePrice::new_unsafe(20, 1),
+            effective_price: AbsolutePrice::new_unsafe(9, 1),
+        });
+        idle_st.update_pool(PreviewPool {
+            id: 2,
+            gross_price: AbsolutePrice::new_unsafe(12, 1),
+            effective_price: AbsolutePrice::new_unsafe(11, 1),
+        });
+        let st = TLBState::Idle(idle_st);
+
+        let selected = st.preselect_market_maker(taker.price(), taker.input(), taker.side(), false, &taker);
+
+        assert_eq!(selected.map(|(id, _)| id), Some(2));
     }
 
     #[test]
@@ -1716,12 +1817,12 @@ pub mod tests {
 
         fn available_liquidity_on_side(
             &self,
-            worst_price: OnSide<AbsolutePrice>,
+            _worst_price: OnSide<AbsolutePrice>,
         ) -> Option<AvailableLiquidity> {
             None
         }
 
-        fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        fn estimated_trade(&self, _input: OnSide<u64>) -> Option<AvailableLiquidity> {
             None
         }
 

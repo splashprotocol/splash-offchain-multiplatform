@@ -30,27 +30,33 @@ use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
+use bloom_offchain_cardano::graduation::{
+    GraduatedPoolFeeConfig, GraduatedSplashPoolStore, GraduationStateRocksDb, SnekPoolInputTracker,
+};
+use bloom_offchain_cardano::health::{
+    health_tick_stream, AgentNodeStatus, EngineStatus, HealthMonitor, StreamId,
+};
+use bloom_offchain_cardano::http_endpoints::{create_health_router, HealthMonitorState};
 use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bloom_offchain_cardano::orders::AnyOrder;
-use bloom_offchain_cardano::health::{AgentNodeStatus, EngineStatus, HealthMonitor, health_tick_stream, StreamId};
-use bloom_offchain_cardano::http_endpoints::{create_health_router, HealthMonitorState};
 use bloom_offchain_cardano::partitioning::select_partition;
+use bloom_offchain_cardano::pools::classified::ClassifiedPool;
 use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream_with_health_monitor;
 use cardano_chain_sync::client::ChainSyncClient;
-use cardano_chain_sync::ChainSyncHealth;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::{AnyExplorer, Maestro, Network};
+use cardano_chain_sync::ChainSyncHealth;
+use cardano_explorer::AnyExplorer;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::{constants, OutputRef, Token};
+use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
 use spectrum_offchain::clock::SystemClock;
 use spectrum_offchain::domain::event::{Channel, Transition};
@@ -66,7 +72,6 @@ use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
@@ -227,18 +232,39 @@ async fn main() {
         InMemoryKvIndex::new(config.event_cache_ttl, SystemClock).with_tracing("funding_index"),
     ));
     let dao_ctx: DAOContext = config.dao_config.clone().into();
+    let graduated_pool_fee_config = GraduatedPoolFeeConfig::try_from(config.graduated_pool_fee)
+        .expect("invalid graduated pool fee config");
+    let snek_pool_script_hashes = config.snek_graduation;
+    let graduation_state = config
+        .graduation_state_db_path
+        .as_ref()
+        .map(|path| GraduationStateRocksDb::open(path).expect("failed to open graduation RocksDB state"));
+    let (graduated_pool_store, snek_pool_input_tracker) = match &graduation_state {
+        Some(state) => state
+            .load_state()
+            .expect("failed to load graduation RocksDB state"),
+        None => (
+            GraduatedSplashPoolStore::default(),
+            SnekPoolInputTracker::default(),
+        ),
+    };
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
         validation_rules,
         dao_context: dao_ctx,
+        graduated_pool_fee_config,
+        snek_pool_script_hashes,
+        graduated_pool_store: graduated_pool_store.clone(),
+        snek_pool_input_tracker: snek_pool_input_tracker.clone(),
+        graduation_state,
     };
     let general_upd_handler: PairUpdateHandler<4, _, _, _, _, HandlerContextProto, HandlerContext<Token>> =
         PairUpdateHandler::new(
             partitioned_pair_upd_snd,
             Arc::clone(&entity_index),
-            handler_context,
+            handler_context.clone(),
         );
     let spec_upd_handler = SpecializedHandler::<_, _, _, Token, HandlerContext<Token>>::new(
         PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
@@ -321,7 +347,8 @@ async fn main() {
         royalty_context: config.royalty_withdraw,
     };
 
-    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, PairId, ExUnits>>(maker_context.clone(), "Book");
+    let multi_book =
+        MultiPair::new::<TLB<AnyOrder, ClassifiedPool, PairId, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog = MultiPair::new::<Tracing<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>>(
         maker_context,
         "Backlog",
@@ -424,16 +451,11 @@ async fn main() {
         engine_tx.clone(),
     );
 
-    let (node_to_health_snd, node_to_health_recv) =
-        mpsc::unbounded::<ChainSyncHealth>();
+    let (node_to_health_snd, node_to_health_recv) = mpsc::unbounded::<ChainSyncHealth>();
 
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
-        chain_sync_stream_with_health_monitor(
-            chain_sync,
-            state_synced.clone(),
-            node_to_health_snd,
-        ),
+        chain_sync_stream_with_health_monitor(chain_sync, state_synced.clone(), node_to_health_snd),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
         rollback_in_progress,
@@ -486,14 +508,13 @@ async fn main() {
         mpsc::unbounded::<bloom_offchain_cardano::health::GetHealth<EngineStatus, AgentNodeStatus>>();
     let (health_tick_rx, health_tick_driver) = health_tick_stream();
     processes.push(tokio::spawn(health_tick_driver));
-    let health_monitor =
-        HealthMonitor::<_, _, _, _, EngineStatus, AgentNodeStatus>::new(
-            engine_rx,
-            node_status_stream,
-            health_api_recv,
-            health_tick_rx,
-            NUM_ENGINE_STREAMS,
-        );
+    let health_monitor = HealthMonitor::<_, _, _, _, EngineStatus, AgentNodeStatus>::new(
+        engine_rx,
+        node_status_stream,
+        health_api_recv,
+        health_tick_rx,
+        NUM_ENGINE_STREAMS,
+    );
     processes.push(tokio::spawn(health_monitor));
     if let Some(addr) = config.health_listen_addr {
         let health_state = HealthMonitorState {
@@ -505,9 +526,7 @@ async fn main() {
             .expect("Failed to bind health server");
         info!("Health API listening on http://{}", addr);
         processes.push(tokio::spawn(async move {
-            axum::serve(listener, router)
-                .await
-                .expect("Health server failed")
+            axum::serve(listener, router).await.expect("Health server failed")
         }));
     } else {
         warn!("Health listen address not configured; health API disabled");
@@ -542,7 +561,10 @@ fn merge_upstreams(
         Either<
             Channel<
                 Transition<
-                    Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+                    Bundled<
+                        Either<Baked<AnyOrder, OutputRef>, Baked<ClassifiedPool, OutputRef>>,
+                        FinalizedTxOut,
+                    >,
                 >,
                 LedgerCx,
             >,

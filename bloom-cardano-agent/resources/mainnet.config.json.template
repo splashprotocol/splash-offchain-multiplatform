@@ -31,7 +31,7 @@
   "takeResidualFee": false,
   "explorer": {
     "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
-  }
+  },
   "execution": {
     "executionCap": {
       "soft": {
@@ -61,6 +61,14 @@
   },
   "royaltyWithdraw": {
     "transactionFee": 1500000
+  },
+  "graduatedPoolFee": {
+    "enabled": false,
+    "relativeFeePercent": 1
+  },
+  "snekGraduation": {
+    "quadraticPoolV1ScriptHash": null,
+    "quadraticPoolV1T2TScriptHash": null
   },
   "healthListenAddr": "127.0.0.1:9024"
 }

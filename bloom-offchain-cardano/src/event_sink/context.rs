@@ -23,6 +23,10 @@ use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
+use crate::graduation::{
+    GraduatedPoolFeeConfig, GraduatedSplashPoolStore, GraduationStateRocksDb, SnekPoolInputTracker,
+    SnekPoolScriptHashes,
+};
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
 use crate::validation_rules::ValidationRules;
@@ -37,16 +41,21 @@ pub struct EventContext<I: Copy> {
     pub mints: Option<Mints>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct HandlerContextProto {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
     pub validation_rules: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
+    pub graduated_pool_fee_config: GraduatedPoolFeeConfig,
+    pub snek_pool_script_hashes: SnekPoolScriptHashes,
+    pub graduated_pool_store: GraduatedSplashPoolStore,
+    pub snek_pool_input_tracker: SnekPoolInputTracker,
+    pub graduation_state: Option<GraduationStateRocksDb>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct HandlerContext<I: Copy> {
     pub output_ref: OutputRef,
     pub consumed_utxos: ConsumedInputs,
@@ -57,6 +66,11 @@ pub struct HandlerContext<I: Copy> {
     pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
+    pub graduated_pool_fee_config: GraduatedPoolFeeConfig,
+    pub snek_pool_script_hashes: SnekPoolScriptHashes,
+    pub graduated_pool_store: GraduatedSplashPoolStore,
+    pub snek_pool_input_tracker: SnekPoolInputTracker,
+    pub graduation_state: Option<GraduationStateRocksDb>,
     pub mints: Option<Mints>,
 }
 
@@ -73,6 +87,11 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             dao_context: ctx_proto.dao_context,
+            graduated_pool_fee_config: ctx_proto.graduated_pool_fee_config,
+            snek_pool_script_hashes: ctx_proto.snek_pool_script_hashes,
+            graduated_pool_store: ctx_proto.graduated_pool_store,
+            snek_pool_input_tracker: ctx_proto.snek_pool_input_tracker,
+            graduation_state: ctx_proto.graduation_state,
             mints: event_ctx.mints,
         }
     }
@@ -407,5 +426,23 @@ impl<I: Copy> Has<OperatorCred> for HandlerContext<I> {
 impl<I: Copy> Has<DAOContext> for HandlerContext<I> {
     fn select<U: IsEqual<DAOContext>>(&self) -> DAOContext {
         self.dao_context.clone()
+    }
+}
+
+impl<I: Copy> Has<GraduatedPoolFeeConfig> for HandlerContext<I> {
+    fn select<U: IsEqual<GraduatedPoolFeeConfig>>(&self) -> GraduatedPoolFeeConfig {
+        self.graduated_pool_fee_config
+    }
+}
+
+impl<I: Copy> Has<GraduatedSplashPoolStore> for HandlerContext<I> {
+    fn select<U: IsEqual<GraduatedSplashPoolStore>>(&self) -> GraduatedSplashPoolStore {
+        self.graduated_pool_store.clone()
+    }
+}
+
+impl<I: Copy> Has<SnekPoolInputTracker> for HandlerContext<I> {
+    fn select<U: IsEqual<SnekPoolInputTracker>>(&self) -> SnekPoolInputTracker {
+        self.snek_pool_input_tracker.clone()
     }
 }

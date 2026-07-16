@@ -1,10 +1,14 @@
 use crate::snek_protocol_deployment::SnekProtocolScriptHashes;
 use crate::snek_validation_rules::SnekValidationRules;
 use bloom_offchain_cardano::event_sink::context::EventContext;
+use bloom_offchain_cardano::event_sink::handler::GraduationTracking;
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bloom_offchain_cardano::orders::instant::InstantOrderValidation;
 use cml_chain::auxdata::Metadata;
+use cml_chain::transaction::TransactionOutput;
+use cml_crypto::TransactionHash;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::Token;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
@@ -24,6 +28,27 @@ pub struct SnekHandlerContextProto {
     pub scripts: SnekProtocolScriptHashes,
     pub validation_rules: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
+}
+
+impl GraduationTracking for SnekHandlerContextProto {
+    fn rollback_graduation(&self, _: TransactionHash) {}
+
+    fn consumed_snek_refs(&self, _: &[OutputRef]) -> Vec<(OutputRef, Token)> {
+        Vec::new()
+    }
+
+    fn observe_snek_output(&self, _: OutputRef, _: &TransactionOutput) -> Option<(OutputRef, Token)> {
+        None
+    }
+
+    fn journal_graduated_splash_pools(
+        &self,
+        _: TransactionHash,
+        _: Vec<(OutputRef, Token)>,
+        _: Vec<(OutputRef, Token)>,
+        _: Vec<Token>,
+    ) {
+    }
 }
 
 #[derive(Clone, Debug)]
