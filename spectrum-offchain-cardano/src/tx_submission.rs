@@ -5,7 +5,7 @@ use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
-use log::trace;
+use log::{trace, warn};
 use pallas_network::miniprotocols::localstate::queries_v16::TransactionInput;
 use pallas_network::miniprotocols::localtxsubmission::{
     ApplyTxError, ConwayLedgerFailure, ConwayUtxoWPredFailure, Response, TxValidationError, UtxoFailure,
@@ -113,7 +113,16 @@ where
                     agent.tracker.track(tx_hash, tx).await;
                 },
                 Ok(Response::Rejected(errors)) => {
-                    trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
+                    // An unrecognized reason means the pallas error model has
+                    // fallen behind the ledger — loud (WARN, with the raw
+                    // reason CBOR as hex via Debug) so it is alertable;
+                    // ordinary typed rejections keep their quiet trace.
+                    match &errors {
+                        TxValidationError::Unknown { .. } => {
+                            warn!("TX {} was rejected with an unrecognized reason: {:?}", tx_hash, errors)
+                        }
+                        _ => trace!("TX {} was rejected due to error: {:?}", tx_hash, errors),
+                    }
                     on_resp.send(SubmissionResult::TxRejected{errors: TxRejection(errors)}).expect("Responder was dropped");
                 },
                 Err(Error::TxSubmissionProtocol(err)) => {

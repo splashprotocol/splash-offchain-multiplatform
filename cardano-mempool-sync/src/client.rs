@@ -139,3 +139,49 @@ pub enum Error {
     #[error("handshake version not accepted")]
     IncompatibleVersion,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hash_n(n: u16) -> RawTxHash {
+        let mut b = [0u8; 28];
+        b[0] = (n >> 8) as u8;
+        b[1] = n as u8;
+        RawTxHash(b)
+    }
+
+    /// The feed contract downstream pool caches are built on (incident
+    /// 2026-07-21: post-block snapshot re-lists rolled a last-writer-wins
+    /// pool cache back behind its own in-flight tail): a tx delivered once
+    /// is NEVER re-emitted, no matter how many acquire rounds re-list it.
+    #[test]
+    fn replayed_tx_is_never_re_emitted() {
+        let mut filter = TxFilter::new(FILTER_CAP);
+        let pool_chain: Vec<RawTxHash> = (0..4).map(hash_n).collect();
+        for h in &pool_chain {
+            assert!(!filter.register(*h), "first observation is emitted");
+        }
+        // Arbitrarily many later snapshot re-lists (block re-observation,
+        // acquire-loop restarts) — every replay is suppressed.
+        for _round in 0..100 {
+            for h in &pool_chain {
+                assert!(filter.register(*h), "a replay must be deduped");
+            }
+        }
+    }
+
+    /// A seen tx is forgotten only after more than `cap` NEW txs displace it
+    /// — at FILTER_CAP=4096 a seconds-scale replay window cannot evict.
+    #[test]
+    fn eviction_requires_cap_worth_of_new_txs() {
+        let cap = 4;
+        let mut filter = TxFilter::new(cap);
+        let old = hash_n(u16::MAX);
+        assert!(!filter.register(old));
+        for i in 0..cap as u16 {
+            assert!(!filter.register(hash_n(i)));
+        }
+        assert!(filter.register(old), "still deduped while within cap");
+    }
+}
