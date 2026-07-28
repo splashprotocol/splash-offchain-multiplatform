@@ -49,6 +49,34 @@ pub fn calculate_invariant_error_from_totals(
     }
 }
 
+/// Calculates StableSwap invariant error for swap (less math operations)
+/// # Arguments
+/// * `n` - Number of tradable assets;
+/// * `ann` - Amplification coefficient of the StableSwap invariant multiplied by `n^n`;
+/// * `nn_total_prod_calc` - Production of pool reserves balances multiplied by `n^n`;
+/// * `ann_total_sum_calc` - Sum of pool reserves balances multiplied by `ann`;
+/// * `d` - Value of the StableSwap invariant.
+/// * `dn1` - `d ^ (n + 1)`.
+///
+/// # Outputs
+/// * `inv_abs_err` - "Invariant error".
+pub fn calculate_invariant_error_from_totals_for_swap(
+    ann: &U512,
+    nn_total_prod_calc: &U512,
+    ann_total_sum_calc: &U512,
+    d: &U512,
+    dn1: &U512,
+) -> U512 {
+    let inv_right = *d * *ann + dn1 / *nn_total_prod_calc;
+    let inv_left = *ann_total_sum_calc + *d;
+
+    if inv_right > inv_left {
+        inv_right - inv_left
+    } else {
+        inv_left - inv_right
+    }
+}
+
 /// Calculates StableSwap invariant error from pure reserves balances with common precision.
 ///
 /// # Arguments
@@ -73,7 +101,7 @@ pub fn calculate_invariant_error_from_balances(
     calculate_invariant_error_from_totals(n, ann, &nn_total_prod_calc, &ann_total_sum_calc, d)
 }
 
-/// Checks if StableSwap invariant function is at it's extremum (minimum) point with the given values.
+/// Checks if StableSwap invariant function is at it's extremum (minimum for invariant value) point with the given values.
 /// \
 /// Note: input balances must be reduced to a common denominator (precision).
 /// # Arguments
@@ -95,25 +123,72 @@ pub fn check_invariant_extremum(n: &u32, ann: &U512, balances_calc: &Vec<U512>, 
     err_left >= err_eq && err_right >= err_eq
 }
 
+/// Checks if StableSwap invariant function is at it's extremum (minimum for the quote asset value) point with the given values.
+/// \
+/// Note: input balances must be reduced to a common denominator (precision).
+/// # Arguments
+/// * `n` - Number of tradable assets;
+/// * `ann` - Amplification coefficient of the StableSwap invariant multiplied by `n^n`;
+/// * `balances_calc` - Reserves balances with common precision;
+/// * `d` - Value of the StableSwap invariant.
+/// * `max_asset_calc_error` - maximum allowed calculation error for the quote asset.
+/// * `asset_ind` - index of the quote asset in the `balances_calc` vector.
+/// # Outputs
+///
+/// * `is_extremum` - boolean.
+
 pub fn check_invariant_extremum_for_asset(
     n: &u32,
     ann: &U512,
     balances_calc: &Vec<U512>,
     d: &U512,
-    minimal_asset_unit: &U512,
+    max_asset_calc_error: &U512,
     asset_ind: &usize,
 ) -> bool {
-    let err_eq = calculate_invariant_error_from_balances(n, ann, balances_calc, d);
-    let mut balances_calc_left = balances_calc.clone();
+    let nn = U512::from(n.pow(*n));
+    let nn_total_prod_calc = nn * balances_calc.iter().copied().reduce(|a, b| a * b).unwrap();
+    let ann_total_sum_calc = *ann * balances_calc.iter().copied().reduce(|a, b| a + b).unwrap();
 
-    balances_calc_left[*asset_ind] =
-        balances_calc_left[*asset_ind] - *minimal_asset_unit - *minimal_asset_unit;
-    let err_left = calculate_invariant_error_from_balances(n, ann, &balances_calc_left, &d);
-    let mut balances_calc_right = balances_calc.clone();
+    let dn1 = vec![*d; usize::try_from(n + 1).unwrap()]
+        .iter()
+        .copied()
+        .reduce(|a, b| a * b)
+        .unwrap();
 
-    balances_calc_right[*asset_ind] =
-        balances_calc_right[*asset_ind] + *minimal_asset_unit + *minimal_asset_unit;
-    let err_right = calculate_invariant_error_from_balances(n, ann, &balances_calc_right, &d);
+    let err_eq = calculate_invariant_error_from_totals_for_swap(
+        &ann,
+        &nn_total_prod_calc,
+        &ann_total_sum_calc,
+        &d,
+        &dn1,
+    );
+
+    let quote_balance = balances_calc[*asset_ind].clone();
+    let max_sum_calc_error = ann * *max_asset_calc_error;
+
+    let nn_total_prod_calc_left =
+        nn_total_prod_calc / quote_balance * (quote_balance - *max_asset_calc_error);
+    let ann_total_sum_calc_left = ann_total_sum_calc - max_sum_calc_error;
+
+    let err_left = calculate_invariant_error_from_totals_for_swap(
+        &ann,
+        &nn_total_prod_calc_left,
+        &ann_total_sum_calc_left,
+        &d,
+        &dn1,
+    );
+
+    let nn_total_prod_calc_right =
+        nn_total_prod_calc / quote_balance * (quote_balance + *max_asset_calc_error);
+    let ann_total_sum_calc_right = ann_total_sum_calc + max_sum_calc_error;
+
+    let err_right = calculate_invariant_error_from_totals_for_swap(
+        &ann,
+        &nn_total_prod_calc_right,
+        &ann_total_sum_calc_right,
+        &d,
+        &dn1,
+    );
 
     err_left > err_eq && err_right > err_eq
 }
@@ -215,6 +290,7 @@ mod test {
 
     use crate::stable_swap_invariant::{
         calculate_invariant, calculate_invariant_error_from_balances, calculate_invariant_error_from_totals,
+        calculate_invariant_error_from_totals_for_swap,
     };
 
     #[test]
@@ -239,6 +315,38 @@ mod test {
                 &nn_total_prod_calc,
                 &ann_total_sum_calc,
                 &inv,
+            );
+            err_vec.push(err);
+            assert_eq!(err, U512::from(0));
+        }
+    }
+
+    #[test]
+    fn calculate_invariant_error_from_totals_for_swap_test() {
+        let n_assets_set: Vec<u32> = vec![2, 3, 4];
+        let mut rng = rand::thread_rng();
+        let mut err_vec = Vec::new();
+        for _ in 0..100 {
+            let a: U512 = U512::from(rng.gen_range(1..2000));
+            let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
+            let nn = U512::from(n.pow(n));
+            let ann = a * nn;
+            let balance: u64 = rng.gen();
+            let balances_calc = vec![U512::from(balance); n as usize];
+            let nn_total_prod_calc = nn * balances_calc.iter().copied().reduce(|a, b| a * b).unwrap();
+            let ann_total_sum_calc = ann * balances_calc.iter().copied().reduce(|a, b| a + b).unwrap();
+            let inv: U512 = U512::from(n) * U512::from(balance);
+            let inv_n1 = vec![inv; usize::try_from(n + 1).unwrap()]
+                .iter()
+                .copied()
+                .reduce(|a, b| a * b)
+                .unwrap();
+            let err = calculate_invariant_error_from_totals_for_swap(
+                &ann,
+                &nn_total_prod_calc,
+                &ann_total_sum_calc,
+                &inv,
+                &inv_n1,
             );
             err_vec.push(err);
             assert_eq!(err, U512::from(0));
