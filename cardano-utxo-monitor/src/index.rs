@@ -134,6 +134,8 @@ struct Cols<'a> {
     payment_unspent_cf: &'a ColumnFamily,
     stake_events_cf: &'a ColumnFamily,
     stake_unspent_cf: &'a ColumnFamily,
+    /// Which tx claims each spent txo, and whether that claim is confirmed.
+    spender_cf: &'a ColumnFamily,
 }
 
 impl<'a> Cols<'a> {
@@ -151,21 +153,24 @@ fn get_columns(db: &Arc<TransactionDB>) -> Cols<'_> {
     let payment_unspent_cf = db.cf_handle(TABLES[2]).unwrap();
     let stake_events_cf = db.cf_handle(TABLES[3]).unwrap();
     let stake_unspent_cf = db.cf_handle(TABLES[4]).unwrap();
+    let spender_cf = db.cf_handle(TABLES[5]).unwrap();
     Cols {
         txo_cf,
         payment_events_cf,
         payment_unspent_cf,
         stake_events_cf,
         stake_unspent_cf,
+        spender_cf,
     }
 }
 
-const TABLES: [&str; 5] = [
+const TABLES: [&str; 6] = [
     "txo",
     "pkh_to_txo_events",
     "pkh_to_txo_unspent",
     "stake_cred_to_txo_events",
     "stake_cred_to_txo_unspent",
+    "txo_spender",
 ];
 
 fn utxo_key(rf: OutputRef) -> Vec<u8> {
@@ -298,6 +303,40 @@ fn write_txo(
     tx.put_cf(txo_cf, utxo_key(oref), bytes).unwrap();
 }
 
+/// Which tx currently claims `oref` as spent, and whether that claim is confirmed.
+///
+/// `None` means nobody claims it — either it is unspent, or the claim predates
+/// this index (records written before spender tracking existed).
+fn get_spender(
+    tx: &Transaction<TransactionDB>,
+    spender_cf: &ColumnFamily,
+    oref: OutputRef,
+) -> Option<(TransactionHash, bool)> {
+    tx.get_cf(spender_cf, utxo_key(oref))
+        .unwrap()
+        .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, bool)>(&bytes).ok())
+        .and_then(|(hash_bytes, confirmed)| {
+            TransactionHash::from_raw_bytes(&hash_bytes)
+                .ok()
+                .map(|hash| (hash, confirmed))
+        })
+}
+
+fn write_spender(
+    tx: &Transaction<TransactionDB>,
+    spender_cf: &ColumnFamily,
+    oref: OutputRef,
+    spender: TransactionHash,
+    confirmed: bool,
+) {
+    let bytes = rmp_serde::to_vec(&(spender.to_raw_bytes().to_vec(), confirmed)).unwrap();
+    tx.put_cf(spender_cf, utxo_key(oref), bytes).unwrap();
+}
+
+fn delete_spender(tx: &Transaction<TransactionDB>, spender_cf: &ColumnFamily, oref: OutputRef) {
+    let _ = tx.delete_cf(spender_cf, utxo_key(oref));
+}
+
 fn write_secondary_indexes(
     tx: &Transaction<TransactionDB>,
     events_cf: &ColumnFamily,
@@ -369,13 +408,14 @@ fn update_unspent_txo(
     write_txo(tx, cols.txo_cf, oref, txo, settled_at, spent);
 }
 
+/// Returns whether `oref` is tracked by this index (untracked refs are a no-op).
 fn update_txo_by_ref(
     tx: &Transaction<TransactionDB>,
     cols: &Cols,
     oref: OutputRef,
     slot: Option<Slot>,
     spent: bool,
-) {
+) -> bool {
     if let Some((out, settled_at, already_spent)) = get_utxo_by_ref(tx, cols.txo_cf, oref) {
         trace!("Updating txo {}, spent: {} => {}", oref, already_spent, spent);
         let credentials = address_credentials(out.address());
@@ -394,6 +434,63 @@ fn update_txo_by_ref(
             );
         }
         write_txo(tx, cols.txo_cf, oref, out, settled_at, spent);
+        true
+    } else {
+        false
+    }
+}
+
+/// Record that `spender` consumes `oref`, unless a *confirmed* claim by another tx
+/// already stands: the chain has settled that input, and a mempool tx claiming the
+/// same one is a conflicting spend that must not steal the claim. A confirmed apply
+/// always wins, so a rollback's replacement tx can take the claim over.
+fn spend_txo_by_ref(
+    tx: &Transaction<TransactionDB>,
+    cols: &Cols,
+    oref: OutputRef,
+    spender: TransactionHash,
+    confirmed_at: Option<Slot>,
+) {
+    let confirmed = confirmed_at.is_some();
+    if let Some((claimant, true)) = get_spender(tx, cols.spender_cf, oref) {
+        if claimant != spender && !confirmed {
+            trace!(
+                "Txo {} is already spent by confirmed tx {}, ignoring conflicting spend by {}",
+                oref,
+                claimant,
+                spender
+            );
+            return;
+        }
+    }
+    if update_txo_by_ref(tx, cols, oref, confirmed_at, true) {
+        write_spender(tx, cols.spender_cf, oref, spender, confirmed);
+    }
+}
+
+/// Release `oref` back to unspent, but only if `spender` is the tx that claimed it.
+/// A claim held by anyone else means the input is genuinely spent by that other tx,
+/// and dropping this one must not resurrect it.
+fn unspend_txo_by_ref(
+    tx: &Transaction<TransactionDB>,
+    cols: &Cols,
+    oref: OutputRef,
+    spender: TransactionHash,
+) {
+    if let Some((claimant, claim_confirmed)) = get_spender(tx, cols.spender_cf, oref) {
+        if claimant != spender {
+            trace!(
+                "Keeping txo {} spent: claimed by {} (confirmed: {}), not by unapplied {}",
+                oref,
+                claimant,
+                claim_confirmed,
+                spender
+            );
+            return;
+        }
+    }
+    if update_txo_by_ref(tx, cols, oref, None, false) {
+        delete_spender(tx, cols.spender_cf, oref);
     }
 }
 
@@ -423,6 +520,7 @@ fn delete_txo_and_indexes(tx: &Transaction<TransactionDB>, cols: &Cols, oref: Ou
             delete_indexes(tx, events_cf, unspent_cf, credential, settled_at, oref);
         }
         tx.delete_cf(cols.txo_cf, utxo_key(oref)).unwrap();
+        delete_spender(tx, cols.spender_cf, oref);
     }
 }
 
@@ -440,7 +538,7 @@ impl UtxoIndex for RocksDB {
             let cols = get_columns(&db);
             let tx = db.transaction();
             for oref in inputs {
-                update_txo_by_ref(&tx, &cols, oref, confirmed_at, true);
+                spend_txo_by_ref(&tx, &cols, oref, tx_hash, confirmed_at);
             }
             for (ix, o) in outputs {
                 let rf = OutputRef::new(tx_hash, ix as u64);
@@ -463,7 +561,7 @@ impl UtxoIndex for RocksDB {
             let cols = get_columns(&db);
             let tx = db.transaction();
             for oref in inputs {
-                update_txo_by_ref(&tx, &cols, oref, None, false);
+                unspend_txo_by_ref(&tx, &cols, oref, tx_hash);
             }
             for (ix, _o) in outputs {
                 let rf = OutputRef::new(tx_hash, ix as u64);
@@ -578,7 +676,7 @@ mod tests {
     use cml_chain::certs::Credential;
     use cml_chain::transaction::Transaction;
     use cml_chain::{Deserialize, Slot};
-    use cml_crypto::Ed25519KeyHash;
+    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
     use rocksdb::{Options, SingleThreaded, TransactionDB};
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
@@ -711,6 +809,87 @@ mod tests {
             )
             .await;
         assert!(unspent.iter().all(|txo| txo.oref != target_oref));
+    }
+
+    const TARGET_OREF: &str = "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0";
+
+    /// Index `TX_PRODUCE`'s outputs as confirmed, then put `TX_CONSUME` in the
+    /// mempool so it claims `TARGET_OREF`. Returns the consuming tx's identity so
+    /// the caller can drop it.
+    async fn produce_and_claim(db: &RocksDB) -> (cml_crypto::TransactionHash, Vec<OutputRef>, Vec<(usize, cml_chain::transaction::TransactionOutput)>) {
+        let produce_tx = Transaction::from_cbor_bytes(&*hex::decode(TX_PRODUCE).unwrap()).unwrap();
+        let produce_outputs: Vec<_> = produce_tx.body.outputs.to_vec().into_iter().enumerate().collect();
+        db.apply(produce_tx.canonical_hash(), vec![], produce_outputs, Some(1))
+            .await;
+
+        let consume_tx = Transaction::from_cbor_bytes(&*hex::decode(TX_CONSUME).unwrap()).unwrap();
+        let consume_hash = consume_tx.canonical_hash();
+        let consume_inputs: Vec<OutputRef> =
+            consume_tx.body.inputs.clone().into_iter().map(|i| i.into()).collect();
+        let consume_outputs: Vec<_> =
+            consume_tx.body.outputs.to_vec().into_iter().enumerate().collect();
+        db.apply(consume_hash, consume_inputs.clone(), consume_outputs.clone(), None)
+            .await;
+
+        (consume_hash, consume_inputs, consume_outputs)
+    }
+
+    async fn unspent_contains(db: &RocksDB, oref: OutputRef) -> bool {
+        let credential = Credential::new_pub_key(
+            Ed25519KeyHash::from_hex("bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2").unwrap(),
+        );
+        db.get_utxos(
+            Some((credential, CredentialKind::Payment)),
+            TxoQuery::Unspent,
+            0,
+            10,
+        )
+        .await
+        .iter()
+        .any(|txo| txo.oref == oref)
+    }
+
+    /// A dropped mempool tx must not resurrect an input that a *confirmed* tx has
+    /// already consumed. Reproduces the mainnet leak: two txs raced for one input,
+    /// the winner settled, and evicting the loser rolled the input back to unspent.
+    #[tokio::test]
+    async fn drop_of_conflicting_tx_keeps_input_spent() {
+        let db_path = DBPath::new("_index_drop_conflicting_keeps_spent");
+        let db = RocksDB::new(&db_path);
+        let target_oref = OutputRef::from_string_unsafe(TARGET_OREF);
+
+        let (consume_hash, consume_inputs, consume_outputs) = produce_and_claim(&db).await;
+
+        // The winner: spends the same input and settles on-chain.
+        let winner = TransactionHash::from_raw_bytes(&[9u8; 32]).unwrap();
+        db.apply(winner, vec![target_oref], vec![], Some(2)).await;
+
+        // The loser is evicted from the mempool.
+        db.unapply(consume_hash, consume_inputs, consume_outputs).await;
+
+        assert!(
+            !unspent_contains(&db, target_oref).await,
+            "input consumed by a confirmed tx must stay spent after the losing tx is dropped"
+        );
+    }
+
+    /// The ordinary eviction path is unchanged: with no competing spend, dropping
+    /// the sole claimant returns its input to unspent.
+    #[tokio::test]
+    async fn drop_of_sole_spender_restores_input() {
+        let db_path = DBPath::new("_index_drop_sole_spender_restores");
+        let db = RocksDB::new(&db_path);
+        let target_oref = OutputRef::from_string_unsafe(TARGET_OREF);
+
+        let (consume_hash, consume_inputs, consume_outputs) = produce_and_claim(&db).await;
+        assert!(!unspent_contains(&db, target_oref).await, "claimed while in mempool");
+
+        db.unapply(consume_hash, consume_inputs, consume_outputs).await;
+
+        assert!(
+            unspent_contains(&db, target_oref).await,
+            "input must return to unspent once its only claimant is dropped"
+        );
     }
 
     #[tokio::test]
