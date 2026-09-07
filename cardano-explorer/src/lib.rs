@@ -503,9 +503,11 @@ fn metadata_from_cbor_entries(tx_hash: &str, entries: Vec<TxContentMetadataCborI
 }
 
 /// Blockfrost pagination starts from page 1, so the quotient is incremented. `None` for a zero
-/// limit.
+/// limit, and for the one offset whose page does not fit a `u32`.
 fn blockfrost_page(offset: u32, limit: u16) -> Option<u32> {
-    offset.checked_div(limit as u32).map(|page| page + 1)
+    offset
+        .checked_div(limit as u32)
+        .and_then(|page| page.checked_add(1))
 }
 
 /// Strips the `{label: value}` envelope a metadata backend may wrap each metadatum in.

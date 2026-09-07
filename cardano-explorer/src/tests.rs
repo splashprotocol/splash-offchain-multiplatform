@@ -1,6 +1,7 @@
-//! Hermetic unit tests: no network, no environment, no key files on disk beyond a temp file a test
-//! writes and removes itself. The transaction fixtures are the real on-chain reference transactions
-//! of the deployed mainnet validators, see `resources/testdata/oldpools/manifest.tsv`.
+//! Hermetic unit tests: no network, no environment (not even `TMPDIR`), no key files on disk beyond
+//! one a single test writes next to its own executable and removes itself. The transaction fixtures
+//! are the real on-chain reference transactions of the deployed mainnet validators, see
+//! `resources/testdata/oldpools/manifest.tsv`.
 
 use super::*;
 use cml_chain::auxdata::MetadatumMap;
@@ -182,22 +183,35 @@ fn babbage_era_reference_txs_decode_with_the_conway_era_decoder() {
     // Reference scripts exist since Babbage, and every validator but the royalty pool was deployed
     // before Conway. Whether a Conway-capable cml still decodes those transactions, and still sees
     // their reference scripts, is exactly what this checks.
-    let babbage: Vec<ReferenceTx> = reference_txs()
+    //
+    // The set of Babbage-era names is spelled out rather than counted, so a manifest typo (a wrong
+    // epoch or era, a dropped row) is caught here instead of being absorbed into a shifted count.
+    let (babbage, conway): (Vec<ReferenceTx>, Vec<ReferenceTx>) = reference_txs()
         .into_iter()
-        .filter(|tx| tx.epoch < FIRST_CONWAY_EPOCH)
-        .collect();
-    assert_eq!(babbage.len(), 6, "six Babbage-era deployments");
+        .partition(|tx| tx.epoch < FIRST_CONWAY_EPOCH);
+    let babbage_names: Vec<&str> = babbage.iter().map(|tx| tx.name).collect();
+    assert_eq!(
+        babbage_names,
+        vec![
+            "constFnPoolV1",
+            "constFnPoolV2",
+            "constFnPoolFeeSwitch",
+            "balanceFnPoolV1",
+            "stableFnPoolT2t",
+            "limitOrder",
+        ],
+        "the Babbage-era deployments, in manifest order"
+    );
     for tx in babbage {
         assert_eq!(tx.era, "babbage", "{}", tx.name);
-        let body = tx.body();
-        assert!(body.outputs[tx.output_ix].script_ref().is_some(), "{}", tx.name);
+        // The full check: the output decodes, carries a script, and it is the deployed one.
+        assert_reference_script(tx.name);
     }
-    let conway: Vec<&str> = reference_txs()
-        .into_iter()
-        .filter(|tx| tx.epoch >= FIRST_CONWAY_EPOCH)
-        .map(|tx| tx.name)
-        .collect();
-    assert_eq!(conway, vec!["royaltyPool"]);
+    let conway_names: Vec<&str> = conway.iter().map(|tx| tx.name).collect();
+    assert_eq!(conway_names, vec!["royaltyPool"]);
+    for tx in conway {
+        assert_eq!(tx.era, "conway", "{}", tx.name);
+    }
 }
 
 #[test]
@@ -805,18 +819,27 @@ fn project_id_with_a_utf8_bom_is_rejected_rather_than_trimmed() {
     assert!(err.to_string().contains("prefix ''"), "{}", err);
 }
 
-/// A key file in the temp dir, removed on drop.
+/// A key file written next to the test executable (the cargo build output directory, which cargo
+/// has just written to, so it exists and is writable whatever `TMPDIR` says), removed on drop.
+///
+/// `Blockfrost::new` is `fs::read_to_string` followed by the pure, separately tested
+/// `project_id_from_key_file`, so this is the one test that has to touch a real file.
 struct KeyFile(PathBuf);
 
 impl KeyFile {
     fn write(contents: &str) -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
+        let scratch = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+            .expect("the test executable has a parent directory");
+        let path = scratch.join(format!(
             "cardano-explorer-test-{}-{}.key",
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::write(&path, contents).unwrap();
+        std::fs::write(&path, contents)
+            .unwrap_or_else(|err| panic!("cannot write scratch key file {}: {}", path.display(), err));
         KeyFile(path)
     }
 }
@@ -840,10 +863,15 @@ async fn new_reads_trims_and_checks_the_key_file() {
 
 #[tokio::test]
 async fn new_fails_on_a_missing_key_file() {
-    let path = std::env::temp_dir().join(format!(
-        "cardano-explorer-test-missing-{}.key",
-        std::process::id()
-    ));
+    // Nothing is written: the path sits under a directory that does not exist, in the crate's own
+    // (committed, read-only for tests) fixture tree rather than anywhere `TMPDIR` points.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/testdata/no-such-directory")
+        .join(format!(
+            "cardano-explorer-test-missing-{}.key",
+            std::process::id()
+        ));
+    assert!(!path.parent().unwrap().exists(), "fixture assumption");
     let Err(err) = Blockfrost::new(&path, NetworkId::MAINNET).await else {
         panic!("a missing key file must not yield a client")
     };
@@ -940,4 +968,17 @@ fn page_math_rounds_a_non_multiple_offset_down() {
 fn page_math_zero_limit_is_none() {
     assert_eq!(blockfrost_page(0, 0), None);
     assert_eq!(blockfrost_page(100, 0), None);
+}
+
+#[test]
+fn page_math_does_not_overflow_at_the_top_of_the_offset_range() {
+    // Unreachable from a real listing, but the increment past the quotient must not panic (debug)
+    // or wrap to page 0 (release): a page that cannot be represented is `None` like a zero limit.
+    assert_eq!(blockfrost_page(u32::MAX, 1), None);
+    assert_eq!(blockfrost_page(u32::MAX - 1, 1), Some(u32::MAX));
+    assert_eq!(blockfrost_page(u32::MAX, 2), Some(u32::MAX / 2 + 1));
+    assert_eq!(
+        blockfrost_page(u32::MAX, u16::MAX),
+        Some(u32::MAX / u16::MAX as u32 + 1)
+    );
 }
