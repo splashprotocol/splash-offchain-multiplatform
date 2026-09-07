@@ -3,12 +3,14 @@ use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX, PREVIEW_PREFIX};
 use crate::Network::{Mainnet, Preprod};
 use async_trait::async_trait;
 use blockfrost::{BlockFrostSettings, BlockfrostAPI, Order, Pagination};
-use blockfrost_openapi::models::{AddressUtxoContentInner, TxContentOutputAmountInner};
+use blockfrost_openapi::models::{
+    AddressUtxoContentInner, TxContentMetadataCborInner, TxContentOutputAmountInner,
+};
 use cml_chain::address::Address;
 use cml_chain::auxdata::{Metadata, TransactionMetadatum};
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::{DatumOption, Transaction, TransactionOutput};
+use cml_chain::transaction::{DatumOption, Transaction, TransactionBody, TransactionOutput};
 use cml_chain::Value;
 use cml_core::serialization::Deserialize;
 use cml_core::Int;
@@ -19,6 +21,7 @@ use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::{Native, Token};
 use spectrum_cardano_lib::Token as RawToken;
 use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
+use std::future::Future;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::string::ToString;
@@ -30,6 +33,9 @@ pub mod config;
 pub mod constants;
 pub mod data;
 pub mod retry;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(serde::Deserialize)]
 pub enum Network {
@@ -116,40 +122,7 @@ pub struct Blockfrost(BlockfrostAPI);
 
 impl Blockfrost {
     pub async fn new<P: AsRef<Path>>(path: P, network_id: NetworkId) -> Result<Self, Error> {
-        // Trimmed, not just stripped of newlines: a stray space, \r, BOM or quote would otherwise
-        // survive into the project_id and change which network the client talks to.
-        let project_id = fs::read_to_string(path).await?.trim().to_string();
-        // The client derives its base URL from the project_id prefix alone and silently falls back
-        // to MAINNET for anything it doesn't recognise, and the base URL cannot be overridden
-        // afterwards. So the key has to be checked against the configured network right here, or a
-        // preprod agent would happily read from and submit to mainnet.
-        let expected_prefixes: &[&str] = match Network::from(network_id) {
-            Mainnet => &[MAINNET_PREFIX],
-            Preprod => &[PREPROD_PREFIX, PREVIEW_PREFIX],
-        };
-        if !expected_prefixes
-            .iter()
-            .any(|prefix| project_id.starts_with(prefix))
-        {
-            // Capped at the length of a network prefix. `take_while(is_ascii_alphabetic)` alone
-            // would print the whole project_id for a key with no digits in it, and this message
-            // reaches stdout and the log pipeline on every caller's `.expect`.
-            const PREFIX_PREVIEW_LEN: usize = 7;
-            let found_prefix: String = project_id
-                .chars()
-                .take(PREFIX_PREVIEW_LEN)
-                .take_while(|c| c.is_ascii_alphabetic())
-                .collect();
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                format!(
-                    "Blockfrost project_id prefix '{}' does not match the configured network '{}' (expected one of {:?})",
-                    found_prefix,
-                    String::from(Network::from(network_id)),
-                    expected_prefixes
-                ),
-            ));
-        }
+        let project_id = project_id_from_key_file(fs::read_to_string(path).await?.as_str(), network_id)?;
         let settings = BlockFrostSettings::new();
         let blockfrost_client = BlockfrostAPI::new(project_id.as_str(), settings);
 
@@ -168,25 +141,18 @@ impl Blockfrost {
             .await
             .ok())?
         .cbor;
-        let body = Transaction::from_cbor_bytes(hex::decode(tx_cbor).ok()?.as_ref())
-            .ok()?
-            .body;
-        let output_ix = oref.index() as usize;
-        // The collateral return of a phase-2 failure is not in `outputs`; it is indexed right past
-        // the last of them. Builders populate `collateral_return` on any TX that supplies
-        // collateral though, so it only actually reaches the ledger when phase 2 failed — hand it
-        // back only once the TX is confirmed invalid, or we would invent a UTxO that never existed.
-        // The extra request only ever fires on this miss path, never on a normal lookup.
-        if output_ix == body.outputs.len() {
-            let collateral_return = body.collateral_return?;
+        let body = decode_tx_body(tx_cbor.as_str())?;
+        // The extra request only ever fires on the collateral-return miss path, never on a normal
+        // lookup.
+        select_output(body, oref.index() as usize, || async {
             let details = retry!(self
                 .0
                 .transaction_by_hash(oref.tx_hash().to_hex().as_str())
                 .await
                 .ok())?;
-            return (!details.valid_contract).then_some(collateral_return);
-        }
-        body.outputs.into_iter().nth(output_ix)
+            Some(details.valid_contract)
+        })
+        .await
     }
 
     /// Transaction metadata, decoded from its CBOR. The JSON representation cannot be used: the
@@ -195,37 +161,7 @@ impl Blockfrost {
     async fn tx_metadata(&self, tx_hash: &str) -> Option<Metadata> {
         // A TX without metadata is not an error, it just comes back with an empty listing.
         let entries = retry!(self.0.transactions_metadata_cbor(tx_hash).await.ok())?;
-        let mut metadata = Metadata::new();
-        for entry in entries {
-            // `cbor_metadata` is deprecated upstream in favour of `metadata`, and both are
-            // nullable, so take whichever one this backend actually populated.
-            let Some(raw_cbor) = entry.cbor_metadata.or(entry.metadata) else {
-                warn!(
-                    "TX {}: metadata entry labelled '{}' carries no CBOR",
-                    tx_hash, entry.label
-                );
-                continue;
-            };
-            // Some responses render the CBOR in PostgreSQL bytea notation.
-            let raw_hex = raw_cbor.strip_prefix("\\x").unwrap_or(raw_cbor.as_str());
-            let decoded = entry.label.parse::<u64>().ok().and_then(|label| {
-                let raw = hex::decode(raw_hex).ok()?;
-                let metadatum = TransactionMetadatum::from_cbor_bytes(raw.as_ref()).ok()?;
-                Some((label, unwrap_labelled_metadatum(label, metadatum)))
-            });
-            match decoded {
-                Some((label, metadatum)) => metadata.set(label, metadatum),
-                None => warn!(
-                    "TX {}: skipping undecodable metadata entry labelled '{}'",
-                    tx_hash, entry.label
-                ),
-            }
-        }
-        if metadata.is_empty() {
-            None
-        } else {
-            Some(metadata)
-        }
+        metadata_from_cbor_entries(tx_hash, entries)
     }
 
     async fn parse_blockfrost_output(
@@ -249,37 +185,8 @@ impl Blockfrost {
                 .map(|output| TransactionUnspentOutput::new(oref.into(), output));
         }
 
-        let mut value = Value::zero();
-        output_amount.into_iter().for_each(|token_info| {
-            token_info
-                .quantity
-                .parse::<u64>()
-                .into_iter()
-                .for_each(|token_qty| match token_info.clone().unit.as_str() {
-                    LOVELACE => value.add_unsafe(Native, token_qty),
-                    csWithTn => RawToken::try_from_raw_string(csWithTn)
-                        .into_iter()
-                        .for_each(|token| value.add_unsafe(Token(token), token_qty)),
-                })
-        });
-
-        let datum: Option<DatumOption> = inline_datum
-            .and_then(|datum| hex::decode(datum).ok())
-            .and_then(|datum_bytes| {
-                PlutusData::from_cbor_bytes(datum_bytes.as_ref())
-                    .ok()
-                    .map(DatumOption::new_datum)
-            })
-            .or(datum_hash.and_then(|datum_hash| {
-                DatumHash::from_hex(datum_hash.as_str())
-                    .ok()
-                    .map(DatumOption::new_hash)
-            }));
-
-        Some(TransactionUnspentOutput::new(
-            oref.into(),
-            TransactionOutput::new(Address::from_bech32(address.as_str()).ok()?, value, datum, None),
-        ))
+        output_from_listing(address.as_str(), output_amount, inline_datum, datum_hash)
+            .map(|output| TransactionUnspentOutput::new(oref.into(), output))
     }
 
     async fn blockfrost_address_utxo_to_tx_unspent_output(
@@ -313,8 +220,7 @@ impl CardanoNetwork for Blockfrost {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput> {
-        // blockfrost pagination starts from page 1 and we should increment quotient
-        if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
+        if let Some(page_size) = blockfrost_page(offset, limit) {
             let outputs = retry!(self
                 .0
                 .addresses_utxos(
@@ -347,8 +253,7 @@ impl CardanoNetwork for Blockfrost {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput> {
-        // blockfrost pagination starts from page 1 and we should increment quotient
-        if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
+        if let Some(page_size) = blockfrost_page(offset, limit) {
             let outputs = retry!(self
                 .0
                 .addresses_utxos(
@@ -436,6 +341,171 @@ impl ExtendedCardanoNetwork for Blockfrost {
         }
         Ok(())
     }
+}
+
+/// The project_id held in a Blockfrost key file, checked against the configured network.
+fn project_id_from_key_file(contents: &str, network_id: NetworkId) -> Result<String, Error> {
+    // Trimmed, not just stripped of newlines: a stray space, tab or \r would otherwise survive
+    // into the project_id and change which network the client talks to. Anything `trim` does
+    // not cover — a UTF-8 BOM, quotes — is left in place on purpose and makes the prefix check
+    // below fail closed rather than be guessed around.
+    let project_id = contents.trim();
+    validate_project_id(project_id, network_id)?;
+    Ok(project_id.to_string())
+}
+
+/// Rejects a project_id issued for any network but the configured one.
+///
+/// The client derives its base URL from the project_id prefix alone and silently falls back to
+/// MAINNET for anything it doesn't recognise, and the base URL cannot be overridden afterwards. So
+/// the key has to be checked against the configured network right here, or a preprod agent would
+/// happily read from and submit to mainnet.
+fn validate_project_id(project_id: &str, network_id: NetworkId) -> Result<(), Error> {
+    let expected_prefixes: &[&str] = match Network::from(network_id) {
+        Mainnet => &[MAINNET_PREFIX],
+        Preprod => &[PREPROD_PREFIX, PREVIEW_PREFIX],
+    };
+    if !expected_prefixes
+        .iter()
+        .any(|prefix| project_id.starts_with(prefix))
+    {
+        // Capped at the length of a network prefix. `take_while(is_ascii_alphabetic)` alone
+        // would print the whole project_id for a key with no digits in it, and this message
+        // reaches stdout and the log pipeline on every caller's `.expect`.
+        const PREFIX_PREVIEW_LEN: usize = 7;
+        let found_prefix: String = project_id
+            .chars()
+            .take(PREFIX_PREVIEW_LEN)
+            .take_while(|c| c.is_ascii_alphabetic())
+            .collect();
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "Blockfrost project_id prefix '{}' does not match the configured network '{}' (expected one of {:?})",
+                found_prefix,
+                String::from(Network::from(network_id)),
+                expected_prefixes
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The body of a transaction, decoded from the hex-encoded CBOR the explorer serves.
+fn decode_tx_body(tx_cbor: &str) -> Option<TransactionBody> {
+    Some(
+        Transaction::from_cbor_bytes(hex::decode(tx_cbor).ok()?.as_ref())
+            .ok()?
+            .body,
+    )
+}
+
+/// Picks the output at `output_ix` out of a decoded transaction body.
+///
+/// The collateral return of a phase-2 failure is not in `outputs`; it is indexed right past the
+/// last of them. Builders populate `collateral_return` on any TX that supplies collateral though,
+/// so it only actually reaches the ledger when phase 2 failed — hand it back only once the TX is
+/// confirmed invalid, or we would invent a UTxO that never existed. `valid_contract` resolves what
+/// the explorer reports for the TX (`None` when that could not be fetched) and is only consulted
+/// on this miss path, never on a normal lookup.
+async fn select_output<F>(
+    body: TransactionBody,
+    output_ix: usize,
+    valid_contract: impl FnOnce() -> F,
+) -> Option<TransactionOutput>
+where
+    F: Future<Output = Option<bool>>,
+{
+    if output_ix == body.outputs.len() {
+        let collateral_return = body.collateral_return?;
+        return (!valid_contract().await?).then_some(collateral_return);
+    }
+    body.outputs.into_iter().nth(output_ix)
+}
+
+/// Rebuilds an output from the fields of a UTxO listing entry. The listing carries no script, so
+/// the result never has one; see `Blockfrost::parse_blockfrost_output` for outputs that do.
+fn output_from_listing(
+    address: &str,
+    output_amount: Vec<TxContentOutputAmountInner>,
+    inline_datum: Option<String>,
+    datum_hash: Option<String>,
+) -> Option<TransactionOutput> {
+    let mut value = Value::zero();
+    output_amount.into_iter().for_each(|token_info| {
+        token_info
+            .quantity
+            .parse::<u64>()
+            .into_iter()
+            .for_each(|token_qty| match token_info.clone().unit.as_str() {
+                LOVELACE => value.add_unsafe(Native, token_qty),
+                csWithTn => RawToken::try_from_raw_string(csWithTn)
+                    .into_iter()
+                    .for_each(|token| value.add_unsafe(Token(token), token_qty)),
+            })
+    });
+
+    let datum: Option<DatumOption> = inline_datum
+        .and_then(|datum| hex::decode(datum).ok())
+        .and_then(|datum_bytes| {
+            PlutusData::from_cbor_bytes(datum_bytes.as_ref())
+                .ok()
+                .map(DatumOption::new_datum)
+        })
+        .or(datum_hash.and_then(|datum_hash| {
+            DatumHash::from_hex(datum_hash.as_str())
+                .ok()
+                .map(DatumOption::new_hash)
+        }));
+
+    Some(TransactionOutput::new(
+        Address::from_bech32(address).ok()?,
+        value,
+        datum,
+        None,
+    ))
+}
+
+/// Rebuilds the metadata of TX `tx_hash` from the per-label CBOR entries the explorer serves.
+/// `None` when none of them could be decoded.
+fn metadata_from_cbor_entries(tx_hash: &str, entries: Vec<TxContentMetadataCborInner>) -> Option<Metadata> {
+    let mut metadata = Metadata::new();
+    for entry in entries {
+        // `cbor_metadata` is deprecated upstream in favour of `metadata`, and both are
+        // nullable, so take whichever one this backend actually populated.
+        let Some(raw_cbor) = entry.cbor_metadata.or(entry.metadata) else {
+            warn!(
+                "TX {}: metadata entry labelled '{}' carries no CBOR",
+                tx_hash, entry.label
+            );
+            continue;
+        };
+        // Some responses render the CBOR in PostgreSQL bytea notation.
+        let raw_hex = raw_cbor.strip_prefix("\\x").unwrap_or(raw_cbor.as_str());
+        let decoded = entry.label.parse::<u64>().ok().and_then(|label| {
+            let raw = hex::decode(raw_hex).ok()?;
+            let metadatum = TransactionMetadatum::from_cbor_bytes(raw.as_ref()).ok()?;
+            Some((label, unwrap_labelled_metadatum(label, metadatum)))
+        });
+        match decoded {
+            Some((label, metadatum)) => metadata.set(label, metadatum),
+            None => warn!(
+                "TX {}: skipping undecodable metadata entry labelled '{}'",
+                tx_hash, entry.label
+            ),
+        }
+    }
+    if metadata.is_empty() {
+        None
+    } else {
+        Some(metadata)
+    }
+}
+
+/// Blockfrost pagination starts from page 1, so the quotient is incremented. `None` for a zero
+/// limit.
+fn blockfrost_page(offset: u32, limit: u16) -> Option<u32> {
+    offset.checked_div(limit as u32).map(|page| page + 1)
 }
 
 /// Strips the `{label: value}` envelope a metadata backend may wrap each metadatum in.

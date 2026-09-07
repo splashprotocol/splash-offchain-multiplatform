@@ -1,0 +1,14 @@
+# Reference-script UTxOs of the deployed Splash mainnet validators, straight from
+# bloom-cardano-agent/resources/mainnet.deployment.json (<name>.referenceUtxo / <name>.hash).
+# <name>.cbor.hex next to this file is the hex of the full on-chain CBOR of the transaction that
+# created the reference UTxO (koios /tx_cbor). `epoch` is the epoch the TX was included in;
+# Conway started at epoch 507, everything before it is Babbage-era.
+#
+# name	output_ix	outputs	epoch	era	script_hash	tx_hash
+constFnPoolV1	0	2	425	babbage	e628bfd68c07a7a38fcd7d8df650812a9dfdbee54b1ed4c25c87ffbf	31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6
+constFnPoolV2	0	2	432	babbage	6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69	c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa
+constFnPoolFeeSwitch	1	3	480	babbage	f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3ccc	a2c2fcb17e8aeaebc6ee65d3ffd105e1e3f811234d8dbc6c82fc2daec0f6a201
+balanceFnPoolV1	0	3	486	babbage	f60fd1e70f4b9dfc09cdde8d7f7f1277de2694c82a516d7d3cc9e03e	0a60192a42eb26ad5c66a75777885342c40b244a35585e94a7e1ad93d760941e
+stableFnPoolT2t	0	3	493	babbage	5d3df99fcfbbf282bd76a3d76a2e30bdd22e61c56f1462447938933b	43da5e009b4c7d8594c5dc51d3901b89da9d64d208b7b2fa8980a90c42601132
+limitOrder	0	5	501	babbage	464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02	b91eda29d145ab6c0bc0d6b7093cb24b131440b7b015033205476f39c690a51f
+royaltyPool	0	5	527	conway	cb684a69e78907a9796b21fc150a758af5f2805e5ed5d5a8ce9f76f1	8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600
