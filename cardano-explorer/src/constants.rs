@@ -2,6 +2,7 @@ use cml_chain::genesis::network_info::NetworkInfo;
 
 pub const MAINNET_PREFIX: &str = "mainnet";
 pub const PREPROD_PREFIX: &str = "preprod";
+pub const PREVIEW_PREFIX: &str = "preview";
 
 pub fn get_network_prefix<'a>(network_magic: u64) -> &'a str {
     if network_magic == (u32::from(NetworkInfo::mainnet().protocol_magic()) as u64) {

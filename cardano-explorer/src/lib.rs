@@ -1,30 +1,25 @@
 use crate::config::ExplorerConfig;
-use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
+use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX, PREVIEW_PREFIX};
 use crate::Network::{Mainnet, Preprod};
 use async_trait::async_trait;
 use blockfrost::{BlockFrostSettings, BlockfrostAPI, Order, Pagination};
-use blockfrost_openapi::models::{
-    AddressUtxoContentInner, TxContentOutputAmountInner, TxContentUtxoOutputsInner,
-};
+use blockfrost_openapi::models::{AddressUtxoContentInner, TxContentOutputAmountInner};
 use cml_chain::address::Address;
+use cml_chain::auxdata::{Metadata, TransactionMetadatum};
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
-use cml_chain::plutus::{PlutusData, PlutusV2Script};
-use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
-use cml_chain::{Script, Value};
+use cml_chain::plutus::PlutusData;
+use cml_chain::transaction::{DatumOption, Transaction, TransactionOutput};
+use cml_chain::Value;
 use cml_core::serialization::Deserialize;
+use cml_core::Int;
 use cml_crypto::{DatumHash, TransactionHash};
 use futures::future::join_all;
-use log::trace;
-use maestro_rust_sdk::client::maestro;
-use maestro_rust_sdk::models::addresses::UtxosAtAddress;
-use maestro_rust_sdk::models::transactions::RedeemerEvaluation;
-use maestro_rust_sdk::utils::Parameters;
+use log::{trace, warn};
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::{Native, Token};
 use spectrum_cardano_lib::Token as RawToken;
 use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
-use std::collections::HashMap;
-use std::io::Error;
+use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::string::ToString;
 use tokio::fs;
@@ -113,7 +108,6 @@ pub trait ExtendedCardanoNetwork: CardanoNetwork {
         &self,
         tx_id: TransactionHash,
     ) -> Result<(), Box<dyn std::error::Error>>;
-    async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>>;
 }
 
 const LOVELACE: &str = "lovelace";
@@ -121,12 +115,117 @@ const LOVELACE: &str = "lovelace";
 pub struct Blockfrost(BlockfrostAPI);
 
 impl Blockfrost {
-    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let project_id = fs::read_to_string(path).await?.replace("\n", "");
+    pub async fn new<P: AsRef<Path>>(path: P, network_id: NetworkId) -> Result<Self, Error> {
+        // Trimmed, not just stripped of newlines: a stray space, \r, BOM or quote would otherwise
+        // survive into the project_id and change which network the client talks to.
+        let project_id = fs::read_to_string(path).await?.trim().to_string();
+        // The client derives its base URL from the project_id prefix alone and silently falls back
+        // to MAINNET for anything it doesn't recognise, and the base URL cannot be overridden
+        // afterwards. So the key has to be checked against the configured network right here, or a
+        // preprod agent would happily read from and submit to mainnet.
+        let expected_prefixes: &[&str] = match Network::from(network_id) {
+            Mainnet => &[MAINNET_PREFIX],
+            Preprod => &[PREPROD_PREFIX, PREVIEW_PREFIX],
+        };
+        if !expected_prefixes
+            .iter()
+            .any(|prefix| project_id.starts_with(prefix))
+        {
+            // Capped at the length of a network prefix. `take_while(is_ascii_alphabetic)` alone
+            // would print the whole project_id for a key with no digits in it, and this message
+            // reaches stdout and the log pipeline on every caller's `.expect`.
+            const PREFIX_PREVIEW_LEN: usize = 7;
+            let found_prefix: String = project_id
+                .chars()
+                .take(PREFIX_PREVIEW_LEN)
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect();
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "Blockfrost project_id prefix '{}' does not match the configured network '{}' (expected one of {:?})",
+                    found_prefix,
+                    String::from(Network::from(network_id)),
+                    expected_prefixes
+                ),
+            ));
+        }
         let settings = BlockFrostSettings::new();
         let blockfrost_client = BlockfrostAPI::new(project_id.as_str(), settings);
 
         Ok(Blockfrost(blockfrost_client))
+    }
+
+    /// Resolves an output from the CBOR of the transaction that produced it. Unlike the JSON
+    /// representation this keeps the inline datum and the reference script of any Plutus version.
+    async fn output_from_tx_cbor(&self, oref: OutputRef) -> Option<TransactionOutput> {
+        // Only the request is retried. Decoding and the index lookup are deterministic, and an
+        // output that legitimately isn't there must fail immediately instead of re-downloading the
+        // whole transaction 25 times and turning a plain miss into a rate-limit storm.
+        let tx_cbor = retry!(self
+            .0
+            .transactions_cbor(oref.tx_hash().to_hex().as_str())
+            .await
+            .ok())?
+        .cbor;
+        let body = Transaction::from_cbor_bytes(hex::decode(tx_cbor).ok()?.as_ref())
+            .ok()?
+            .body;
+        let output_ix = oref.index() as usize;
+        // The collateral return of a phase-2 failure is not in `outputs`; it is indexed right past
+        // the last of them. Builders populate `collateral_return` on any TX that supplies
+        // collateral though, so it only actually reaches the ledger when phase 2 failed — hand it
+        // back only once the TX is confirmed invalid, or we would invent a UTxO that never existed.
+        // The extra request only ever fires on this miss path, never on a normal lookup.
+        if output_ix == body.outputs.len() {
+            let collateral_return = body.collateral_return?;
+            let details = retry!(self
+                .0
+                .transaction_by_hash(oref.tx_hash().to_hex().as_str())
+                .await
+                .ok())?;
+            return (!details.valid_contract).then_some(collateral_return);
+        }
+        body.outputs.into_iter().nth(output_ix)
+    }
+
+    /// Transaction metadata, decoded from its CBOR. The JSON representation cannot be used: the
+    /// metadatum type it deserializes into has no number variant, so a single numeric metadatum
+    /// fails the whole response.
+    async fn tx_metadata(&self, tx_hash: &str) -> Option<Metadata> {
+        // A TX without metadata is not an error, it just comes back with an empty listing.
+        let entries = retry!(self.0.transactions_metadata_cbor(tx_hash).await.ok())?;
+        let mut metadata = Metadata::new();
+        for entry in entries {
+            // `cbor_metadata` is deprecated upstream in favour of `metadata`, and both are
+            // nullable, so take whichever one this backend actually populated.
+            let Some(raw_cbor) = entry.cbor_metadata.or(entry.metadata) else {
+                warn!(
+                    "TX {}: metadata entry labelled '{}' carries no CBOR",
+                    tx_hash, entry.label
+                );
+                continue;
+            };
+            // Some responses render the CBOR in PostgreSQL bytea notation.
+            let raw_hex = raw_cbor.strip_prefix("\\x").unwrap_or(raw_cbor.as_str());
+            let decoded = entry.label.parse::<u64>().ok().and_then(|label| {
+                let raw = hex::decode(raw_hex).ok()?;
+                let metadatum = TransactionMetadatum::from_cbor_bytes(raw.as_ref()).ok()?;
+                Some((label, unwrap_labelled_metadatum(label, metadatum)))
+            });
+            match decoded {
+                Some((label, metadatum)) => metadata.set(label, metadatum),
+                None => warn!(
+                    "TX {}: skipping undecodable metadata entry labelled '{}'",
+                    tx_hash, entry.label
+                ),
+            }
+        }
+        if metadata.is_empty() {
+            None
+        } else {
+            Some(metadata)
+        }
     }
 
     async fn parse_blockfrost_output(
@@ -139,16 +238,15 @@ impl Blockfrost {
         datum_hash: Option<String>,
         ref_script_hash_opt: Option<String>,
     ) -> Option<TransactionUnspentOutput> {
-        let mut script = None;
-        if let Some(ref_script_hash) = ref_script_hash_opt {
-            script = self
-                .0
-                .scripts_hash_cbor(ref_script_hash.as_str())
+        let oref = OutputRef::new(TransactionHash::from_hex(tx_hash.as_str()).ok()?, output_idx);
+
+        // The listing doesn't say which Plutus version a reference script has, so outputs
+        // carrying one are resolved from the tx CBOR, which does.
+        if ref_script_hash_opt.is_some() {
+            return self
+                .output_from_tx_cbor(oref)
                 .await
-                .ok()
-                .and_then(|opt_value| opt_value.cbor)
-                .and_then(|script| PlutusV2Script::from_cbor_bytes(script.as_ref()).ok())
-                .map(Script::new_plutus_v2)
+                .map(|output| TransactionUnspentOutput::new(oref.into(), output));
         }
 
         let mut value = Value::zero();
@@ -166,9 +264,9 @@ impl Blockfrost {
         });
 
         let datum: Option<DatumOption> = inline_datum
-            .clone()
-            .and_then(|datum| {
-                PlutusData::from_cbor_bytes(datum.as_ref())
+            .and_then(|datum| hex::decode(datum).ok())
+            .and_then(|datum_bytes| {
+                PlutusData::from_cbor_bytes(datum_bytes.as_ref())
                     .ok()
                     .map(DatumOption::new_datum)
             })
@@ -178,15 +276,10 @@ impl Blockfrost {
                     .map(DatumOption::new_hash)
             }));
 
-        Some(TransactionUnspentOutput {
-            input: TransactionInput::new(TransactionHash::from_hex(tx_hash.as_str()).ok()?, output_idx),
-            output: TransactionOutput::new(
-                Address::from_bech32(address.as_str()).ok()?,
-                value,
-                datum,
-                script,
-            ),
-        })
+        Some(TransactionUnspentOutput::new(
+            oref.into(),
+            TransactionOutput::new(Address::from_bech32(address.as_str()).ok()?, value, datum, None),
+        ))
     }
 
     async fn blockfrost_address_utxo_to_tx_unspent_output(
@@ -204,43 +297,14 @@ impl Blockfrost {
         )
         .await
     }
-
-    async fn blockfrost_tx_utxo_to_tx_unspent_output(
-        &self,
-        output_ref: OutputRef,
-        utxo: TxContentUtxoOutputsInner,
-    ) -> Option<TransactionUnspentOutput> {
-        self.parse_blockfrost_output(
-            output_ref.tx_hash().to_hex(),
-            output_ref.index(),
-            utxo.address,
-            utxo.amount,
-            utxo.inline_datum,
-            utxo.data_hash,
-            utxo.reference_script_hash,
-        )
-        .await
-    }
 }
 
 #[async_trait]
 impl CardanoNetwork for Blockfrost {
     async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput> {
-        let transaction_outputs = self
-            .0
-            .transactions_utxos(oref.tx_hash().to_hex().as_str())
+        self.output_from_tx_cbor(oref)
             .await
-            .ok()?;
-
-        if let Some(output) = transaction_outputs
-            .outputs
-            .into_iter()
-            .find(|output| output.output_index as u64 == oref.index())
-        {
-            return self.blockfrost_tx_utxo_to_tx_unspent_output(oref, output).await;
-        };
-
-        None
+            .map(|output| TransactionUnspentOutput::new(oref.into(), output))
     }
 
     async fn utxos_by_pay_cred(
@@ -251,7 +315,7 @@ impl CardanoNetwork for Blockfrost {
     ) -> Vec<TransactionUnspentOutput> {
         // blockfrost pagination starts from page 1 and we should increment quotient
         if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
-            let outputs = self
+            let outputs = retry!(self
                 .0
                 .addresses_utxos(
                     String::from(payment_credential.clone()).as_str(),
@@ -263,7 +327,8 @@ impl CardanoNetwork for Blockfrost {
                     },
                 )
                 .await
-                .unwrap_or(vec![]);
+                .ok())
+            .unwrap_or(vec![]);
 
             let parsed_outputs: Vec<_> = outputs
                 .into_iter()
@@ -284,7 +349,7 @@ impl CardanoNetwork for Blockfrost {
     ) -> Vec<TransactionUnspentOutput> {
         // blockfrost pagination starts from page 1 and we should increment quotient
         if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
-            let outputs = self
+            let outputs = retry!(self
                 .0
                 .addresses_utxos(
                     String::from(address.to_bech32(None).unwrap().as_str()).as_str(),
@@ -296,7 +361,8 @@ impl CardanoNetwork for Blockfrost {
                     },
                 )
                 .await
-                .unwrap_or(vec![]);
+                .ok())
+            .unwrap_or(vec![]);
 
             let parsed_outputs: Vec<_> = outputs
                 .into_iter()
@@ -310,81 +376,7 @@ impl CardanoNetwork for Blockfrost {
     }
 }
 
-pub struct Maestro(maestro::Maestro);
-
-impl Maestro {
-    pub async fn new<P: AsRef<Path>>(path: P, network: Network) -> Result<Self, Error> {
-        let token = fs::read_to_string(path).await?.replace("\n", "");
-        Ok(Self(maestro::Maestro::new(token, network.into())))
-    }
-}
-
-#[async_trait]
-impl CardanoNetwork for Maestro {
-    async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput> {
-        let params = Some(HashMap::from([(
-            "with_cbor".to_lowercase(),
-            "true".to_lowercase(),
-        )]));
-        retry!(self
-            .0
-            .transaction_output_from_reference(
-                oref.tx_hash().to_hex().as_str(),
-                oref.index() as i32,
-                params.clone()
-            )
-            .await
-            .ok())
-        .and_then(|tx_out| {
-            let tx_out =
-                TransactionOutput::from_cbor_bytes(&hex::decode(tx_out.data.tx_out_cbor?).ok()?).ok()?;
-            Some(TransactionUnspentOutput::new(oref.into(), tx_out))
-        })
-    }
-
-    async fn utxos_by_pay_cred(
-        &self,
-        payment_credential: PaymentCredential,
-        offset: u32,
-        limit: u16,
-    ) -> Vec<TransactionUnspentOutput> {
-        let mut params = Parameters::new();
-        params.with_cbor();
-        params.from(offset as i64);
-        params.count(limit as i32);
-        retry!(self
-            .0
-            .utxos_by_payment_credential(
-                String::from(payment_credential.clone()).as_str(),
-                Some(params.clone())
-            )
-            .await
-            .ok())
-        .and_then(|utxos| read_maestro_utxos(utxos).ok())
-        .unwrap_or(vec![])
-    }
-
-    async fn utxos_by_address(
-        &self,
-        address: Address,
-        offset: u32,
-        limit: u16,
-    ) -> Vec<TransactionUnspentOutput> {
-        let mut params = Parameters::new();
-        params.with_cbor();
-        params.from(offset as i64);
-        params.count(limit as i32);
-        retry!(self
-            .0
-            .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params.clone()))
-            .await
-            .ok())
-        .and_then(|utxos| read_maestro_utxos(utxos).ok())
-        .unwrap_or(vec![])
-    }
-}
-
-impl ExtendedCardanoNetwork for Maestro {
+impl ExtendedCardanoNetwork for Blockfrost {
     async fn slot_indexed_utxos_by_address(
         &self,
         address: Address,
@@ -395,34 +387,38 @@ impl ExtendedCardanoNetwork for Maestro {
         let mut res = vec![];
 
         for utxo in utxos {
-            let tx_details = self
-                .0
-                .transaction_details(&utxo.input.transaction_id.to_hex())
-                .await
-                .unwrap();
+            let tx_hash = utxo.input.transaction_id.to_hex();
+            // This runs once per UTxO of a page, so a single rate-limited request must not be
+            // allowed to take the whole pull down.
+            let Some(tx_details) = retry!(self.0.transaction_by_hash(tx_hash.as_str()).await.ok()) else {
+                warn!("Skipping UTxO of TX {}: details could not be fetched", tx_hash);
+                continue;
+            };
             let info = UTxOInfo {
                 utxo,
-                slot: tx_details.data.block_absolute_slot as u64,
-                metadata_json: tx_details.data.metadata,
+                slot: tx_details.slot as u64,
+                metadata: self.tx_metadata(tx_hash.as_str()).await,
             };
             res.push(info);
         }
         res
     }
 
+    // Not retried on purpose: unlike a read, a resubmit is not idempotent.
     async fn submit_tx(&self, cbor_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        let result = self.0.tx_manager_submit(cbor_bytes.to_vec()).await?;
+        let result = self.0.transactions_submit(cbor_bytes.to_vec()).await?;
         trace!("TX submit result: {}", result);
         Ok(())
     }
 
     async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>> {
-        let r = self.0.chain_tip().await?;
-        Ok(r.last_updated.block_slot as u64)
-    }
-
-    async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>> {
-        self.0.evaluate_tx(cbor, vec![]).await
+        let slot = self
+            .0
+            .blocks_latest()
+            .await?
+            .slot
+            .ok_or("Latest block carries no slot number")?;
+        u64::try_from(slot).map_err(|_| format!("Negative chain tip slot number: {}", slot).into())
     }
 
     async fn wait_for_transaction_confirmation(
@@ -431,7 +427,7 @@ impl ExtendedCardanoNetwork for Maestro {
     ) -> Result<(), Box<dyn std::error::Error>> {
         while self
             .0
-            .transaction_cbor(&tx_id.to_hex())
+            .transaction_by_hash(&tx_id.to_hex())
             .await
             .map(|_| ())
             .is_err()
@@ -442,29 +438,43 @@ impl ExtendedCardanoNetwork for Maestro {
     }
 }
 
+/// Strips the `{label: value}` envelope a metadata backend may wrap each metadatum in.
+///
+/// `cardano-db-sync` stores the CBOR of the singleton map keyed by the label rather than the bare
+/// metadatum, and Blockfrost serves that verbatim. Rebuilding a `Metadata` from it unchanged would
+/// nest every entry twice — `{4 -> {4 -> 1}}` instead of `{4 -> 1}` — and every consumer matching on
+/// the metadatum type would silently see a `Map` where it expects an `Int` or `Bytes`. A backend
+/// that serves the bare value is left untouched.
+fn unwrap_labelled_metadatum(label: u64, datum: TransactionMetadatum) -> TransactionMetadatum {
+    if let TransactionMetadatum::Map(map) = &datum {
+        if let [(TransactionMetadatum::Int(Int::Uint { value, .. }), inner)] = &map.entries[..] {
+            if *value == label {
+                return inner.clone();
+            }
+        }
+    }
+    datum
+}
+
 pub struct UTxOInfo {
     pub utxo: TransactionUnspentOutput,
     pub slot: u64,
-    /// Maestro-formatted JSON...
-    pub metadata_json: serde_json::Value,
+    /// The metadata of the transaction that produced this UTxO, if it carries any.
+    pub metadata: Option<Metadata>,
 }
 
 pub enum AnyExplorer {
     Blockfrost(Blockfrost),
-    Maestro(Maestro),
 }
 
 impl AnyExplorer {
     pub async fn new(config: &ExplorerConfig, network_id: NetworkId) -> Result<Self, Error> {
         match config {
-            ExplorerConfig::MaestroKeyPath(maestro_key_path) => {
-                Maestro::new(maestro_key_path, network_id.into())
+            ExplorerConfig::BlockfrostKeyPath(blockfrost_key_path) => {
+                Blockfrost::new(blockfrost_key_path, network_id)
                     .await
-                    .map(AnyExplorer::Maestro)
+                    .map(AnyExplorer::Blockfrost)
             }
-            ExplorerConfig::BlockfrostKeyPath(blockfrost_key_path) => Blockfrost::new(blockfrost_key_path)
-                .await
-                .map(AnyExplorer::Blockfrost),
         }
     }
 }
@@ -474,7 +484,6 @@ impl CardanoNetwork for AnyExplorer {
     async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput> {
         match self {
             AnyExplorer::Blockfrost(blockfrost) => blockfrost.utxo_by_ref(oref).await,
-            AnyExplorer::Maestro(maestro) => maestro.utxo_by_ref(oref).await,
         }
     }
 
@@ -490,9 +499,6 @@ impl CardanoNetwork for AnyExplorer {
                     .utxos_by_pay_cred(payment_credential, offset, limit)
                     .await
             }
-            AnyExplorer::Maestro(maestro) => {
-                maestro.utxos_by_pay_cred(payment_credential, offset, limit).await
-            }
         }
     }
 
@@ -504,22 +510,44 @@ impl CardanoNetwork for AnyExplorer {
     ) -> Vec<TransactionUnspentOutput> {
         match self {
             AnyExplorer::Blockfrost(blockfrost) => blockfrost.utxos_by_address(address, offset, limit).await,
-            AnyExplorer::Maestro(maestro) => maestro.utxos_by_address(address, offset, limit).await,
         }
     }
 }
 
-fn read_maestro_utxos(
-    resp: UtxosAtAddress,
-) -> Result<Vec<TransactionUnspentOutput>, Box<dyn std::error::Error>> {
-    let mut utxos = vec![];
-    for utxo in resp.data {
-        let tx_in = TransactionInput::new(
-            TransactionHash::from_hex(utxo.tx_hash.as_str()).unwrap(),
-            utxo.index as u64,
-        );
-        let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor.unwrap())?)?;
-        utxos.push(TransactionUnspentOutput::new(tx_in, tx_out));
+impl ExtendedCardanoNetwork for AnyExplorer {
+    async fn slot_indexed_utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<UTxOInfo> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => {
+                blockfrost
+                    .slot_indexed_utxos_by_address(address, offset, limit)
+                    .await
+            }
+        }
     }
-    Ok(utxos)
+
+    async fn submit_tx(&self, cbor: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => blockfrost.submit_tx(cbor).await,
+        }
+    }
+
+    async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => blockfrost.chain_tip_slot_number().await,
+        }
+    }
+
+    async fn wait_for_transaction_confirmation(
+        &self,
+        tx_id: TransactionHash,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => blockfrost.wait_for_transaction_confirmation(tx_id).await,
+        }
+    }
 }

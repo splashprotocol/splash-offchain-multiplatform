@@ -5,7 +5,6 @@ edition = "2021"
 rust-version = "1.84.0"
 
 [dependencies]
-maestro-rust-sdk = { git = "https://github.com/kettlebell/rust-sdk.git", branch = "cbor_fix" }
 reqwest = { version = "0.11.22", features = ["blocking", "json"] }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
@@ -15,7 +14,6 @@ futures = "0.3.25"
 tokio = { version = "1.42.0", features = ["full"] }
 async-trait = "0.1.88"
 serde = { version = "1.0.147", features = ["derive"] }
-serde_json = "1"
 hex = "0.4.3"
 blockfrost = { git = "https://github.com/Bromel777/blockfrost-rust.git", branch = "fix-scripts-endpoints" }
 blockfrost-openapi = "=0.1.69"

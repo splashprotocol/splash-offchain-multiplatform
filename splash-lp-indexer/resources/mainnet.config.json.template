@@ -21,7 +21,7 @@
   },
   "networkId": 1,
   "explorer": {
-    "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
+    "blockfrostKeyPath": "bloom-cardano-agent/resources/blockfrost.key"
   }
   "utxoIndexDbPath": "index/utxo",
   "accountsDbPath": "index/accounts",

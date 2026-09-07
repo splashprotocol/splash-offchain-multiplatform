@@ -22,7 +22,7 @@
   "networkId": 0,
   "genesisEpochStartTime": 1723349688000,
   "explorer": {
-    "maestroKeyPath": "splash-lp-indexer/resources/preprod.maestro.key"
+    "blockfrostKeyPath": "splash-lp-indexer/resources/preprod.blockfrost.key"
   },
   "utxoIndexDbPath": "index/utxo",
   "accountsDbPath": "index/accounts",

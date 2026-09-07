@@ -19,7 +19,6 @@
     "path": "/data/cardano-node-preprod-10-1-4/ipc/node.socket",
     "magic": 1
   },
-  "maestroKeyPath": "splash-dao-agent/resources/preprod.maestro.key",
   "txSubmissionBufferSize": 64,
   "backlogCapacity": 128,
   "networkId": 0,
@@ -36,7 +35,7 @@
   "genesisStartTime": 1723349688000,
   "persistenceStoresRootDir": "tmp/",
   "explorer": {
-    "url": "https://explorer.spectrum.fi"
+    "blockfrostKeyPath": "splash-dao-agent/resources/preprod.blockfrost.key"
   },
   "rewardAddress": "addr_test1qqltu3xgvc8wn8kadarzg4gsjytlpj9fd5rgy5sjl6neh6rakpadsazz4ztjclka0u7nqujz34vtnj9a0swjg5ccmfsqzzrhjz",
   "votingOrderListenerEndpoint": "127.0.0.1:1244"

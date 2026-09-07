@@ -3,7 +3,7 @@ use std::{net::SocketAddr, time::Duration};
 use cml_core::Slot;
 
 use cardano_chain_sync::client::Point;
-use cardano_explorer::data::ExplorerConfig;
+use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::rocks::RocksConfig;
 use spectrum_offchain_cardano::{
@@ -19,13 +19,12 @@ pub struct AppConfig<'a> {
     pub node: NodeConfig,
     pub tx_submission_buffer_size: usize,
     pub batcher_private_key: &'a str, //todo: store encrypted
-    pub explorer: ExplorerConfig<'a>,
+    pub explorer: ExplorerConfig,
     pub reward_address: OperatorRewardAddress,
     pub executor_cred: OperatorCred,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
-    pub maestro_key_path: &'a str,
     pub persistence_stores_root_dir: &'a str,
     pub event_cache_ttl: Duration,
     pub genesis_start_time: u64,

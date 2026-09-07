@@ -30,10 +30,9 @@
   "operatorKey": "",
   "serviceFeeAddress": "",
   "explorer": {
-    "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
+    "blockfrostKeyPath": "bloom-cardano-agent/resources/blockfrost.key"
   },
   "allowedPaymentDestinations": [],
-  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
   "execution": {
     "executionCap": {
       "soft": {

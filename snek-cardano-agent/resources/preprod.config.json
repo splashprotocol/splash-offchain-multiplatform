@@ -41,7 +41,7 @@
   "serviceFeeAddress": "",
   "allowedPaymentDestinations": [],
   "explorer": {
-    "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key"
+    "blockfrostKeyPath": "bloom-cardano-agent/resources/preprod.blockfrost.key"
   },
   "execution": {
     "executionCap": {

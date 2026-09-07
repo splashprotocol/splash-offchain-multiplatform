@@ -30,7 +30,7 @@
   "operatorKey": "",
   "takeResidualFee": false,
   "explorer": {
-    "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
+    "blockfrostKeyPath": "bloom-cardano-agent/resources/blockfrost.key"
   },
   "execution": {
     "executionCap": {

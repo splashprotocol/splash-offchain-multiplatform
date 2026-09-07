@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork, Maestro, UTxOInfo};
+use cardano_explorer::{Blockfrost, CardanoNetwork, ExtendedCardanoNetwork, UTxOInfo};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
     address::{Address, BaseAddress},
@@ -78,7 +78,6 @@ use splash_dao_offchain::{
             poll_factory::{PollFactoryConfig, PollFactorySnapshot},
             redeem_voting_escrow::RedeemVotingEscrowOrderState,
             smart_farm::{FarmId, MintAction, SmartFarmConfig},
-            try_make_proxy_order_metadata_from_json,
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
@@ -552,7 +551,7 @@ async fn deploy<'a>(
 /// Note: need about 120 ADA to create these entities.
 async fn deploy_dao_reference_inputs(
     mut tx_builder: TransactionBuilder,
-    explorer: &Maestro,
+    explorer: &Blockfrost,
     addr: &Address,
     prover: &OperatorProver,
 ) -> TransactionHash {
@@ -572,7 +571,7 @@ async fn deploy_dao_reference_inputs(
 }
 
 async fn create_dao_entities(
-    explorer: &Maestro,
+    explorer: &Blockfrost,
     addr: &Address,
     collateral: Collateral,
     prover: &OperatorProver,
@@ -1717,7 +1716,7 @@ async fn collect_utxos(
     required_coin: Coin,
     required_tokens: Vec<IssuedAsset>,
     collateral: &Collateral,
-    explorer: &Maestro,
+    explorer: &Blockfrost,
 ) -> Vec<InputBuilderResult> {
     let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
     splash_dao_offchain::collect_utxos::collect_utxos(
@@ -1730,7 +1729,7 @@ async fn collect_utxos(
 
 const LIMIT: u16 = 50;
 async fn pull_onchain_entity<'a, T, D>(
-    explorer: &Maestro,
+    explorer: &Blockfrost,
     script_hash: ScriptHash,
     network_id: NetworkId,
     deployment_config: &'a D,
@@ -1753,13 +1752,7 @@ where
         println!("pulled utxos from slot {}: # pulled: {}", offset, utxos.len(),);
         let original_offset = offset;
 
-        for UTxOInfo {
-            utxo,
-            slot,
-            metadata_json,
-        } in utxos
-        {
-            let metadata = try_make_proxy_order_metadata_from_json(metadata_json);
+        for UTxOInfo { utxo, slot, metadata } in utxos {
             let timed_output_ref = TimedOutputRef {
                 output_ref: OutputRef::from(utxo.clone().input),
                 slot: Slot(slot),
@@ -1979,7 +1972,7 @@ impl From<&TokenDeposit> for Token {
 #[serde(bound = "'de: 'a")]
 pub struct AppConfig<'a> {
     pub network_id: NetworkId,
-    pub maestro_key_path: &'a str,
+    pub blockfrost_key_path: &'a str,
     pub batcher_private_key: &'a str, //todo: store encrypted
     pub deployment_json_path: &'a str,
     pub parameters_json_path: &'a str,
@@ -1997,7 +1990,7 @@ struct InitialDaoEntities {
 }
 
 struct OperationInputs {
-    explorer: Maestro,
+    explorer: Blockfrost,
     addr: Address,
     owner_pub_key: cml_crypto::PublicKey,
     operator_public_key_hash: PaymentCredential,
@@ -2012,9 +2005,9 @@ struct OperationInputs {
 }
 
 async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInputs {
-    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+    let explorer = Blockfrost::new(config.blockfrost_key_path, config.network_id)
         .await
-        .expect("Maestro instantiation failed");
+        .expect("Blockfrost instantiation failed");
 
     let (addr, _, operator_public_key_hash, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
@@ -2062,9 +2055,9 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
 }
 
 async fn create_dao_bot_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInputs {
-    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+    let explorer = Blockfrost::new(config.blockfrost_key_path, config.network_id)
         .await
-        .expect("Maestro instantiation failed");
+        .expect("Blockfrost instantiation failed");
 
     let (operator_cred, _collateral_addr, funding_addresses) =
         operator_creds(config.batcher_private_key, config.network_id);

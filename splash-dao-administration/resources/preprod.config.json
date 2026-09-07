@@ -1,5 +1,5 @@
 {
-  "maestro_key_path": "splash-dao-administration/resources/preprod.maestro.key",
+  "blockfrost_key_path": "splash-dao-administration/resources/preprod.blockfrost.key",
   "network_id": 0,
   "batcher_private_key": "",
   "deployment_json_path": "splash-dao-administration/resources/preprod_deployment.json",

@@ -8,7 +8,7 @@ use cardano_chain_sync::{
     cache::LedgerCacheRocksDB, chain_sync_stream, client::ChainSyncClient, data::LedgerTxEvent,
     event_source::ledger_transactions,
 };
-use cardano_explorer::Maestro;
+use cardano_explorer::AnyExplorer;
 use chrono::Duration;
 use clap::Parser;
 use cml_chain::{
@@ -87,9 +87,9 @@ async fn main() {
     let state_synced = Beacon::relaxed(false);
     let rollback_in_progress = Beacon::strong(false);
 
-    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+    let explorer = AnyExplorer::new(&config.explorer, config.network_id)
         .await
-        .expect("Maestro instantiation failed");
+        .expect("Explorer instantiation failed");
     let protocol_deployment =
         ProtocolDeployment::unsafe_pull(deployment.deployed_validators, &explorer).await;
 
