@@ -20,6 +20,7 @@ use classified::ClassifiedPool;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
+use spectrum_offchain_cardano::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -77,7 +78,8 @@ where
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn try_run(
         self,

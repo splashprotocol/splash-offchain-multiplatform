@@ -3,6 +3,7 @@ use crate::data::balance_pool::BalancePool;
 
 use crate::data::order::Order;
 use crate::data::pool::try_run_order_against_pool;
+use crate::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles;
 use crate::deployment::DeployedValidator;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
@@ -54,7 +55,8 @@ where
         + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn try_run(
         self,

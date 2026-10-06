@@ -87,7 +87,7 @@ impl<T: IntoPlutusData + Clone> IntoPlutusData for Option<T> {
                     len_encoding: Canonical,
                     tag_encoding: Some(cbor_event::Sz::One),
                     alternative_encoding: None,
-                    fields_encoding: Indefinite,
+                    fields_encoding: Canonical,
                     prefer_compact: true,
                 }),
             }),
@@ -264,4 +264,17 @@ pub fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
         fields,
         encodings: Some(enc),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IntoPlutusData;
+    use cml_core::serialization::Serialize;
+
+    #[test]
+    fn none_serializes_with_canonical_empty_fields() {
+        let encoded = Option::<u64>::None.into_pd().to_cbor_bytes();
+
+        assert_eq!(hex::encode(encoded), "d87a80");
+    }
 }

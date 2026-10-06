@@ -19,7 +19,8 @@ use crate::deployment::ProtocolValidator::{
     RoyaltyPoolV1LedgerFixed, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2DAO,
     RoyaltyPoolV2DAOV1Request, RoyaltyPoolV2RoyaltyWithdrawRequest,
 };
-use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::royalty_profiles::{RoyaltyPoolExecutionProfiles, RoyaltyPoolKind, RoyaltyPoolProfiles};
+use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::{
     classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
     UNTOUCHABLE_LOVELACE_AMOUNT,
@@ -386,43 +387,6 @@ pub enum RoyaltyPoolVer {
     V2,
 }
 
-impl RoyaltyPoolVer {
-    pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<RoyaltyPoolVer>
-    where
-        Ctx: Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-            + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-            + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>,
-    {
-        let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
-            StakeCredential::PubKey { .. } => None,
-            StakeCredential::Script { hash, .. } => Some(hash),
-        });
-
-        if let Some(this_hash) = maybe_hash {
-            if ctx
-                .select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
-                .script_hash
-                == *this_hash
-            {
-                return Some(RoyaltyPoolVer::V1);
-            } else if ctx
-                .select::<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>()
-                .script_hash
-                == *this_hash
-            {
-                return Some(RoyaltyPoolVer::V1LedgerFixed);
-            } else if ctx
-                .select::<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>()
-                .script_hash
-                == *this_hash
-            {
-                return Some(RoyaltyPoolVer::V2);
-            }
-        };
-        None
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct RoyaltyPool {
     pub id: PoolId,
@@ -448,6 +412,7 @@ pub struct RoyaltyPool {
     pub first_royalty_pub_key: Ed25519PublicKey,
     pub second_royalty_pub_key: Ed25519PublicKey,
     pub ver: RoyaltyPoolVer,
+    pub kind: RoyaltyPoolKind,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
     pub nonce: u64,
@@ -493,13 +458,22 @@ impl Display for RoyaltyPool {
 
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for RoyaltyPool
 where
-    Ctx: Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
-        + Has<PoolValidation>,
+    Ctx: Has<RoyaltyPoolProfiles> + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if let Some(pool_ver) = RoyaltyPoolVer::try_from_address(repr.address(), ctx) {
+        let pool_hash = repr.address().payment_cred().and_then(|credential| match credential {
+            StakeCredential::Script { hash, .. } => Some(hash),
+            StakeCredential::PubKey { .. } => None,
+        })?;
+        let routed = ctx.select::<RoyaltyPoolProfiles>().resolve(pool_hash)?;
+        let (pool_ver, marginal_cost) = match routed.kind {
+            RoyaltyPoolKind::LegacyV1 => (RoyaltyPoolVer::V1, routed.scripts.pool.marginal_cost?),
+            RoyaltyPoolKind::LegacyV1LedgerFixed | RoyaltyPoolKind::ProtectedV1 =>
+                (RoyaltyPoolVer::V1LedgerFixed, routed.scripts.pool.marginal_cost?),
+            RoyaltyPoolKind::LegacyV2 | RoyaltyPoolKind::ProtectedV2 =>
+                (RoyaltyPoolVer::V2, routed.scripts.pool.marginal_cost?),
+        };
+        {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let bounds = ctx.select::<PoolValidation>();
@@ -510,20 +484,6 @@ where
                     StakeCredential::Script { hash, .. } => Some(*hash),
                     _ => None,
                 });
-            let marginal_cost = match pool_ver {
-                RoyaltyPoolVer::V1 => {
-                    ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
-                        .marginal_cost
-                }
-                RoyaltyPoolVer::V1LedgerFixed => {
-                    ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>()
-                        .marginal_cost
-                }
-                RoyaltyPoolVer::V2 => {
-                    ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>()
-                        .marginal_cost
-                }
-            };
             match pool_ver {
                 RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => {
                     let conf = RoyaltyPoolConfig::try_from_pd(pd.clone())?;
@@ -564,6 +524,7 @@ where
                             first_royalty_pub_key: conf.royalty_pub_key.try_into().ok()?,
                             second_royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                             ver: pool_ver,
+                            kind: routed.kind,
                             marginal_cost,
                             bounds,
                             nonce: conf.nonce,
@@ -613,6 +574,7 @@ where
                             first_royalty_pub_key: conf.first_royalty_pub_key.try_into().ok()?,
                             second_royalty_pub_key: conf.second_royalty_pub_key.try_into().ok()?,
                             ver: pool_ver,
+                            kind: routed.kind,
                             marginal_cost,
                             bounds,
                             nonce: conf.nonce,
@@ -628,12 +590,7 @@ where
 
 impl<Ctx> ApplyOrder<OnChainDAOActionRequest, Ctx> for RoyaltyPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+    Ctx: Has<RoyaltyPoolExecutionProfiles>
         + Has<DAOContext>
         + Has<NetworkId>,
 {
@@ -645,27 +602,26 @@ where
         ctx: Ctx,
     ) -> Result<(Self, OperationResultBlueprint<DaoActionResult>), ApplyOrderError<OnChainDAOActionRequest>>
     {
-        let dao_validator = if self.ver == RoyaltyPoolVer::V1 {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>()
-                .erased()
-        } else {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>()
-                .erased()
-        };
-
-        let validator = if dao_request.order.version == V1 {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>()
-                .erased()
-        } else {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>()
-                .erased()
-        };
-
-        let pool_validator_hash = if self.ver == RoyaltyPoolVer::V2 {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>().hash
-        } else {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>().hash
-        };
+        let request_matches_pool = matches!(
+            (self.kind, dao_request.order.version),
+            (RoyaltyPoolKind::LegacyV1, V1)
+                | (RoyaltyPoolKind::LegacyV1LedgerFixed, V1)
+                | (RoyaltyPoolKind::LegacyV2, crate::data::dao_request::DAOV1RequestVersion::V2)
+                | (RoyaltyPoolKind::ProtectedV1, V1)
+                | (RoyaltyPoolKind::ProtectedV1, crate::data::dao_request::DAOV1RequestVersion::ProtectedV1)
+                | (RoyaltyPoolKind::ProtectedV2, crate::data::dao_request::DAOV1RequestVersion::V2)
+                | (RoyaltyPoolKind::ProtectedV2, crate::data::dao_request::DAOV1RequestVersion::ProtectedV2)
+        );
+        if !request_matches_pool {
+            return Err(ApplyOrderError::incompatible(dao_request));
+        }
+        let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
+        let bundle = profiles
+            .resolve(self.kind)
+            .expect("royalty pool execution profile must be configured");
+        let dao_validator = bundle.dao.clone();
+        let validator = bundle.dao_request.clone();
+        let pool_validator_hash = bundle.pool.hash;
         let dao_ctx: DAOContext = ctx.get();
 
         let data_to_sign: DaoRequestDataToSign = DaoRequestDataToSign {
@@ -904,22 +860,14 @@ impl AMMOps for RoyaltyPool {
 
 impl<Ctx> RequiresValidator<Ctx> for RoyaltyPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+    Ctx: Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
-        match self.ver {
-            RoyaltyPoolVer::V1 => ctx
-                .select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>()
-                .erased(),
-            RoyaltyPoolVer::V1LedgerFixed => ctx
-                .select::<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>()
-                .erased(),
-            RoyaltyPoolVer::V2 => ctx
-                .select::<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>()
-                .erased(),
-        }
+        ctx.select::<RoyaltyPoolExecutionProfiles>()
+            .resolve(self.kind)
+            .expect("royalty pool execution profile must be configured")
+            .pool
+            .clone()
     }
 }
 
@@ -1198,12 +1146,7 @@ impl Stable for RoyaltyPool {
 
 impl<Ctx> ApplyOrder<OnChainRoyaltyWithdraw, Ctx> for RoyaltyPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
-        + Has<RoyaltyWithdrawContext>,
+    Ctx: Has<RoyaltyPoolExecutionProfiles> + Has<RoyaltyWithdrawContext>,
 {
     type Result = RoyaltyWithdrawOutput;
 
@@ -1216,17 +1159,25 @@ where
         ApplyOrderError<OnChainRoyaltyWithdraw>,
     > {
         let order = royalty_withdraw.order.clone();
-        let order_validator = royalty_withdraw.get_validator(&ctx);
-        let pool_order_validator = if self.ver == RoyaltyPoolVer::V1 {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>()
-                .erased()
-        } else if self.ver == RoyaltyPoolVer::V1LedgerFixed {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>()
-                .erased()
-        } else {
-            ctx.select::<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>()
-                .erased()
-        };
+        let order_matches_pool = matches!(
+            (self.kind, order.order_type),
+            (RoyaltyPoolKind::LegacyV1, crate::data::order::OrderType::RoyaltyConstFnV1)
+                | (RoyaltyPoolKind::LegacyV1LedgerFixed, crate::data::order::OrderType::RoyaltyConstFnV1)
+                | (RoyaltyPoolKind::LegacyV2, crate::data::order::OrderType::RoyaltyConstFnV2)
+                | (RoyaltyPoolKind::ProtectedV1, crate::data::order::OrderType::RoyaltyConstFnV1)
+                | (RoyaltyPoolKind::ProtectedV1, crate::data::order::OrderType::RoyaltyConstFnProtectedV1)
+                | (RoyaltyPoolKind::ProtectedV2, crate::data::order::OrderType::RoyaltyConstFnV2)
+                | (RoyaltyPoolKind::ProtectedV2, crate::data::order::OrderType::RoyaltyConstFnProtectedV2)
+        );
+        if !order_matches_pool {
+            return Err(ApplyOrderError::incompatible(royalty_withdraw));
+        }
+        let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
+        let bundle = profiles
+            .resolve(self.kind)
+            .expect("royalty pool execution profile must be configured");
+        let order_validator = bundle.withdraw_request.clone();
+        let pool_order_validator = bundle.withdraw.clone();
         let royalty_withdraw_context: RoyaltyWithdrawContext = ctx.get();
 
         let data_to_sign = DataToSign {
@@ -1621,6 +1572,14 @@ mod tests {
     impl Has<PoolValidation> for Context {
         fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
             self.pool_validation
+        }
+    }
+
+    impl Has<crate::deployment::royalty_profiles::RoyaltyPoolProfiles> for Context {
+        fn select<U: IsEqual<crate::deployment::royalty_profiles::RoyaltyPoolProfiles>>(
+            &self,
+        ) -> crate::deployment::royalty_profiles::RoyaltyPoolProfiles {
+            panic!("legacy royalty-withdraw fixture must not resolve a protected profile")
         }
     }
 

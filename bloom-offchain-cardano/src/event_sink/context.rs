@@ -19,6 +19,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
+use spectrum_offchain_cardano::deployment::royalty_profiles::RoyaltyPoolProfiles;
 use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
 };
@@ -41,10 +42,11 @@ pub struct EventContext<I: Copy> {
     pub mints: Option<Mints>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct HandlerContextProto {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
+    pub royalty_profiles: RoyaltyPoolProfiles,
     pub validation_rules: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
@@ -55,7 +57,7 @@ pub struct HandlerContextProto {
     pub graduation_state: Option<GraduationStateRocksDb>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct HandlerContext<I: Copy> {
     pub output_ref: OutputRef,
     pub consumed_utxos: ConsumedInputs,
@@ -63,6 +65,7 @@ pub struct HandlerContext<I: Copy> {
     pub produced_identifiers: ProducedIdentifiers<I>,
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
+    pub royalty_profiles: RoyaltyPoolProfiles,
     pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
@@ -84,6 +87,7 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             produced_identifiers: event_ctx.produced_identifiers,
             executor_cred: ctx_proto.executor_cred,
             scripts: ctx_proto.scripts,
+            royalty_profiles: ctx_proto.royalty_profiles,
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             dao_context: ctx_proto.dao_context,
@@ -94,6 +98,12 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             graduation_state: ctx_proto.graduation_state,
             mints: event_ctx.mints,
         }
+    }
+}
+
+impl<I: Copy> Has<RoyaltyPoolProfiles> for HandlerContext<I> {
+    fn select<U: IsEqual<RoyaltyPoolProfiles>>(&self) -> RoyaltyPoolProfiles {
+        self.royalty_profiles.clone()
     }
 }
 

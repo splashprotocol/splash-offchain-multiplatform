@@ -1,0 +1,22 @@
+{
+  "network": "mainnet",
+  "purpose": "Production royalty DAO V1 administrators",
+  "threshold": 4,
+  "lpFeeIsEditable": true,
+  "daoAdminVerificationKeys": [
+    "0bb1d2db22f9b641f0afe8d8a398279cb778d8f86167500f7e63ebbdc35b4d69",
+    "4e8221615500dbf6737b02992610ffeed82da6826dc3d9729febf1d32d766615",
+    "ae536160ccec4f078982396125773d509072397e35ed6fab7af2a762ca147318",
+    "04e3a257bcb0306c27e796bc16d1b7bde8f2306dc1d6aa344f6043ef48bd7fd8",
+    "83d3aa4ccd1c72ff7a27c032394f44b699778b6050290e37fd82bc295f5caf18",
+    "a7d30e99673c57638bdb65b5a0554ddee3135131940a41bbd3534b0d4c709506"
+  ],
+  "paymentKeyHashes": [
+    "68aa59a87dbdbf8f78386dc6b83e63149d8c13939a1b0cda39707f9a",
+    "518a9c32deedc0b82604972692a2b7eb6c10b020d77c3c72e764b156",
+    "f3a12554ca0ccd1a220b1de839a1940bc1006f08768b636fa98c66c9",
+    "0ff61bd4fdda8767414642f83f1be47bd674381ef32fc0e8164aa37d",
+    "d350803d45e327f8808469d5dde9e0f6fdc6e6637d85ed44cc37a12c",
+    "3703634e3e34c0e7fd9a7348ad213f9272279535c73f4ec00efe00bd"
+  ]
+}

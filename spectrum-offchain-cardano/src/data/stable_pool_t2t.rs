@@ -45,6 +45,7 @@ use crate::data::pool::{
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
+use crate::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
     ConstFnPoolDeposit, ConstFnPoolRedeem, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV2Deposit,
@@ -764,7 +765,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     type Result = DepositOutput;
 
@@ -845,7 +847,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     type Result = RedeemOutput;
 
@@ -942,6 +945,16 @@ mod tests {
     }
 
     const mock_ex_units: ExUnits = ExUnits { mem: 0, steps: 0 };
+
+    // These unit tests exercise stable pools only.  Reaching this dependency
+    // would mean the non-royalty validator routing regressed.
+    impl Has<crate::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles> for Ctx {
+        fn select<U: IsEqual<crate::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles>>(
+            &self,
+        ) -> crate::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles {
+            panic!("stable pool test must not resolve royalty execution profiles")
+        }
+    }
 
     impl Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>> for Ctx {
         fn select<U: IsEqual<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>>(

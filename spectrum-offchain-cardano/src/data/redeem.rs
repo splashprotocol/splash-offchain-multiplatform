@@ -16,6 +16,9 @@ use crate::data::order::{ClassicalOrder, OrderType, PoolNft};
 use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
+use crate::deployment::royalty_profiles::{
+    RoyaltyPoolExecutionProfiles, RoyaltyPoolKind, RoyaltyPoolProfiles,
+};
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem, RoyaltyPoolV1Redeem,
     RoyaltyPoolV2Redeem, StableFnPoolT2TRedeem,
@@ -23,6 +26,7 @@ use crate::deployment::ProtocolValidator::{
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
+use cml_chain::certs::StakeCredential;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Redeem {
@@ -53,7 +57,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -81,6 +86,18 @@ where
                 let validator: DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }> = ctx.get();
                 validator.erased()
             }
+            OrderType::RoyaltyConstFnProtectedV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve(RoyaltyPoolKind::ProtectedV1)
+                .expect("protected royalty V1 profile must be configured")
+                .redeem
+                .clone(),
+            OrderType::RoyaltyConstFnProtectedV2 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve(RoyaltyPoolKind::ProtectedV2)
+                .expect("protected royalty V2 profile must be configured")
+                .redeem
+                .clone(),
         }
     }
 }
@@ -117,6 +134,7 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2Redeem as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<RedeemOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -129,10 +147,15 @@ where
             test_address::<{ RoyaltyPoolV1Redeem as u8 }, Ctx>(repr.address(), ctx);
         let is_royalty_v2_pool_redeem =
             test_address::<{ RoyaltyPoolV2Redeem as u8 }, Ctx>(repr.address(), ctx);
+        let profile_royalty_redeem = repr.address().payment_cred().and_then(|cred| match cred {
+            StakeCredential::Script { hash, .. } => ctx.select::<RoyaltyPoolProfiles>().resolve_redeem(hash),
+            _ => None,
+        });
         if is_const_fee_switch_pool_deposit
             || is_balance_pool_redeem
             || is_const_pool_redeem
             || is_stable_pool_redeem
+            || profile_royalty_redeem.is_some()
             || is_royalty_v1_pool_redeem
             || is_royalty_v2_pool_redeem
         {
@@ -142,6 +165,10 @@ where
                 OrderType::BalanceFn
             } else if is_const_pool_redeem {
                 OrderType::ConstFn
+            } else if matches!(profile_royalty_redeem, Some(RoyaltyPoolKind::ProtectedV1)) {
+                OrderType::RoyaltyConstFnProtectedV1
+            } else if matches!(profile_royalty_redeem, Some(RoyaltyPoolKind::ProtectedV2)) {
+                OrderType::RoyaltyConstFnProtectedV2
             } else if is_royalty_v1_pool_redeem {
                 OrderType::RoyaltyConstFnV1
             } else if is_royalty_v2_pool_redeem {

@@ -52,6 +52,7 @@ use crate::deployment::ProtocolValidator::{
     RoyaltyPoolV2, StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
+use crate::deployment::royalty_profiles::RoyaltyPoolProfiles;
 
 pub struct Rx;
 
@@ -354,7 +355,8 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
-        + Has<PoolValidation>,
+        + Has<PoolValidation>
+        + Has<RoyaltyPoolProfiles>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         ConstFnPool::try_from_ledger(repr, ctx)

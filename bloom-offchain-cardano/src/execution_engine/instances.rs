@@ -27,6 +27,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     RoyaltyPoolV1LedgerFixed, RoyaltyPoolV2, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use spectrum_offchain_cardano::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles;
 use spectrum_offchain_cardano::script::{
     delayed_cost, delayed_redeemer, ready_cost, ready_redeemer, ScriptWitness,
 };
@@ -369,7 +370,8 @@ where
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
@@ -436,7 +438,8 @@ where
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn exec(
         self,
@@ -486,7 +489,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn exec(
         self,
