@@ -1,7 +1,7 @@
 use crate::constants::{FEE_DEN, MAX_LQ_CAP, POOL_OUT_IDX_IN};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::dao_request::DAOV1RequestVersion::V1;
-use crate::data::dao_request::{DAOContext, DaoAction, DaoRequestDataToSign, OnChainDAOActionRequest};
+use crate::data::dao_request::{DAOContext, DAOV1RequestVersion, DaoAction, DaoRequestDataToSign, OnChainDAOActionRequest};
 use crate::data::operation_output::DaoActionResult::{RequestorOutput, TreasuryWithdraw};
 use crate::data::operation_output::OperationResultOutputs::SingleOutput;
 use crate::data::operation_output::{
@@ -588,6 +588,17 @@ where
     }
 }
 
+fn dao_request_matches_pool(kind: RoyaltyPoolKind, version: DAOV1RequestVersion) -> bool {
+    matches!(
+        (kind, version),
+        (RoyaltyPoolKind::LegacyV1, V1)
+            | (RoyaltyPoolKind::LegacyV1LedgerFixed, V1)
+            | (RoyaltyPoolKind::LegacyV2, DAOV1RequestVersion::V2)
+            | (RoyaltyPoolKind::ProtectedV1, DAOV1RequestVersion::ProtectedV1)
+            | (RoyaltyPoolKind::ProtectedV2, DAOV1RequestVersion::ProtectedV2)
+    )
+}
+
 impl<Ctx> ApplyOrder<OnChainDAOActionRequest, Ctx> for RoyaltyPool
 where
     Ctx: Has<RoyaltyPoolExecutionProfiles>
@@ -602,17 +613,7 @@ where
         ctx: Ctx,
     ) -> Result<(Self, OperationResultBlueprint<DaoActionResult>), ApplyOrderError<OnChainDAOActionRequest>>
     {
-        let request_matches_pool = matches!(
-            (self.kind, dao_request.order.version),
-            (RoyaltyPoolKind::LegacyV1, V1)
-                | (RoyaltyPoolKind::LegacyV1LedgerFixed, V1)
-                | (RoyaltyPoolKind::LegacyV2, crate::data::dao_request::DAOV1RequestVersion::V2)
-                | (RoyaltyPoolKind::ProtectedV1, V1)
-                | (RoyaltyPoolKind::ProtectedV1, crate::data::dao_request::DAOV1RequestVersion::ProtectedV1)
-                | (RoyaltyPoolKind::ProtectedV2, crate::data::dao_request::DAOV1RequestVersion::V2)
-                | (RoyaltyPoolKind::ProtectedV2, crate::data::dao_request::DAOV1RequestVersion::ProtectedV2)
-        );
-        if !request_matches_pool {
+        if !dao_request_matches_pool(self.kind, dao_request.order.version) {
             return Err(ApplyOrderError::incompatible(dao_request));
         }
         let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
@@ -1438,6 +1439,10 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for RoyaltyPool {
 }
 
 mod tests {
+    use super::dao_request_matches_pool;
+    use super::{RoyaltyPool, RoyaltyPoolVer};
+    use crate::data::dao_request::DAOV1RequestVersion;
+    use crate::deployment::royalty_profiles::{RoyaltyPoolKind, RoyaltyPoolProfiles};
     use crate::creds::OperatorCred;
     use crate::data::pool::PoolValidation;
     use crate::data::royalty_withdraw_request::{OnChainRoyaltyWithdraw, RoyaltyWithdrawOrderValidation};
@@ -1456,6 +1461,60 @@ mod tests {
     use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use type_equalities::IsEqual;
+
+    #[test]
+    fn protected_pool_rejects_legacy_dao_request_scripts() {
+        assert!(!dao_request_matches_pool(RoyaltyPoolKind::ProtectedV1, DAOV1RequestVersion::V1));
+        assert!(!dao_request_matches_pool(RoyaltyPoolKind::ProtectedV2, DAOV1RequestVersion::V2));
+        assert!(dao_request_matches_pool(RoyaltyPoolKind::ProtectedV1, DAOV1RequestVersion::ProtectedV1));
+        assert!(dao_request_matches_pool(RoyaltyPoolKind::ProtectedV2, DAOV1RequestVersion::ProtectedV2));
+    }
+
+    struct ProtectedPoolContext {
+        profiles: RoyaltyPoolProfiles,
+        bounds: PoolValidation,
+    }
+
+    impl Has<RoyaltyPoolProfiles> for ProtectedPoolContext {
+        fn select<U: IsEqual<RoyaltyPoolProfiles>>(&self) -> RoyaltyPoolProfiles {
+            self.profiles.clone()
+        }
+    }
+
+    impl Has<PoolValidation> for ProtectedPoolContext {
+        fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
+            self.bounds
+        }
+    }
+
+    #[test]
+    fn parses_protected_royalty_pool_outputs_by_script_hash() {
+        let mainnet: DeployedValidators = serde_json::from_str(include_str!(
+            "../../../../bloom-cardano-agent/resources/mainnet.deployment.json"
+        )).unwrap();
+        let protected: DeployedValidators = serde_json::from_str(include_str!(
+            "../../../../bloom-cardano-agent/resources/preprod-royalty-2026-10-05.deployment.json"
+        )).unwrap();
+        let ctx = ProtectedPoolContext {
+            profiles: RoyaltyPoolProfiles::with_protected(&mainnet, &protected),
+            bounds: PoolValidation {
+                min_n2t_lovelace: 1,
+                min_t2t_lovelace: 1,
+            },
+        };
+        for (hex_output, kind, ver) in [
+            (include_str!("../../../tests/fixtures/protected_royalty_v1.hex"), RoyaltyPoolKind::ProtectedV1, RoyaltyPoolVer::V1LedgerFixed),
+            (include_str!("../../../tests/fixtures/protected_royalty_v2.hex"), RoyaltyPoolKind::ProtectedV2, RoyaltyPoolVer::V2),
+        ] {
+            let output = TransactionOutput::from_cbor_bytes(&hex::decode(hex_output.trim()).unwrap()).unwrap();
+            let parsed = RoyaltyPool::try_from_ledger(&output, &ctx).expect("protected pool must parse");
+            assert_eq!(parsed.kind, kind);
+            assert_eq!(parsed.ver, ver);
+            assert_eq!(parsed.reserves_x.untag(), 50_000_000);
+            assert_eq!(parsed.reserves_y.untag(), 100_000_000);
+            assert_eq!(parsed.liquidity.untag(), 1_000_000_000);
+        }
+    }
 
     struct Context {
         oref: OutputRef,

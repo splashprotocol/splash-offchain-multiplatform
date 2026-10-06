@@ -966,6 +966,7 @@ mod tests {
     struct Ctx {
         bounds: PoolValidation,
         scripts: ProtocolScriptHashes,
+        royalty_profiles: crate::deployment::royalty_profiles::RoyaltyPoolProfiles,
     }
 
     impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for Ctx {
@@ -1042,18 +1043,22 @@ mod tests {
         fn select<U: IsEqual<crate::deployment::royalty_profiles::RoyaltyPoolProfiles>>(
             &self,
         ) -> crate::deployment::royalty_profiles::RoyaltyPoolProfiles {
-            panic!("invalid legacy pool fixture must not resolve a royalty profile")
+            self.royalty_profiles.clone()
         }
     }
 
     #[test]
     fn try_read_invalid_pool() {
-        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let raw_deployment = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../bloom-cardano-agent/resources/mainnet.deployment.json"
+        )).expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Ctx {
             scripts,
+            royalty_profiles: crate::deployment::royalty_profiles::RoyaltyPoolProfiles::legacy_only(&deployment),
             bounds: PoolValidation {
                 min_n2t_lovelace: 150_000_000,
                 min_t2t_lovelace: 10_000_000,

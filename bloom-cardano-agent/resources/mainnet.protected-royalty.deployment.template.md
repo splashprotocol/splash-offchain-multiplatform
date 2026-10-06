@@ -15,6 +15,8 @@ before passing a copy to `--protected-royalty-deployment-path`.
 `royaltyPoolWithdrawContractV2` is still the existing external policy
 `a062da72f9f3280fbed90b3e95ea943aabd7eff9c82343324a9726ad`.
 It is not part of the 13-script release and retains its existing reference.
+Verify that policy's deployed bytes, hash, and reference UTxO before enabling
+protected V2 withdrawal; the 13-script artifact check does not cover it.
 The legacy `royaltyPool` and `royaltyPoolWithdrawContract` entries also retain
 their existing hashes and references; protected V1 routing uses
 `royaltyPoolLedgerFixed` and `royaltyPoolWithdrawContractLedgerFixed`.
