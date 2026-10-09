@@ -1,9 +1,8 @@
-//! Additive deployment routing for royalty pools.
+//! Additive deployment routing for protected pool validators.
 //!
-//! A protected royalty deployment cannot replace the existing deployment: pool
-//! UTxOs are addressed by the validator hash they were created with.  This
-//! registry keeps the two complete script bundles side by side and resolves a
-//! bundle from that payment-script hash.
+//! Protected scripts cannot replace their legacy entries: pool UTxOs remain
+//! addressed by the validator hash they were created with. This registry
+//! resolves royalty bundles and ordinary FeeSwitch pool validators by hash.
 
 use cml_crypto::ScriptHash;
 
@@ -18,6 +17,12 @@ pub enum RoyaltyPoolKind {
     LegacyV2,
     ProtectedV1,
     ProtectedV2,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum ProtectedFeeSwitchKind {
+    Regular,
+    BiDir,
 }
 
 /// The reference scripts that must be used with a particular royalty pool
@@ -40,10 +45,8 @@ pub struct RoutedRoyaltyPool {
     pub scripts: RoyaltyPoolScriptBundle,
 }
 
-/// Owns the legacy deployment and, optionally, a separately deployed
-/// protected royalty bundle.  `protected` is intentionally optional so an
-/// existing deployment JSON keeps its old behaviour until a protected JSON is
-/// explicitly configured.
+/// Owns the legacy royalty bundles and optional protected royalty and
+/// FeeSwitch validators. A legacy deployment JSON keeps its old behaviour.
 #[derive(Clone)]
 pub struct RoyaltyPoolProfiles {
     legacy_v1: RoyaltyPoolScriptBundle,
@@ -51,6 +54,7 @@ pub struct RoyaltyPoolProfiles {
     legacy_v2: RoyaltyPoolScriptBundle,
     protected_v1: Option<RoyaltyPoolScriptBundle>,
     protected_v2: Option<RoyaltyPoolScriptBundle>,
+    protected_fee_switch: Option<(DeployedValidatorRef, DeployedValidatorRef)>,
 }
 
 /// Pulled (transaction-builder ready) counterpart of [`RoyaltyPoolProfiles`].
@@ -74,6 +78,7 @@ pub struct RoyaltyPoolExecutionProfiles {
     legacy_v2: RoyaltyPoolExecutionBundle,
     protected_v1: Option<RoyaltyPoolExecutionBundle>,
     protected_v2: Option<RoyaltyPoolExecutionBundle>,
+    protected_fee_switch: Option<(DeployedValidatorErased, DeployedValidatorErased)>,
 }
 
 impl RoyaltyPoolExecutionProfiles {
@@ -84,6 +89,7 @@ impl RoyaltyPoolExecutionProfiles {
             legacy_v2: execution_v2_bundle(legacy),
             protected_v1: None,
             protected_v2: None,
+            protected_fee_switch: None,
         }
     }
 
@@ -92,6 +98,26 @@ impl RoyaltyPoolExecutionProfiles {
         profiles.protected_v1 = Some(execution_v1_bundle(protected, true));
         profiles.protected_v2 = Some(execution_v2_bundle(protected));
         profiles
+    }
+
+    pub fn with_protected_fee_switch(
+        mut self,
+        regular: DeployedValidatorErased,
+        bi_dir: DeployedValidatorErased,
+    ) -> Self {
+        self.protected_fee_switch = Some((regular, bi_dir));
+        self
+    }
+
+    pub fn resolve_fee_switch(
+        &self,
+        kind: ProtectedFeeSwitchKind,
+    ) -> Option<&DeployedValidatorErased> {
+        let (regular, bi_dir) = self.protected_fee_switch.as_ref()?;
+        Some(match kind {
+            ProtectedFeeSwitchKind::Regular => regular,
+            ProtectedFeeSwitchKind::BiDir => bi_dir,
+        })
     }
 
     pub fn resolve(&self, kind: RoyaltyPoolKind) -> Option<&RoyaltyPoolExecutionBundle> {
@@ -113,6 +139,7 @@ impl RoyaltyPoolProfiles {
             legacy_v2: v2_bundle(legacy),
             protected_v1: None,
             protected_v2: None,
+            protected_fee_switch: None,
         }
     }
 
@@ -124,6 +151,32 @@ impl RoyaltyPoolProfiles {
         profiles.protected_v1 = Some(v1_bundle(protected, true));
         profiles.protected_v2 = Some(v2_bundle(protected));
         profiles
+    }
+
+    pub fn with_protected_fee_switch(mut self, deployment: &DeployedValidators) -> Self {
+        self.protected_fee_switch = deployment.protected_fee_switch.as_ref().map(|protected| {
+            (protected.pool.clone(), protected.pool_bi_dir.clone())
+        });
+        self
+    }
+
+    pub fn resolve_fee_switch(&self, hash: &ScriptHash) -> Option<ProtectedFeeSwitchKind> {
+        let (regular, bi_dir) = self.protected_fee_switch.as_ref()?;
+        if regular.hash == *hash {
+            Some(ProtectedFeeSwitchKind::Regular)
+        } else if bi_dir.hash == *hash {
+            Some(ProtectedFeeSwitchKind::BiDir)
+        } else {
+            None
+        }
+    }
+
+    pub fn fee_switch_ref(&self, kind: ProtectedFeeSwitchKind) -> Option<&DeployedValidatorRef> {
+        let (regular, bi_dir) = self.protected_fee_switch.as_ref()?;
+        Some(match kind {
+            ProtectedFeeSwitchKind::Regular => regular,
+            ProtectedFeeSwitchKind::BiDir => bi_dir,
+        })
     }
 
     pub fn resolve(&self, hash: &ScriptHash) -> Option<RoutedRoyaltyPool> {
@@ -266,6 +319,24 @@ mod tests {
 
     fn read(path: &str) -> DeployedValidators {
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn single_mainnet_config_routes_protected_and_legacy_pool_hashes() {
+        let deployment = read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../bloom-cardano-agent/resources/mainnet.deployment.json"
+        ));
+        let protected = deployment.protected_royalty_profile().unwrap();
+        let profiles = RoyaltyPoolProfiles::with_protected(&deployment, &protected)
+            .with_protected_fee_switch(&deployment);
+        assert_eq!(profiles.resolve(&deployment.royalty_pool.hash).unwrap().kind, RoyaltyPoolKind::LegacyV1);
+        assert_eq!(profiles.resolve(&protected.royalty_pool_ledger_fixed.hash).unwrap().kind, RoyaltyPoolKind::ProtectedV1);
+        assert_eq!(profiles.resolve(&protected.royalty_pool_v2.hash).unwrap().kind, RoyaltyPoolKind::ProtectedV2);
+        let fee_switch = deployment.protected_fee_switch.as_ref().unwrap();
+        assert_eq!(profiles.resolve_fee_switch(&fee_switch.pool.hash), Some(super::ProtectedFeeSwitchKind::Regular));
+        assert_eq!(profiles.resolve_fee_switch(&fee_switch.pool_bi_dir.hash), Some(super::ProtectedFeeSwitchKind::BiDir));
+        assert_eq!(profiles.resolve_fee_switch(&deployment.const_fn_pool_fee_switch.hash), None);
     }
 
     #[test]

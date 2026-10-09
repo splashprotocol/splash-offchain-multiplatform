@@ -7,6 +7,9 @@ use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2,
 };
+use crate::deployment::royalty_profiles::{
+    ProtectedFeeSwitchKind, RoyaltyPoolExecutionProfiles, RoyaltyPoolProfiles,
+};
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::{
     classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
@@ -114,6 +117,8 @@ pub enum FeeSwitchPoolVer {
     V1,
     V2,
     BiDirV1,
+    ProtectedV1,
+    ProtectedBiDirV1,
 }
 
 impl FeeSwitchPoolVer {
@@ -121,7 +126,8 @@ impl FeeSwitchPoolVer {
     where
         Ctx: Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+            + Has<RoyaltyPoolProfiles>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -146,6 +152,11 @@ impl FeeSwitchPoolVer {
                 == *this_hash
             {
                 return Some(FeeSwitchPoolVer::BiDirV1);
+            } else if let Some(kind) = ctx.select::<RoyaltyPoolProfiles>().resolve_fee_switch(this_hash) {
+                return Some(match kind {
+                    ProtectedFeeSwitchKind::Regular => FeeSwitchPoolVer::ProtectedV1,
+                    ProtectedFeeSwitchKind::BiDir => FeeSwitchPoolVer::ProtectedBiDirV1,
+                });
             }
         };
         None
@@ -193,6 +204,7 @@ where
     Ctx: Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -220,9 +232,20 @@ where
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                         .marginal_cost
                 }
+                FeeSwitchPoolVer::ProtectedV1 | FeeSwitchPoolVer::ProtectedBiDirV1 => {
+                    let kind = if pool_ver == FeeSwitchPoolVer::ProtectedV1 {
+                        ProtectedFeeSwitchKind::Regular
+                    } else {
+                        ProtectedFeeSwitchKind::BiDir
+                    };
+                    ctx.select::<RoyaltyPoolProfiles>()
+                        .fee_switch_ref(kind)?
+                        .marginal_cost
+                        .unwrap_or(ExUnits { mem: 0, steps: 0 })
+                }
             };
             match pool_ver {
-                FeeSwitchPoolVer::V1 | FeeSwitchPoolVer::V2 => {
+                FeeSwitchPoolVer::V1 | FeeSwitchPoolVer::V2 | FeeSwitchPoolVer::ProtectedV1 => {
                     let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
@@ -258,7 +281,7 @@ where
                         });
                     }
                 }
-                FeeSwitchPoolVer::BiDirV1 => {
+                FeeSwitchPoolVer::BiDirV1 | FeeSwitchPoolVer::ProtectedBiDirV1 => {
                     let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
@@ -346,7 +369,8 @@ impl<Ctx> RequiresValidator<Ctx> for FeeSwitchPool
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -359,6 +383,16 @@ where
             FeeSwitchPoolVer::BiDirV1 => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                 .erased(),
+            FeeSwitchPoolVer::ProtectedV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve_fee_switch(ProtectedFeeSwitchKind::Regular)
+                .expect("protected FeeSwitch profile must be configured")
+                .clone(),
+            FeeSwitchPoolVer::ProtectedBiDirV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve_fee_switch(ProtectedFeeSwitchKind::BiDir)
+                .expect("protected BFee profile must be configured")
+                .clone(),
         }
     }
 }

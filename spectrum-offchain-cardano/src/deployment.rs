@@ -100,7 +100,7 @@ pub struct DeployedValidatorRef {
     pub marginal_cost: Option<ExUnits>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidators {
     pub limit_order_witness: DeployedValidatorRef,
@@ -142,6 +142,66 @@ pub struct DeployedValidators {
     pub royalty_pool_redeem_v2: DeployedValidatorRef,
     pub royalty_pool_withdraw_contract_v2: DeployedValidatorRef,
     pub royalty_pool_dao_contract_v2: DeployedValidatorRef,
+    #[serde(default)]
+    pub protected_royalty: Option<ProtectedRoyaltyValidators>,
+    #[serde(default)]
+    pub protected_fee_switch: Option<ProtectedFeeSwitchValidators>,
+}
+
+#[derive(serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectedRoyaltyValidators {
+    pub pool_v1: DeployedValidatorRef,
+    pub pool_v2: DeployedValidatorRef,
+    pub deposit_v1: DeployedValidatorRef,
+    pub deposit_v2: DeployedValidatorRef,
+    pub redeem_v1: DeployedValidatorRef,
+    pub redeem_v2: DeployedValidatorRef,
+    pub dao_v1: DeployedValidatorRef,
+    pub dao_v2: DeployedValidatorRef,
+    pub dao_request_v1: DeployedValidatorRef,
+    pub dao_request_v2: DeployedValidatorRef,
+    pub withdraw_v1: DeployedValidatorRef,
+    pub withdraw_request_v1: DeployedValidatorRef,
+    pub withdraw_request_v2: DeployedValidatorRef,
+}
+
+#[derive(serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectedFeeSwitchValidators {
+    pub pool: DeployedValidatorRef,
+    pub pool_bi_dir: DeployedValidatorRef,
+    pub dao_policy: DeployedValidatorRef,
+    pub dao_policy_bi_dir: DeployedValidatorRef,
+}
+
+impl DeployedValidators {
+    pub fn protected_royalty_profile(&self) -> Option<Self> {
+        let protected = self.protected_royalty.as_ref()?;
+        let mut profile = self.clone();
+        profile.royalty_pool_ledger_fixed = protected.pool_v1.clone();
+        profile.royalty_pool_v2 = protected.pool_v2.clone();
+        profile.royalty_pool_deposit = protected.deposit_v1.clone();
+        profile.royalty_pool_deposit_v2 = protected.deposit_v2.clone();
+        profile.royalty_pool_redeem = protected.redeem_v1.clone();
+        profile.royalty_pool_redeem_v2 = protected.redeem_v2.clone();
+        profile.royalty_pool_dao_contract = protected.dao_v1.clone();
+        profile.royalty_pool_dao_contract_v2 = protected.dao_v2.clone();
+        profile.royalty_pool_dao_request = protected.dao_request_v1.clone();
+        profile.royalty_pool_v2_dao_request = protected.dao_request_v2.clone();
+        profile.royalty_pool_withdraw_contract_ledger_fixed = protected.withdraw_v1.clone();
+        profile.royalty_pool_withdraw_request = protected.withdraw_request_v1.clone();
+        profile.royalty_pool_v2_withdraw_request = protected.withdraw_request_v2.clone();
+        Some(profile)
+    }
+
+    pub fn protected_fee_switch_profile(&self) -> Option<Self> {
+        let protected = self.protected_fee_switch.as_ref()?;
+        let mut profile = self.clone();
+        profile.const_fn_pool_fee_switch = protected.pool.clone();
+        profile.const_fn_pool_fee_switch_bidir_fee = protected.pool_bi_dir.clone();
+        Some(profile)
+    }
 }
 
 impl From<&DeployedValidators> for ProtocolScriptHashes {
@@ -632,6 +692,42 @@ impl ProtocolDeployment {
 
 pub trait RequiresValidator<Ctx> {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased;
+}
+
+#[cfg(test)]
+mod mainnet_release_config_tests {
+    use super::DeployedValidators;
+    use serde_json::Value;
+
+    #[test]
+    fn mainnet_deployment_contains_legacy_and_new_script_references() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../bloom-cardano-agent/resources/mainnet.deployment.json"
+        );
+        let config: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(config["constFnPoolFeeSwitch"]["hash"], "f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3ccc");
+        assert_eq!(config["protectedFeeSwitch"]["pool"]["hash"], "9af018bcc2b47a139a1dbf7121035c4ede6a3775fc3ab3788a6e0f1f");
+        assert_eq!(config["protectedFeeSwitch"]["poolBiDir"]["hash"], "a32d92afdbcf2d90aeab7a7876423425d41f376542bf5b7edf8e7eab");
+        assert_eq!(config["protectedFeeSwitch"]["daoPolicy"]["hash"], "038c5045480b4e31f8cdecfc0c49a342e8a7411035eff2184201ae93");
+        assert_eq!(config["protectedFeeSwitch"]["daoPolicyBiDir"]["hash"], "f5981b0103830fdd8aed2f6774bb355878448547810ca3b78453500c");
+        assert_eq!(config["protectedRoyalty"]["poolV1"]["hash"], "72ed0eaa3594bfadd006992ed574dee50bbced070955c0c296fb8f8e");
+        assert_eq!(config["protectedRoyalty"]["poolV2"]["hash"], "ca6c752e43e47c6287d137b6d3f0f0d22a5c23b61910e3abcdcf81b2");
+        for script in ["pool", "poolBiDir", "daoPolicy", "daoPolicyBiDir"] {
+            assert!(config["protectedFeeSwitch"][script]["referenceUtxo"]["txHash"].is_string());
+        }
+        for script in ["poolV1", "poolV2", "depositV1", "depositV2", "redeemV1", "redeemV2", "daoV1", "daoV2", "daoRequestV1", "daoRequestV2", "withdrawV1", "withdrawRequestV1", "withdrawRequestV2"] {
+            assert!(config["protectedRoyalty"][script]["referenceUtxo"]["txHash"].is_string(), "missing {script}");
+        }
+    }
+
+    #[test]
+    fn mainnet_deployment_deserializes_both_routing_profiles() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../bloom-cardano-agent/resources/mainnet.deployment.json");
+        let config: DeployedValidators = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_ne!(config.royalty_pool_ledger_fixed.hash, config.protected_royalty.as_ref().unwrap().pool_v1.hash);
+        assert_ne!(config.const_fn_pool_fee_switch.hash, config.protected_fee_switch.as_ref().unwrap().pool.hash);
+    }
 }
 
 #[macro_export]

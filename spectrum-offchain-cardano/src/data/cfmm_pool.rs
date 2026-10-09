@@ -1069,6 +1069,29 @@ mod tests {
         assert_eq!(pool, None);
     }
 
+    #[test]
+    fn mainnet_fee_switch_routing_recognizes_both_protected_pool_scripts() {
+        use cml_chain::address::{Address, EnterpriseAddress};
+        use cml_chain::certs::StakeCredential;
+        use crate::data::cfmm_pool::fee_switch_pool::FeeSwitchPoolVer;
+
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"), "/../bloom-cardano-agent/resources/mainnet.deployment.json"
+        )).unwrap();
+        let deployment: DeployedValidators = serde_json::from_str(&raw).unwrap();
+        let protected = deployment.protected_fee_switch.as_ref().unwrap();
+        let ctx = Ctx {
+            scripts: ProtocolScriptHashes::from(&deployment),
+            royalty_profiles: crate::deployment::royalty_profiles::RoyaltyPoolProfiles::legacy_only(&deployment)
+                .with_protected_fee_switch(&deployment),
+            bounds: PoolValidation { min_n2t_lovelace: 150_000_000, min_t2t_lovelace: 10_000_000 },
+        };
+        let regular = Address::Enterprise(EnterpriseAddress::new(1, StakeCredential::new_script(protected.pool.hash)));
+        let bi_dir = Address::Enterprise(EnterpriseAddress::new(1, StakeCredential::new_script(protected.pool_bi_dir.hash)));
+        assert_eq!(FeeSwitchPoolVer::try_from_address(&regular, &ctx), Some(FeeSwitchPoolVer::ProtectedV1));
+        assert_eq!(FeeSwitchPoolVer::try_from_address(&bi_dir, &ctx), Some(FeeSwitchPoolVer::ProtectedBiDirV1));
+    }
+
     const POOL_UTXO: &str = "a300583931f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3cccb2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a0115a2e9a3581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7ca1444e696b65190962581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f4a14b4e696b655f4144415f4c511b7fffffffffffffff581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c1591a14c4e696b655f4144415f4e465401028201d81858dcd8798bd87982581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c15914c4e696b655f4144415f4e4654d879824040d87982581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c444e696b65d87982581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f44b4e696b655f4144415f4c511a00017f9818b41a0115a2e919096281d87981d87a81581cc24a311347be1bc3ebfa6f18cb14c7e6bbc2a245725fd9a8a1ccaaea00581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133";
 
     #[test]

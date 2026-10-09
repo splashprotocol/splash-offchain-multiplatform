@@ -73,7 +73,9 @@ use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::deployment::royalty_profiles::{RoyaltyPoolExecutionProfiles, RoyaltyPoolProfiles};
-use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
+use spectrum_offchain_cardano::deployment::{
+    DeployedValidator, DeployedValidators, ProtocolDeployment, ProtocolScriptHashes, ProtocolValidator,
+};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerChannel};
@@ -98,10 +100,14 @@ async fn main() {
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
-    let protected_royalty_deployment = args.protected_royalty_deployment_path.as_ref().map(|path| {
-        let raw = std::fs::read_to_string(path).expect("Cannot load protected royalty deployment file");
-        serde_json::from_str::<DeployedValidators>(&raw).expect("Invalid protected royalty deployment file")
-    });
+    let protected_royalty_deployment = args
+        .protected_royalty_deployment_path
+        .as_ref()
+        .map(|path| {
+            let raw = std::fs::read_to_string(path).expect("Cannot load protected royalty deployment file");
+            serde_json::from_str::<DeployedValidators>(&raw).expect("Invalid protected royalty deployment file")
+        })
+        .or_else(|| deployment.protected_royalty_profile());
 
     let raw_validation_rules =
         std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
@@ -122,16 +128,33 @@ async fn main() {
     let royalty_profiles = protected_royalty_deployment
         .as_ref()
         .map(|protected| RoyaltyPoolProfiles::with_protected(&deployment, protected))
-        .unwrap_or_else(|| RoyaltyPoolProfiles::legacy_only(&deployment));
+        .unwrap_or_else(|| RoyaltyPoolProfiles::legacy_only(&deployment))
+        .with_protected_fee_switch(&deployment);
+    let protected_fee_switch = deployment.protected_fee_switch.clone();
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
     let protected_protocol_deployment = match protected_royalty_deployment {
         Some(protected) => Some(ProtocolDeployment::unsafe_pull(protected, &explorer).await),
         None => None,
     };
-    let royalty_execution_profiles = protected_protocol_deployment
+    let mut royalty_execution_profiles = protected_protocol_deployment
         .as_ref()
         .map(|protected| RoyaltyPoolExecutionProfiles::with_protected(&protocol_deployment, protected))
         .unwrap_or_else(|| RoyaltyPoolExecutionProfiles::legacy_only(&protocol_deployment));
+    if let Some(protected) = protected_fee_switch {
+        let regular = DeployedValidator::<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>::unsafe_pull(
+            protected.pool,
+            &explorer,
+        )
+        .await
+        .erased();
+        let bi_dir = DeployedValidator::<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>::unsafe_pull(
+            protected.pool_bi_dir,
+            &explorer,
+        )
+        .await
+        .erased();
+        royalty_execution_profiles = royalty_execution_profiles.with_protected_fee_switch(regular, bi_dir);
+    }
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
