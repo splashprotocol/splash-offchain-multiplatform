@@ -1,0 +1,33 @@
+{
+  "network": "mainnet",
+  "references": {
+    "pool": {
+      "hash": "9af018bcc2b47a139a1dbf7121035c4ede6a3775fc3ab3788a6e0f1f",
+      "referenceUtxo": {
+        "txHash": "dbd29fd5eafbc3eeafad1cd26c330fe82f024639e69fade54f350a736b4f0af9",
+        "outputIndex": 0
+      }
+    },
+    "pool-bfee": {
+      "hash": "a32d92afdbcf2d90aeab7a7876423425d41f376542bf5b7edf8e7eab",
+      "referenceUtxo": {
+        "txHash": "48220d87ecca32ff0277db39eaea26fabb7dda8e46724bec3881afeeb5e5dc90",
+        "outputIndex": 0
+      }
+    },
+    "pool-dao-policy": {
+      "hash": "038c5045480b4e31f8cdecfc0c49a342e8a7411035eff2184201ae93",
+      "referenceUtxo": {
+        "txHash": "96db043e2b48b736ef88fe87e7f60ecfd8d58fd5b99d74ce6f3ddd54fe38fc16",
+        "outputIndex": 1
+      }
+    },
+    "pool-bfee-dao-policy": {
+      "hash": "f5981b0103830fdd8aed2f6774bb355878448547810ca3b78453500c",
+      "referenceUtxo": {
+        "txHash": "dad9315decc87ff17930bae9e7870400014f230d8e41dd01cf9bf413fc705b40",
+        "outputIndex": 0
+      }
+    }
+  }
+}
