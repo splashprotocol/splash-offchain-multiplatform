@@ -1092,6 +1092,72 @@ mod tests {
         assert_eq!(FeeSwitchPoolVer::try_from_address(&bi_dir, &ctx), Some(FeeSwitchPoolVer::ProtectedBiDirV1));
     }
 
+    #[test]
+    fn parses_four_confirmed_mainnet_protected_pool_outputs() {
+        // Outputs copied from the Mainnet node through N2C ChainSync:
+        // pool: 7d8454f89d24de81cbeea0979384affddfe0cb8bf11850613cd1acb1f9c363ab#0
+        // other three: 73db4c6e5199221b67460cfe806ae33e04699d435dfae59ecebc3d44b420d5d6#0-2
+        use crate::deployment::royalty_profiles::{RoyaltyPoolKind, RoyaltyPoolProfiles};
+        use serde_json::Value;
+
+        let deployment: DeployedValidators = serde_json::from_str(include_str!(
+            "../../../bloom-cardano-agent/resources/mainnet.deployment.json"
+        ))
+        .unwrap();
+        let protected = deployment.protected_royalty_profile().unwrap();
+        let ctx = Ctx {
+            scripts: ProtocolScriptHashes::from(&deployment),
+            royalty_profiles: RoyaltyPoolProfiles::with_protected(&deployment, &protected)
+                .with_protected_fee_switch(&deployment),
+            bounds: PoolValidation {
+                min_n2t_lovelace: 150_000_000,
+                min_t2t_lovelace: 10_000_000,
+            },
+        };
+        let snapshots: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/mainnet_protected_pool_outputs_20261010.json"
+        ))
+        .unwrap();
+        for (name, expected_kind) in [
+            ("pool", "regular"),
+            ("pool-bfee", "bidir"),
+            ("royalty-pool", "royalty-v1"),
+            ("double-royalty-pool", "royalty-v2"),
+        ] {
+            let cbor = hex::decode(snapshots[name].as_str().unwrap()).unwrap();
+            let output = TransactionOutput::from_cbor_bytes(&cbor).unwrap();
+            let parsed = ConstFnPool::try_from_ledger(&output, &ctx)
+                .unwrap_or_else(|| panic!("{name} was not recognized"));
+            match (parsed, expected_kind) {
+                (ConstFnPool::FeeSwitch(p), "regular") => {
+                    assert_eq!(p.ver, FeeSwitchPoolVer::ProtectedV1);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                (ConstFnPool::FeeSwitch(p), "bidir") => {
+                    assert_eq!(p.ver, FeeSwitchPoolVer::ProtectedBiDirV1);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                (ConstFnPool::Royalty(p), "royalty-v1") => {
+                    assert_eq!(p.kind, RoyaltyPoolKind::ProtectedV1);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                (ConstFnPool::Royalty(p), "royalty-v2") => {
+                    assert_eq!(p.kind, RoyaltyPoolKind::ProtectedV2);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                _ => panic!("{name} was routed to the wrong pool type"),
+            }
+        }
+    }
+
     const POOL_UTXO: &str = "a300583931f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3cccb2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a0115a2e9a3581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7ca1444e696b65190962581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f4a14b4e696b655f4144415f4c511b7fffffffffffffff581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c1591a14c4e696b655f4144415f4e465401028201d81858dcd8798bd87982581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c15914c4e696b655f4144415f4e4654d879824040d87982581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c444e696b65d87982581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f44b4e696b655f4144415f4c511a00017f9818b41a0115a2e919096281d87981d87a81581cc24a311347be1bc3ebfa6f18cb14c7e6bbc2a245725fd9a8a1ccaaea00581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133";
 
     #[test]
