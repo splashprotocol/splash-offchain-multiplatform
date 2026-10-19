@@ -32,7 +32,7 @@ use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::data::cfmm_pool::classic_pool::ClassicPool;
-use crate::data::cfmm_pool::fee_switch_pool::{unsafe_update_pd_fee_switch, FeeSwitchPool};
+use crate::data::cfmm_pool::fee_switch_pool::FeeSwitchPool;
 use crate::data::cfmm_pool::royalty_pool::{
     unsafe_update_pd_royalty, unsafe_update_pd_royalty_v2, RoyaltyPool, RoyaltyPoolVer,
 };
@@ -193,11 +193,7 @@ impl ConstFnPool {
 
     pub fn unsafe_datum_update(&self, raw_datum: &mut PlutusData) {
         match self {
-            ConstFnPool::FeeSwitch(fee_switch) => unsafe_update_pd_fee_switch(
-                raw_datum,
-                fee_switch.treasury_x.untag(),
-                fee_switch.treasury_y.untag(),
-            ),
+            ConstFnPool::FeeSwitch(fee_switch) => fee_switch.unsafe_datum_update(raw_datum),
             ConstFnPool::Royalty(royalty_pool) => match royalty_pool.ver {
                 RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => unsafe_update_pd_royalty(
                     raw_datum,
@@ -897,6 +893,101 @@ mod tests {
             nonce: 0,
             stake_part_script_hash: Some(ScriptHash::from([0; 28])),
         }
+    }
+
+    #[test]
+    fn protected_bfee_swap_matches_deployed_accounting() {
+        use crate::data::pair::order_canonical;
+        // Non-ADA assets exercise both canonical orderings without ADA output floors.
+        for reverse in [false, true] {
+            let mut pool = gen_ada_token_pool(1_000_123, 2_000_456, 1000, 99500, 97000, 5000, 123, 456, 0);
+            pool.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+            let token = |byte| {
+                AssetClass::Token(Token(
+                    ScriptHash::from([byte; 28]),
+                    AssetName::from_utf8("asset".into()),
+                ))
+            };
+            pool.asset_x = TaggedAssetClass::new(token(if reverse { 2 } else { 1 }));
+            pool.asset_y = TaggedAssetClass::new(token(if reverse { 1 } else { 2 }));
+            let x_is_base =
+                order_canonical(pool.asset_x.untag(), pool.asset_y.untag())[0] == pool.asset_x.untag();
+            for x_in in [true, false] {
+                let input = if x_in == x_is_base {
+                    Ask(100_000)
+                } else {
+                    Bid(100_000)
+                };
+                let Next::Succ(after) = pool.swap(input) else {
+                    panic!()
+                };
+                if x_in {
+                    assert_eq!(after.reserves_x.untag(), 1_100_123);
+                    assert_eq!(after.reserves_y.untag(), 2_000_456 - 180_991);
+                    assert_eq!(after.treasury_x.untag(), 123);
+                    assert_eq!(after.treasury_y.untag(), 456 + 279);
+                } else {
+                    assert_eq!(after.reserves_y.untag(), 2_100_456);
+                    assert_eq!(after.reserves_x.untag(), 1_000_123 - 46_256);
+                    assert_eq!(after.treasury_y.untag(), 456);
+                    assert_eq!(after.treasury_x.untag(), 123 + 11);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn protected_bfee_datum_preserves_fee_and_other_fields() {
+        use cml_chain::plutus::PlutusData;
+        use spectrum_cardano_lib::plutus_data::{
+            ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension,
+        };
+        let mut pool = gen_ada_token_pool(10_000_000, 20_000_000, 1000, 99500, 97000, 5000, 123, 456, 0);
+        pool.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+        // A complete BFee-shaped datum; untouched fields use distinct sentinels.
+        let mut datum = PlutusData::from_cbor_bytes(
+            &hex::decode("d8798c000102031a000184ac1a00017ae8191388187b1901c8090a0b").unwrap(),
+        )
+        .unwrap();
+        let before = datum.clone();
+        pool.treasury_x = TaggedAmount::new(789);
+        pool.treasury_y = TaggedAmount::new(987);
+        ConstFnPool::FeeSwitch(pool).unsafe_datum_update(&mut datum);
+        let mut expected = before;
+        let c = expected.get_constr_pd_mut().unwrap();
+        c.set_field(7, 789u64.into_pd());
+        c.set_field(8, 987u64.into_pd());
+        assert_eq!(datum, expected);
+    }
+
+    #[test]
+    fn protected_bfee_rounding_and_backing_caps() {
+        let mut pool = gen_ada_token_pool(1_000_000, 1_000_000, 1000, 100000, 97000, 9999, 0, 0, 0);
+        pool.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+        let Next::Succ(after) = pool.swap(Ask(325)) else {
+            panic!()
+        };
+        assert_eq!(pool.reserves_y.untag() - after.reserves_y.untag(), 324);
+        assert_eq!(after.treasury_y.untag(), 1);
+
+        pool.reserves_y = TaggedAmount::new(1000);
+        pool.lp_fee_y = Ratio::new_raw(50000, 100000);
+        pool.treasury_fee = Ratio::new_raw(100000, 100000);
+        let Next::Succ(after) = pool.swap(Ask(1_000_000)) else {
+            panic!()
+        };
+        assert_eq!(after.reserves_y.untag(), 501);
+        assert_eq!(after.treasury_y.untag(), 499);
+        assert!(after.reserves_y > after.treasury_y);
+
+        let mut native = gen_ada_token_pool(3_100_000, 2_000_000, 1000, 50000, 97000, 100000, 200_000, 0, 0);
+        native.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+        assert_eq!(native.estimated_trade(Bid(100_000)).unwrap().output, 0);
+        native.treasury_x = TaggedAmount::new(0);
+        let Next::Succ(after) = native.swap(Bid(1_000_000)) else {
+            panic!()
+        };
+        assert_eq!((after.reserves_x - after.treasury_x).untag(), 3_000_000);
     }
 
     #[test]

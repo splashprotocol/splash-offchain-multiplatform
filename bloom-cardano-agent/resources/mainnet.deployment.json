@@ -741,12 +741,12 @@
         "outputIndex": 0
       },
       "cost": {
-        "mem": 600000,
-        "steps": 250000000
+        "mem": 2000000,
+        "steps": 1200000000
       },
       "marginalCost": {
-        "mem": 15000,
-        "steps": 5000000
+        "mem": 600000,
+        "steps": 240000000
       }
     },
     "poolBiDir": {
@@ -756,12 +756,12 @@
         "outputIndex": 0
       },
       "cost": {
-        "mem": 500000,
-        "steps": 200000000
+        "mem": 2000000,
+        "steps": 1200000000
       },
       "marginalCost": {
-        "mem": 0,
-        "steps": 0
+        "mem": 600000,
+        "steps": 240000000
       }
     },
     "daoPolicy": {
