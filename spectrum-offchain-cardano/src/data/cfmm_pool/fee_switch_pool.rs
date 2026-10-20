@@ -4,6 +4,9 @@ use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{ImmutablePoolUtxo, Lq, PoolValidation, Rx, Ry};
 use crate::data::PoolId;
+use crate::deployment::royalty_profiles::{
+    ProtectedFeeSwitchKind, RoyaltyPoolExecutionProfiles, RoyaltyPoolProfiles,
+};
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2,
 };
@@ -109,11 +112,20 @@ pub fn unsafe_update_pd_fee_switch(data: &mut PlutusData, treasury_x: u64, treas
     cpd.set_field(7, treasury_y.into_pd());
 }
 
+/// The extra directional fee shifts the treasury counters in the BFee datum.
+pub fn unsafe_update_pd_fee_switch_bidir(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+    let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(7, treasury_x.into_pd());
+    cpd.set_field(8, treasury_y.into_pd());
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FeeSwitchPoolVer {
     V1,
     V2,
     BiDirV1,
+    ProtectedV1,
+    ProtectedBiDirV1,
 }
 
 impl FeeSwitchPoolVer {
@@ -121,7 +133,8 @@ impl FeeSwitchPoolVer {
     where
         Ctx: Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+            + Has<RoyaltyPoolProfiles>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -146,6 +159,11 @@ impl FeeSwitchPoolVer {
                 == *this_hash
             {
                 return Some(FeeSwitchPoolVer::BiDirV1);
+            } else if let Some(kind) = ctx.select::<RoyaltyPoolProfiles>().resolve_fee_switch(this_hash) {
+                return Some(match kind {
+                    ProtectedFeeSwitchKind::Regular => FeeSwitchPoolVer::ProtectedV1,
+                    ProtectedFeeSwitchKind::BiDir => FeeSwitchPoolVer::ProtectedBiDirV1,
+                });
             }
         };
         None
@@ -174,6 +192,44 @@ pub struct FeeSwitchPool {
     pub stake_part_script_hash: Option<ScriptHash>,
 }
 
+impl FeeSwitchPool {
+    /// Protected BFee accounts for treasury on the asset leaving the pool.
+    fn output_treasury_fee(&self, output: u64, output_fee: Ratio<u64>) -> u64 {
+        ((output as u128
+            * *self.treasury_fee.numer() as u128
+            * (*output_fee.denom() - *output_fee.numer()) as u128)
+            / (*self.treasury_fee.denom() as u128 * *output_fee.numer() as u128)) as u64
+    }
+
+    fn protected_bidir_output_cap(&self, output_asset: spectrum_cardano_lib::AssetClass) -> u64 {
+        let (reserve, fee) = if output_asset == self.asset_x.untag() {
+            ((self.reserves_x - self.treasury_x).untag(), self.lp_fee_x)
+        } else {
+            ((self.reserves_y - self.treasury_y).untag(), self.lp_fee_y)
+        };
+        let m = *self.treasury_fee.denom() as u128 * *fee.numer() as u128;
+        let n = *self.treasury_fee.numer() as u128 * (*fee.denom() - *fee.numer()) as u128;
+        // Retain positive pure token backing and the existing pure ADA floor,
+        // including the treasury increment retained in the output asset.
+        let floor = if output_asset.is_native() {
+            UNTOUCHABLE_LOVELACE_AMOUNT
+        } else {
+            1
+        };
+        let removable = reserve.saturating_sub(floor) as u128;
+        (((removable + 1) * m - 1) / (m + n)) as u64
+    }
+
+    pub fn unsafe_datum_update(&self, data: &mut PlutusData) {
+        match self.ver {
+            FeeSwitchPoolVer::ProtectedBiDirV1 => {
+                unsafe_update_pd_fee_switch_bidir(data, self.treasury_x.untag(), self.treasury_y.untag())
+            }
+            _ => unsafe_update_pd_fee_switch(data, self.treasury_x.untag(), self.treasury_y.untag()),
+        }
+    }
+}
+
 impl Display for FeeSwitchPool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*format!(
@@ -193,6 +249,7 @@ where
     Ctx: Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -220,9 +277,20 @@ where
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                         .marginal_cost
                 }
+                FeeSwitchPoolVer::ProtectedV1 | FeeSwitchPoolVer::ProtectedBiDirV1 => {
+                    let kind = if pool_ver == FeeSwitchPoolVer::ProtectedV1 {
+                        ProtectedFeeSwitchKind::Regular
+                    } else {
+                        ProtectedFeeSwitchKind::BiDir
+                    };
+                    ctx.select::<RoyaltyPoolProfiles>()
+                        .fee_switch_ref(kind)?
+                        .marginal_cost
+                        .unwrap_or(ExUnits { mem: 0, steps: 0 })
+                }
             };
             match pool_ver {
-                FeeSwitchPoolVer::V1 | FeeSwitchPoolVer::V2 => {
+                FeeSwitchPoolVer::V1 | FeeSwitchPoolVer::V2 | FeeSwitchPoolVer::ProtectedV1 => {
                     let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
@@ -258,8 +326,17 @@ where
                         });
                     }
                 }
-                FeeSwitchPoolVer::BiDirV1 => {
+                FeeSwitchPoolVer::BiDirV1 | FeeSwitchPoolVer::ProtectedBiDirV1 => {
                     let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
+                    if pool_ver == FeeSwitchPoolVer::ProtectedBiDirV1
+                        && (conf.lp_fee_num_x == 0
+                            || conf.lp_fee_num_x > FEE_DEN
+                            || conf.lp_fee_num_y == 0
+                            || conf.lp_fee_num_y > FEE_DEN
+                            || conf.treasury_fee_num > FEE_DEN)
+                    {
+                        return None;
+                    }
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
                     let reserves_x = value.amount_of(conf.asset_x.into())?;
@@ -306,16 +383,38 @@ impl AMMOps for FeeSwitchPool {
         base_asset: TaggedAssetClass<Base>,
         base_amount: TaggedAmount<Base>,
     ) -> TaggedAmount<Quote> {
-        classic_cfmm_output_amount(
+        let protected_bidir = self.ver == FeeSwitchPoolVer::ProtectedBiDirV1;
+        let (fee_x, fee_y) = if protected_bidir {
+            (self.lp_fee_x, self.lp_fee_y)
+        } else {
+            (
+                self.lp_fee_x - self.treasury_fee,
+                self.lp_fee_y - self.treasury_fee,
+            )
+        };
+        let output_asset = if base_asset.untag() == self.asset_x.untag() {
+            self.asset_y.untag()
+        } else {
+            self.asset_x.untag()
+        };
+        if protected_bidir && self.protected_bidir_output_cap(output_asset) == 0 {
+            return TaggedAmount::new(0);
+        }
+        let amount = classic_cfmm_output_amount(
             self.asset_x,
             self.asset_y,
             self.reserves_x - self.treasury_x,
             self.reserves_y - self.treasury_y,
             base_asset,
             base_amount,
-            self.lp_fee_x - self.treasury_fee,
-            self.lp_fee_y - self.treasury_fee,
-        )
+            fee_x,
+            fee_y,
+        );
+        if protected_bidir {
+            TaggedAmount::new(amount.untag().min(self.protected_bidir_output_cap(output_asset)))
+        } else {
+            amount
+        }
     }
 
     fn reward_lp(
@@ -346,7 +445,8 @@ impl<Ctx> RequiresValidator<Ctx> for FeeSwitchPool
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -359,6 +459,16 @@ where
             FeeSwitchPoolVer::BiDirV1 => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                 .erased(),
+            FeeSwitchPoolVer::ProtectedV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve_fee_switch(ProtectedFeeSwitchKind::Regular)
+                .expect("protected FeeSwitch profile must be configured")
+                .clone(),
+            FeeSwitchPoolVer::ProtectedBiDirV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve_fee_switch(ProtectedFeeSwitchKind::BiDir)
+                .expect("protected BFee profile must be configured")
+                .clone(),
         }
     }
 }
@@ -376,6 +486,22 @@ impl MakerBehavior for FeeSwitchPool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
+        if self.ver == FeeSwitchPoolVer::ProtectedBiDirV1 {
+            let input_asset = match input {
+                OnSide::Bid(_) => quote,
+                OnSide::Ask(_) => base,
+            };
+            if input_asset == x {
+                self.reserves_x += TaggedAmount::new(input.unwrap());
+                self.reserves_y -= TaggedAmount::new(output);
+                self.treasury_y += TaggedAmount::new(self.output_treasury_fee(output, self.lp_fee_y));
+            } else {
+                self.reserves_y += TaggedAmount::new(input.unwrap());
+                self.reserves_x -= TaggedAmount::new(output);
+                self.treasury_x += TaggedAmount::new(self.output_treasury_fee(output, self.lp_fee_x));
+            }
+            return Next::Succ(self);
+        }
         let (base_reserves, base_treasury, quote_reserves, quote_treasury) = if x == base {
             (
                 self.reserves_x.as_mut(),
@@ -483,9 +609,17 @@ impl MarketMaker for FeeSwitchPool {
         let tradable_x_reserves = BigNumber::from(tradable_x_reserves_int as f64);
         let tradable_y_reserves_int = (self.reserves_y - self.treasury_y).untag();
         let tradable_y_reserves = BigNumber::from(tradable_y_reserves_int as f64);
-        let raw_fee_x = self.lp_fee_x.checked_sub(&self.treasury_fee)?;
+        let raw_fee_x = if self.ver == FeeSwitchPoolVer::ProtectedBiDirV1 {
+            self.lp_fee_x
+        } else {
+            self.lp_fee_x.checked_sub(&self.treasury_fee)?
+        };
         let fee_x = BigNumber::from(raw_fee_x.to_f64()?);
-        let raw_fee_y = self.lp_fee_y.checked_sub(&self.treasury_fee)?;
+        let raw_fee_y = if self.ver == FeeSwitchPoolVer::ProtectedBiDirV1 {
+            self.lp_fee_y
+        } else {
+            self.lp_fee_y.checked_sub(&self.treasury_fee)?
+        };
         let fee_y = BigNumber::from(raw_fee_y.to_f64()?);
         let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
             / BigNumber::from(*worst_price.unwrap().numer() as f64);
@@ -543,13 +677,20 @@ impl MarketMaker for FeeSwitchPool {
 
         let input_amount_val = <u64>::try_from(input_amount.value.to_int().value()).ok()?;
         let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
-        let remain_quote = tradable_reserves_quote_int.checked_sub(output_amount_val)?;
-
-        let capped_output_amount = match UNTOUCHABLE_LOVELACE_AMOUNT.checked_sub(remain_quote) {
-            Some(_) => tradable_reserves_quote_int.checked_sub(UNTOUCHABLE_LOVELACE_AMOUNT)?,
-            None => output_amount_val,
+        let capped_output_amount = if self.ver == FeeSwitchPoolVer::ProtectedBiDirV1 {
+            let [base, quote] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
+            let output_asset = match worst_price {
+                OnSide::Bid(_) => base,
+                OnSide::Ask(_) => quote,
+            };
+            output_amount_val.min(self.protected_bidir_output_cap(output_asset))
+        } else {
+            let remain_quote = tradable_reserves_quote_int.checked_sub(output_amount_val)?;
+            match UNTOUCHABLE_LOVELACE_AMOUNT.checked_sub(remain_quote) {
+                Some(_) => tradable_reserves_quote_int.checked_sub(UNTOUCHABLE_LOVELACE_AMOUNT)?,
+                None => output_amount_val,
+            }
         };
-
         Some(AvailableLiquidity {
             input: input_amount_val,
             output: capped_output_amount,
@@ -623,7 +764,7 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchPool {
         ma.set(nft_lq, name_nft.into(), 1);
 
         if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_pd_fee_switch(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            self.unsafe_datum_update(datum);
         }
 
         if let Some(stake_part_script_hash) = self.stake_part_script_hash {

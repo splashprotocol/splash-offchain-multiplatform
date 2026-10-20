@@ -72,7 +72,10 @@ use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
+use spectrum_offchain_cardano::deployment::royalty_profiles::{RoyaltyPoolExecutionProfiles, RoyaltyPoolProfiles};
+use spectrum_offchain_cardano::deployment::{
+    DeployedValidator, DeployedValidators, ProtocolDeployment, ProtocolScriptHashes, ProtocolValidator,
+};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerChannel};
@@ -97,6 +100,14 @@ async fn main() {
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+    let protected_royalty_deployment = args
+        .protected_royalty_deployment_path
+        .as_ref()
+        .map(|path| {
+            let raw = std::fs::read_to_string(path).expect("Cannot load protected royalty deployment file");
+            serde_json::from_str::<DeployedValidators>(&raw).expect("Invalid protected royalty deployment file")
+        })
+        .or_else(|| deployment.protected_royalty_profile());
 
     let raw_validation_rules =
         std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
@@ -114,7 +125,36 @@ async fn main() {
         .await
         .expect("Explorer initialization failed");
 
+    let royalty_profiles = protected_royalty_deployment
+        .as_ref()
+        .map(|protected| RoyaltyPoolProfiles::with_protected(&deployment, protected))
+        .unwrap_or_else(|| RoyaltyPoolProfiles::legacy_only(&deployment))
+        .with_protected_fee_switch(&deployment);
+    let protected_fee_switch = deployment.protected_fee_switch.clone();
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
+    let protected_protocol_deployment = match protected_royalty_deployment {
+        Some(protected) => Some(ProtocolDeployment::unsafe_pull(protected, &explorer).await),
+        None => None,
+    };
+    let mut royalty_execution_profiles = protected_protocol_deployment
+        .as_ref()
+        .map(|protected| RoyaltyPoolExecutionProfiles::with_protected(&protocol_deployment, protected))
+        .unwrap_or_else(|| RoyaltyPoolExecutionProfiles::legacy_only(&protocol_deployment));
+    if let Some(protected) = protected_fee_switch {
+        let regular = DeployedValidator::<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>::unsafe_pull(
+            protected.pool,
+            &explorer,
+        )
+        .await
+        .erased();
+        let bi_dir = DeployedValidator::<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>::unsafe_pull(
+            protected.pool_bi_dir,
+            &explorer,
+        )
+        .await
+        .erased();
+        royalty_execution_profiles = royalty_execution_profiles.with_protected_fee_switch(regular, bi_dir);
+    }
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
@@ -251,6 +291,7 @@ async fn main() {
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
+        royalty_profiles,
         adhoc_fee_structure: AdhocFeeStructure::empty(),
         validation_rules,
         dao_context: dao_ctx,
@@ -312,6 +353,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        royalty_profiles: royalty_execution_profiles.clone(),
     };
     let context_p2 = ExecutionContext {
         time: 0.into(),
@@ -323,6 +365,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        royalty_profiles: royalty_execution_profiles.clone(),
     };
     let context_p3 = ExecutionContext {
         time: 0.into(),
@@ -334,6 +377,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        royalty_profiles: royalty_execution_profiles.clone(),
     };
     let context_p4 = ExecutionContext {
         time: 0.into(),
@@ -345,6 +389,7 @@ async fn main() {
         operator_cred: operator_paycred,
         dao_ctx,
         royalty_context: config.royalty_withdraw,
+        royalty_profiles: royalty_execution_profiles,
     };
 
     let multi_book =
@@ -596,6 +641,10 @@ struct AppArgs {
     /// Path to the deployment JSON configuration file .
     #[arg(long, short)]
     deployment_path: String,
+    /// Optional protected royalty deployment JSON. When set, legacy and protected
+    /// royalty script bundles are both loaded and routed by pool validator hash.
+    #[arg(long)]
+    protected_royalty_deployment_path: Option<String>,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
     validation_rules_path: String,

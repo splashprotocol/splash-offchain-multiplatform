@@ -535,5 +535,264 @@
       "mem": 600000,
       "steps": 240000000
     }
+  },
+  "protectedRoyalty": {
+    "poolV1": {
+      "hash": "72ed0eaa3594bfadd006992ed574dee50bbced070955c0c296fb8f8e",
+      "referenceUtxo": {
+        "txHash": "1791e98822b5a2769dab7533ef8b64d7f7f303b4e3f66ce7d5b489be454a2fe6",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 2000000,
+        "steps": 1200000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "poolV2": {
+      "hash": "ca6c752e43e47c6287d137b6d3f0f0d22a5c23b61910e3abcdcf81b2",
+      "referenceUtxo": {
+        "txHash": "ade09df4c9e2bfa9c5d0da97270feef998842f5ca06d42d74d5043c5c7342381",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 2000000,
+        "steps": 1200000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "depositV1": {
+      "hash": "5a04e05f6fd8b6e03c19619417abfec145b44f237d58bed30dc9f694",
+      "referenceUtxo": {
+        "txHash": "8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600",
+        "outputIndex": 1
+      },
+      "cost": {
+        "mem": 600000,
+        "steps": 240000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "depositV2": {
+      "hash": "821a8ed3a90050b9a7f17c7ccdb94d4a79e3e425cff22d7bc0771d0b",
+      "referenceUtxo": {
+        "txHash": "2c9864afe394ecb5d512ee600642b827a0f8e1356eb106475ee671abd00b22e6",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 600000,
+        "steps": 240000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "redeemV1": {
+      "hash": "fceb645fdc06550d62065bc0f95318e8dcd71e6a8c13c05f313b246d",
+      "referenceUtxo": {
+        "txHash": "8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600",
+        "outputIndex": 2
+      },
+      "cost": {
+        "mem": 600000,
+        "steps": 240000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "redeemV2": {
+      "hash": "16635db270fd379d0d3467dc09b6d0aa613e9ffe6fdf5a02fa5a2154",
+      "referenceUtxo": {
+        "txHash": "2c9864afe394ecb5d512ee600642b827a0f8e1356eb106475ee671abd00b22e6",
+        "outputIndex": 1
+      },
+      "cost": {
+        "mem": 600000,
+        "steps": 240000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "daoV1": {
+      "hash": "76847f451fb7c4e1d4b93284bb5ec32439770053d86804b7b687c60f",
+      "referenceUtxo": {
+        "txHash": "a2286e69be85506251bc28ee6265ba3000dfb9934a3cd45151238545066a74d5",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 6000000,
+        "steps": 3502791591
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "daoV2": {
+      "hash": "45613319ca4393e41499ffe47cd055718ddf2a1a1fe10c8fd879d0ee",
+      "referenceUtxo": {
+        "txHash": "f086b1e33ea2add3756868cafcd98006495d3f31375e7253b676439964516425",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 6000000,
+        "steps": 3502791591
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "daoRequestV1": {
+      "hash": "6a6af4b2aaccd011734da14b6886c95f252eddf68715172d6ce0f050",
+      "referenceUtxo": {
+        "txHash": "a2286e69be85506251bc28ee6265ba3000dfb9934a3cd45151238545066a74d5",
+        "outputIndex": 1
+      },
+      "cost": {
+        "mem": 1500000,
+        "steps": 320000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "daoRequestV2": {
+      "hash": "e25f37a05bb240778c270090f579e2ff73c3b071431a73a63ce657a5",
+      "referenceUtxo": {
+        "txHash": "a2286e69be85506251bc28ee6265ba3000dfb9934a3cd45151238545066a74d5",
+        "outputIndex": 2
+      },
+      "cost": {
+        "mem": 6000000,
+        "steps": 3502791591
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "withdrawV1": {
+      "hash": "e0de1016c69f04483037d4cb6cc85bb6d42bc75b80774bc5bc48eb2f",
+      "referenceUtxo": {
+        "txHash": "96db043e2b48b736ef88fe87e7f60ecfd8d58fd5b99d74ce6f3ddd54fe38fc16",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 800000,
+        "steps": 320000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "withdrawRequestV1": {
+      "hash": "92c094b90cf3637a96a13e9bc9a04ce8bb7e48c7ed0b5d1cc5ca7332",
+      "referenceUtxo": {
+        "txHash": "b43f65aa330b9532bda1066c05999210695b76ba17fcffcc09afea209b4b2fa9",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 800000,
+        "steps": 320000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "withdrawRequestV2": {
+      "hash": "6710f3002759d028a90a08e1538b25d4eaf48c72d88157f71d68dcc0",
+      "referenceUtxo": {
+        "txHash": "b6d9d699c9892821391a9473c4caad111cb62ff4118023ba5527a16e32feaad7",
+        "outputIndex": 1
+      },
+      "cost": {
+        "mem": 800000,
+        "steps": 320000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    }
+  },
+  "protectedFeeSwitch": {
+    "pool": {
+      "hash": "9af018bcc2b47a139a1dbf7121035c4ede6a3775fc3ab3788a6e0f1f",
+      "referenceUtxo": {
+        "txHash": "dbd29fd5eafbc3eeafad1cd26c330fe82f024639e69fade54f350a736b4f0af9",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 2000000,
+        "steps": 1200000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "poolBiDir": {
+      "hash": "a32d92afdbcf2d90aeab7a7876423425d41f376542bf5b7edf8e7eab",
+      "referenceUtxo": {
+        "txHash": "48220d87ecca32ff0277db39eaea26fabb7dda8e46724bec3881afeeb5e5dc90",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 2000000,
+        "steps": 1200000000
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "daoPolicy": {
+      "hash": "038c5045480b4e31f8cdecfc0c49a342e8a7411035eff2184201ae93",
+      "referenceUtxo": {
+        "txHash": "96db043e2b48b736ef88fe87e7f60ecfd8d58fd5b99d74ce6f3ddd54fe38fc16",
+        "outputIndex": 1
+      },
+      "cost": {
+        "mem": 6000000,
+        "steps": 3502791591
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    },
+    "daoPolicyBiDir": {
+      "hash": "f5981b0103830fdd8aed2f6774bb355878448547810ca3b78453500c",
+      "referenceUtxo": {
+        "txHash": "dad9315decc87ff17930bae9e7870400014f230d8e41dd01cf9bf413fc705b40",
+        "outputIndex": 0
+      },
+      "cost": {
+        "mem": 6000000,
+        "steps": 3502791591
+      },
+      "marginalCost": {
+        "mem": 600000,
+        "steps": 240000000
+      }
+    }
   }
 }

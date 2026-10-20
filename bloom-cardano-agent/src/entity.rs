@@ -20,6 +20,7 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::deployment::royalty_profiles::RoyaltyPoolProfiles;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -74,7 +75,8 @@ where
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>
         + Has<RoyaltyWithdrawOrderValidation>
-        + Has<DAOV1ActionOrderValidation>,
+        + Has<DAOV1ActionOrderValidation>
+        + Has<RoyaltyPoolProfiles>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         Order::try_from_ledger(repr, ctx).map(|inner| {
@@ -139,6 +141,7 @@ where
         + Has<LimitOrderValidation>
         + Has<DepositOrderValidation>
         + Has<PoolValidation>
+        + Has<RoyaltyPoolProfiles>
         + Has<GraduatedPoolFeeConfig>
         + Has<GraduatedSplashPoolStore>,
 {

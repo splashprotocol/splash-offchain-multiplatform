@@ -32,7 +32,7 @@ use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::data::cfmm_pool::classic_pool::ClassicPool;
-use crate::data::cfmm_pool::fee_switch_pool::{unsafe_update_pd_fee_switch, FeeSwitchPool};
+use crate::data::cfmm_pool::fee_switch_pool::FeeSwitchPool;
 use crate::data::cfmm_pool::royalty_pool::{
     unsafe_update_pd_royalty, unsafe_update_pd_royalty_v2, RoyaltyPool, RoyaltyPoolVer,
 };
@@ -41,7 +41,8 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{
     DaoActionResult, DepositOutput, OperationResultBlueprint, RedeemOutput, RoyaltyWithdrawOutput,
 };
-use crate::data::order::{Base, PoolNft, Quote};
+use crate::data::order::{Base, OrderType, PoolNft, Quote};
+use crate::deployment::royalty_profiles::RoyaltyPoolKind;
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolValidation, Rx, Ry,
@@ -49,6 +50,7 @@ use crate::data::pool::{
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::royalty_withdraw_request::{OnChainRoyaltyWithdraw, RoyaltyWithdrawContext};
 use crate::data::PoolId;
+use crate::deployment::royalty_profiles::{RoyaltyPoolExecutionProfiles, RoyaltyPoolProfiles};
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
     ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2,
@@ -191,11 +193,7 @@ impl ConstFnPool {
 
     pub fn unsafe_datum_update(&self, raw_datum: &mut PlutusData) {
         match self {
-            ConstFnPool::FeeSwitch(fee_switch) => unsafe_update_pd_fee_switch(
-                raw_datum,
-                fee_switch.treasury_x.untag(),
-                fee_switch.treasury_y.untag(),
-            ),
+            ConstFnPool::FeeSwitch(fee_switch) => fee_switch.unsafe_datum_update(raw_datum),
             ConstFnPool::Royalty(royalty_pool) => match royalty_pool.ver {
                 RoyaltyPoolVer::V1 | RoyaltyPoolVer::V1LedgerFixed => unsafe_update_pd_royalty(
                     raw_datum,
@@ -304,7 +302,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self {
@@ -474,7 +473,8 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
-        + Has<PoolValidation>,
+        + Has<PoolValidation>
+        + Has<RoyaltyPoolProfiles>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicPool::try_from_ledger(repr, ctx)
@@ -501,7 +501,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     type Result = DepositOutput;
 
@@ -512,7 +513,35 @@ where
     ) -> Result<(Self, OperationResultBlueprint<DepositOutput>), ApplyOrderError<ClassicalOnChainDeposit>>
     {
         let order = deposit.order;
-        let validator = deposit.get_validator(&ctx);
+        let validator = match &self {
+            ConstFnPool::Royalty(pool) => {
+                let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
+                let bundle = profiles
+                    .resolve(pool.kind)
+                    .expect("royalty pool execution profile must be configured");
+                let expected_type = match pool.kind {
+                    RoyaltyPoolKind::LegacyV1 | RoyaltyPoolKind::LegacyV1LedgerFixed => {
+                        OrderType::RoyaltyConstFnV1
+                    }
+                    RoyaltyPoolKind::LegacyV2 => OrderType::RoyaltyConstFnV2,
+                    RoyaltyPoolKind::ProtectedV1 => OrderType::RoyaltyConstFnProtectedV1,
+                    RoyaltyPoolKind::ProtectedV2 => OrderType::RoyaltyConstFnProtectedV2,
+                };
+                let shared_legacy_order = matches!(
+                    (pool.kind, order.order_type),
+                    (RoyaltyPoolKind::ProtectedV1, OrderType::RoyaltyConstFnV1)
+                        | (RoyaltyPoolKind::ProtectedV2, OrderType::RoyaltyConstFnV2)
+                );
+                if order.order_type != expected_type && !shared_legacy_order {
+                    return Err(ApplyOrderError::incompatible(deposit));
+                }
+                if shared_legacy_order && deposit.get_validator(&ctx).hash != bundle.deposit.hash {
+                    return Err(ApplyOrderError::incompatible(deposit));
+                }
+                bundle.deposit.clone()
+            }
+            _ => deposit.get_validator(&ctx),
+        };
         let net_x = if order.token_x.is_native() {
             order
                 .token_x_amount
@@ -600,7 +629,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     type Result = RedeemOutput;
 
@@ -610,7 +640,35 @@ where
         ctx: Ctx,
     ) -> Result<(Self, OperationResultBlueprint<RedeemOutput>), ApplyOrderError<ClassicalOnChainRedeem>> {
         let order = redeem.order;
-        let validator = redeem.get_validator(&ctx);
+        let validator = match &self {
+            ConstFnPool::Royalty(pool) => {
+                let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
+                let bundle = profiles
+                    .resolve(pool.kind)
+                    .expect("royalty pool execution profile must be configured");
+                let expected_type = match pool.kind {
+                    RoyaltyPoolKind::LegacyV1 | RoyaltyPoolKind::LegacyV1LedgerFixed => {
+                        OrderType::RoyaltyConstFnV1
+                    }
+                    RoyaltyPoolKind::LegacyV2 => OrderType::RoyaltyConstFnV2,
+                    RoyaltyPoolKind::ProtectedV1 => OrderType::RoyaltyConstFnProtectedV1,
+                    RoyaltyPoolKind::ProtectedV2 => OrderType::RoyaltyConstFnProtectedV2,
+                };
+                let shared_legacy_order = matches!(
+                    (pool.kind, order.order_type),
+                    (RoyaltyPoolKind::ProtectedV1, OrderType::RoyaltyConstFnV1)
+                        | (RoyaltyPoolKind::ProtectedV2, OrderType::RoyaltyConstFnV2)
+                );
+                if order.order_type != expected_type && !shared_legacy_order {
+                    return Err(ApplyOrderError::incompatible(redeem));
+                }
+                if shared_legacy_order && redeem.get_validator(&ctx).hash != bundle.redeem.hash {
+                    return Err(ApplyOrderError::incompatible(redeem));
+                }
+                bundle.redeem.clone()
+            }
+            _ => redeem.get_validator(&ctx),
+        };
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
                 let reserves = match self {
@@ -668,12 +726,7 @@ where
 
 impl<Ctx> ApplyOrder<OnChainRoyaltyWithdraw, Ctx> for ConstFnPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
-        + Has<RoyaltyWithdrawContext>,
+    Ctx: Has<RoyaltyPoolExecutionProfiles> + Has<RoyaltyWithdrawContext>,
 {
     type Result = RoyaltyWithdrawOutput;
 
@@ -696,12 +749,7 @@ where
 
 impl<Ctx> ApplyOrder<OnChainDAOActionRequest, Ctx> for ConstFnPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+    Ctx: Has<RoyaltyPoolExecutionProfiles>
         + Has<DAOContext>
         + Has<NetworkId>,
 {
@@ -848,6 +896,101 @@ mod tests {
     }
 
     #[test]
+    fn protected_bfee_swap_matches_deployed_accounting() {
+        use crate::data::pair::order_canonical;
+        // Non-ADA assets exercise both canonical orderings without ADA output floors.
+        for reverse in [false, true] {
+            let mut pool = gen_ada_token_pool(1_000_123, 2_000_456, 1000, 99500, 97000, 5000, 123, 456, 0);
+            pool.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+            let token = |byte| {
+                AssetClass::Token(Token(
+                    ScriptHash::from([byte; 28]),
+                    AssetName::from_utf8("asset".into()),
+                ))
+            };
+            pool.asset_x = TaggedAssetClass::new(token(if reverse { 2 } else { 1 }));
+            pool.asset_y = TaggedAssetClass::new(token(if reverse { 1 } else { 2 }));
+            let x_is_base =
+                order_canonical(pool.asset_x.untag(), pool.asset_y.untag())[0] == pool.asset_x.untag();
+            for x_in in [true, false] {
+                let input = if x_in == x_is_base {
+                    Ask(100_000)
+                } else {
+                    Bid(100_000)
+                };
+                let Next::Succ(after) = pool.swap(input) else {
+                    panic!()
+                };
+                if x_in {
+                    assert_eq!(after.reserves_x.untag(), 1_100_123);
+                    assert_eq!(after.reserves_y.untag(), 2_000_456 - 180_991);
+                    assert_eq!(after.treasury_x.untag(), 123);
+                    assert_eq!(after.treasury_y.untag(), 456 + 279);
+                } else {
+                    assert_eq!(after.reserves_y.untag(), 2_100_456);
+                    assert_eq!(after.reserves_x.untag(), 1_000_123 - 46_256);
+                    assert_eq!(after.treasury_y.untag(), 456);
+                    assert_eq!(after.treasury_x.untag(), 123 + 11);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn protected_bfee_datum_preserves_fee_and_other_fields() {
+        use cml_chain::plutus::PlutusData;
+        use spectrum_cardano_lib::plutus_data::{
+            ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension,
+        };
+        let mut pool = gen_ada_token_pool(10_000_000, 20_000_000, 1000, 99500, 97000, 5000, 123, 456, 0);
+        pool.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+        // A complete BFee-shaped datum; untouched fields use distinct sentinels.
+        let mut datum = PlutusData::from_cbor_bytes(
+            &hex::decode("d8798c000102031a000184ac1a00017ae8191388187b1901c8090a0b").unwrap(),
+        )
+        .unwrap();
+        let before = datum.clone();
+        pool.treasury_x = TaggedAmount::new(789);
+        pool.treasury_y = TaggedAmount::new(987);
+        ConstFnPool::FeeSwitch(pool).unsafe_datum_update(&mut datum);
+        let mut expected = before;
+        let c = expected.get_constr_pd_mut().unwrap();
+        c.set_field(7, 789u64.into_pd());
+        c.set_field(8, 987u64.into_pd());
+        assert_eq!(datum, expected);
+    }
+
+    #[test]
+    fn protected_bfee_rounding_and_backing_caps() {
+        let mut pool = gen_ada_token_pool(1_000_000, 1_000_000, 1000, 100000, 97000, 9999, 0, 0, 0);
+        pool.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+        let Next::Succ(after) = pool.swap(Ask(325)) else {
+            panic!()
+        };
+        assert_eq!(pool.reserves_y.untag() - after.reserves_y.untag(), 324);
+        assert_eq!(after.treasury_y.untag(), 1);
+
+        pool.reserves_y = TaggedAmount::new(1000);
+        pool.lp_fee_y = Ratio::new_raw(50000, 100000);
+        pool.treasury_fee = Ratio::new_raw(100000, 100000);
+        let Next::Succ(after) = pool.swap(Ask(1_000_000)) else {
+            panic!()
+        };
+        assert_eq!(after.reserves_y.untag(), 501);
+        assert_eq!(after.treasury_y.untag(), 499);
+        assert!(after.reserves_y > after.treasury_y);
+
+        let mut native = gen_ada_token_pool(3_100_000, 2_000_000, 1000, 50000, 97000, 100000, 200_000, 0, 0);
+        native.ver = FeeSwitchPoolVer::ProtectedBiDirV1;
+        assert_eq!(native.estimated_trade(Bid(100_000)).unwrap().output, 0);
+        native.treasury_x = TaggedAmount::new(0);
+        let Next::Succ(after) = native.swap(Bid(1_000_000)) else {
+            panic!()
+        };
+        assert_eq!((after.reserves_x - after.treasury_x).untag(), 3_000_000);
+    }
+
+    #[test]
     fn aggregate_swap_balancing() {
         let distinct_swaps = vec![
             500000000u64,
@@ -914,6 +1057,7 @@ mod tests {
     struct Ctx {
         bounds: PoolValidation,
         scripts: ProtocolScriptHashes,
+        royalty_profiles: crate::deployment::royalty_profiles::RoyaltyPoolProfiles,
     }
 
     impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for Ctx {
@@ -986,14 +1130,26 @@ mod tests {
         }
     }
 
+    impl Has<crate::deployment::royalty_profiles::RoyaltyPoolProfiles> for Ctx {
+        fn select<U: IsEqual<crate::deployment::royalty_profiles::RoyaltyPoolProfiles>>(
+            &self,
+        ) -> crate::deployment::royalty_profiles::RoyaltyPoolProfiles {
+            self.royalty_profiles.clone()
+        }
+    }
+
     #[test]
     fn try_read_invalid_pool() {
-        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let raw_deployment = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../bloom-cardano-agent/resources/mainnet.deployment.json"
+        )).expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Ctx {
             scripts,
+            royalty_profiles: crate::deployment::royalty_profiles::RoyaltyPoolProfiles::legacy_only(&deployment),
             bounds: PoolValidation {
                 min_n2t_lovelace: 150_000_000,
                 min_t2t_lovelace: 10_000_000,
@@ -1002,6 +1158,95 @@ mod tests {
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
         let pool = ConstFnPool::try_from_ledger(&bearer, &ctx);
         assert_eq!(pool, None);
+    }
+
+    #[test]
+    fn mainnet_fee_switch_routing_recognizes_both_protected_pool_scripts() {
+        use cml_chain::address::{Address, EnterpriseAddress};
+        use cml_chain::certs::StakeCredential;
+        use crate::data::cfmm_pool::fee_switch_pool::FeeSwitchPoolVer;
+
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"), "/../bloom-cardano-agent/resources/mainnet.deployment.json"
+        )).unwrap();
+        let deployment: DeployedValidators = serde_json::from_str(&raw).unwrap();
+        let protected = deployment.protected_fee_switch.as_ref().unwrap();
+        let ctx = Ctx {
+            scripts: ProtocolScriptHashes::from(&deployment),
+            royalty_profiles: crate::deployment::royalty_profiles::RoyaltyPoolProfiles::legacy_only(&deployment)
+                .with_protected_fee_switch(&deployment),
+            bounds: PoolValidation { min_n2t_lovelace: 150_000_000, min_t2t_lovelace: 10_000_000 },
+        };
+        let regular = Address::Enterprise(EnterpriseAddress::new(1, StakeCredential::new_script(protected.pool.hash)));
+        let bi_dir = Address::Enterprise(EnterpriseAddress::new(1, StakeCredential::new_script(protected.pool_bi_dir.hash)));
+        assert_eq!(FeeSwitchPoolVer::try_from_address(&regular, &ctx), Some(FeeSwitchPoolVer::ProtectedV1));
+        assert_eq!(FeeSwitchPoolVer::try_from_address(&bi_dir, &ctx), Some(FeeSwitchPoolVer::ProtectedBiDirV1));
+    }
+
+    #[test]
+    fn parses_four_confirmed_mainnet_protected_pool_outputs() {
+        // Outputs copied from the Mainnet node through N2C ChainSync:
+        // pool: 7d8454f89d24de81cbeea0979384affddfe0cb8bf11850613cd1acb1f9c363ab#0
+        // other three: 73db4c6e5199221b67460cfe806ae33e04699d435dfae59ecebc3d44b420d5d6#0-2
+        use crate::deployment::royalty_profiles::{RoyaltyPoolKind, RoyaltyPoolProfiles};
+        use serde_json::Value;
+
+        let deployment: DeployedValidators = serde_json::from_str(include_str!(
+            "../../../bloom-cardano-agent/resources/mainnet.deployment.json"
+        ))
+        .unwrap();
+        let protected = deployment.protected_royalty_profile().unwrap();
+        let ctx = Ctx {
+            scripts: ProtocolScriptHashes::from(&deployment),
+            royalty_profiles: RoyaltyPoolProfiles::with_protected(&deployment, &protected)
+                .with_protected_fee_switch(&deployment),
+            bounds: PoolValidation {
+                min_n2t_lovelace: 150_000_000,
+                min_t2t_lovelace: 10_000_000,
+            },
+        };
+        let snapshots: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/mainnet_protected_pool_outputs_20261010.json"
+        ))
+        .unwrap();
+        for (name, expected_kind) in [
+            ("pool", "regular"),
+            ("pool-bfee", "bidir"),
+            ("royalty-pool", "royalty-v1"),
+            ("double-royalty-pool", "royalty-v2"),
+        ] {
+            let cbor = hex::decode(snapshots[name].as_str().unwrap()).unwrap();
+            let output = TransactionOutput::from_cbor_bytes(&cbor).unwrap();
+            let parsed = ConstFnPool::try_from_ledger(&output, &ctx)
+                .unwrap_or_else(|| panic!("{name} was not recognized"));
+            match (parsed, expected_kind) {
+                (ConstFnPool::FeeSwitch(p), "regular") => {
+                    assert_eq!(p.ver, FeeSwitchPoolVer::ProtectedV1);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                (ConstFnPool::FeeSwitch(p), "bidir") => {
+                    assert_eq!(p.ver, FeeSwitchPoolVer::ProtectedBiDirV1);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                (ConstFnPool::Royalty(p), "royalty-v1") => {
+                    assert_eq!(p.kind, RoyaltyPoolKind::ProtectedV1);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                (ConstFnPool::Royalty(p), "royalty-v2") => {
+                    assert_eq!(p.kind, RoyaltyPoolKind::ProtectedV2);
+                    assert_eq!(p.reserves_x.untag(), 3_500_000);
+                    assert_eq!(p.reserves_y.untag(), 10_000_000);
+                    assert_eq!(p.liquidity.untag(), 7_000_000);
+                }
+                _ => panic!("{name} was routed to the wrong pool type"),
+            }
+        }
     }
 
     const POOL_UTXO: &str = "a300583931f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3cccb2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a0115a2e9a3581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7ca1444e696b65190962581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f4a14b4e696b655f4144415f4c511b7fffffffffffffff581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c1591a14c4e696b655f4144415f4e465401028201d81858dcd8798bd87982581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c15914c4e696b655f4144415f4e4654d879824040d87982581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c444e696b65d87982581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f44b4e696b655f4144415f4c511a00017f9818b41a0115a2e919096281d87981d87a81581cc24a311347be1bc3ebfa6f18cb14c7e6bbc2a245725fd9a8a1ccaaea00581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133";

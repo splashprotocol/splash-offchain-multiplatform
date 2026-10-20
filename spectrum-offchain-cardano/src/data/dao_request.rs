@@ -4,6 +4,7 @@ use crate::data::pool::CFMMPoolAction::DAOAction;
 use crate::data::pool::{CFMMPoolAction, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::{RoyaltyPoolDAOV1Request, RoyaltyPoolV2DAOV1Request};
+use crate::deployment::royalty_profiles::{RoyaltyPoolKind, RoyaltyPoolProfiles};
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use cml_chain::address::Address;
@@ -174,13 +175,16 @@ impl TryFromPData for DAORequestConfig {
 pub enum DAOV1RequestVersion {
     V1,
     V2,
+    ProtectedV1,
+    ProtectedV2,
 }
 
 impl DAOV1RequestVersion {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<DAOV1RequestVersion>
     where
         Ctx: Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
-            + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>,
+            + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>
+            + Has<RoyaltyPoolProfiles>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -200,6 +204,14 @@ impl DAOV1RequestVersion {
                 == *this_hash
             {
                 return Some(DAOV1RequestVersion::V2);
+            }
+            if let Some(kind) = ctx.select::<RoyaltyPoolProfiles>().resolve_dao_request(this_hash) {
+                return Some(match kind {
+                    RoyaltyPoolKind::ProtectedV1 => DAOV1RequestVersion::ProtectedV1,
+                    RoyaltyPoolKind::ProtectedV2 => DAOV1RequestVersion::ProtectedV2,
+                    RoyaltyPoolKind::LegacyV2 => DAOV1RequestVersion::V2,
+                    RoyaltyPoolKind::LegacyV1 | RoyaltyPoolKind::LegacyV1LedgerFixed => DAOV1RequestVersion::V1,
+                });
             }
         };
         None
@@ -244,6 +256,7 @@ where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -377,6 +390,14 @@ mod tests {
     impl Has<OutputRef> for Ctx {
         fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
             self.output_ref
+        }
+    }
+
+    impl Has<crate::deployment::royalty_profiles::RoyaltyPoolProfiles> for Ctx {
+        fn select<U: IsEqual<crate::deployment::royalty_profiles::RoyaltyPoolProfiles>>(
+            &self,
+        ) -> crate::deployment::royalty_profiles::RoyaltyPoolProfiles {
+            panic!("legacy DAO request fixture must not resolve a protected profile")
         }
     }
 
