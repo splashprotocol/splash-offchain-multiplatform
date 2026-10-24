@@ -15,6 +15,9 @@ use crate::data::order::{ClassicalOrder, OrderType, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
+use crate::deployment::royalty_profiles::{
+    RoyaltyPoolExecutionProfiles, RoyaltyPoolKind, RoyaltyPoolProfiles,
+};
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit, RoyaltyPoolV1Deposit,
     RoyaltyPoolV2Deposit, StableFnPoolT2TDeposit,
@@ -22,6 +25,7 @@ use crate::deployment::ProtocolValidator::{
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
+use cml_chain::certs::StakeCredential;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Deposit {
@@ -53,7 +57,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -81,6 +86,18 @@ where
                 let validator: DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }> = ctx.get();
                 validator.erased()
             }
+            OrderType::RoyaltyConstFnProtectedV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve(RoyaltyPoolKind::ProtectedV1)
+                .expect("protected royalty V1 profile must be configured")
+                .deposit
+                .clone(),
+            OrderType::RoyaltyConstFnProtectedV2 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve(RoyaltyPoolKind::ProtectedV2)
+                .expect("protected royalty V2 profile must be configured")
+                .deposit
+                .clone(),
         }
     }
 }
@@ -107,6 +124,7 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2Deposit as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<DepositOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -121,12 +139,17 @@ where
             test_address::<{ RoyaltyPoolV1Deposit as u8 }, Ctx>(repr.address(), ctx);
         let is_royalty_v2_fn_pool_deposit =
             test_address::<{ RoyaltyPoolV2Deposit as u8 }, Ctx>(repr.address(), ctx);
+        let profile_royalty_deposit = repr.address().payment_cred().and_then(|cred| match cred {
+            StakeCredential::Script { hash, .. } => ctx.select::<RoyaltyPoolProfiles>().resolve_deposit(hash),
+            _ => None,
+        });
         if is_const_fee_switch_pool_deposit
             || is_balance_fn_pool_deposit
             || is_const_fn_pool_deposit
             || is_stable_fn_pool_deposit
             || is_royalty_v1_fn_pool_deposit
             || is_royalty_v2_fn_pool_deposit
+            || profile_royalty_deposit.is_some()
         {
             let order_type = if is_const_fee_switch_pool_deposit {
                 OrderType::ConstFnFeeSwitch
@@ -136,6 +159,10 @@ where
                 OrderType::ConstFn
             } else if is_stable_fn_pool_deposit {
                 OrderType::StableFn
+            } else if matches!(profile_royalty_deposit, Some(RoyaltyPoolKind::ProtectedV1)) {
+                OrderType::RoyaltyConstFnProtectedV1
+            } else if matches!(profile_royalty_deposit, Some(RoyaltyPoolKind::ProtectedV2)) {
+                OrderType::RoyaltyConstFnProtectedV2
             } else if is_royalty_v1_fn_pool_deposit {
                 OrderType::RoyaltyConstFnV1
             } else {

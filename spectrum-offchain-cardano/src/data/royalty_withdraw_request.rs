@@ -1,9 +1,14 @@
-use crate::data::order::OrderType::{RoyaltyConstFnV1, RoyaltyConstFnV2};
+use crate::data::order::OrderType::{
+    RoyaltyConstFnProtectedV1, RoyaltyConstFnProtectedV2, RoyaltyConstFnV1, RoyaltyConstFnV2,
+};
 use crate::data::order::{ClassicalOrder, OrderType};
 use crate::data::pool::{CFMMPoolAction, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::{
     RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2RoyaltyWithdrawRequest,
+};
+use crate::deployment::royalty_profiles::{
+    RoyaltyPoolExecutionProfiles, RoyaltyPoolKind, RoyaltyPoolProfiles,
 };
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
@@ -216,7 +221,8 @@ pub type OnChainRoyaltyWithdraw = ClassicalOrder<OnChainOrderId, RoyaltyWithdraw
 impl<Ctx> RequiresValidator<Ctx> for OnChainRoyaltyWithdraw
 where
     Ctx: Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -228,6 +234,18 @@ where
                 let validator: DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }> = ctx.get();
                 validator.erased()
             }
+            RoyaltyConstFnProtectedV1 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve(RoyaltyPoolKind::ProtectedV1)
+                .expect("protected royalty V1 profile must be configured")
+                .withdraw_request
+                .clone(),
+            RoyaltyConstFnProtectedV2 => ctx
+                .select::<RoyaltyPoolExecutionProfiles>()
+                .resolve(RoyaltyPoolKind::ProtectedV2)
+                .expect("protected royalty V2 profile must be configured")
+                .withdraw_request
+                .clone(),
             _ => unreachable!(),
         }
     }
@@ -244,6 +262,7 @@ where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<RoyaltyWithdrawOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -251,12 +270,26 @@ where
             test_address::<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }, Ctx>(repr.address(), ctx);
         let is_royalty_v2_fn_withdraw =
             test_address::<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }, Ctx>(repr.address(), ctx);
+        let profile_royalty_withdraw = if is_royalty_v1_fn_withdraw || is_royalty_v2_fn_withdraw {
+            None
+        } else {
+            repr.address().payment_cred().and_then(|cred| match cred {
+                cml_chain::certs::StakeCredential::Script { hash, .. } => ctx
+                    .select::<RoyaltyPoolProfiles>()
+                    .resolve_withdraw_request(hash),
+                _ => None,
+            })
+        };
 
-        if is_royalty_v1_fn_withdraw || is_royalty_v2_fn_withdraw {
+        if is_royalty_v1_fn_withdraw || is_royalty_v2_fn_withdraw || profile_royalty_withdraw.is_some() {
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = RoyaltyWithdrawRequestConfig::try_from_pd(pd)?;
             let init_ada_value = repr.value().coin;
-            let order_type = if is_royalty_v1_fn_withdraw {
+            let order_type = if matches!(profile_royalty_withdraw, Some(RoyaltyPoolKind::ProtectedV1)) {
+                RoyaltyConstFnProtectedV1
+            } else if matches!(profile_royalty_withdraw, Some(RoyaltyPoolKind::ProtectedV2)) {
+                RoyaltyConstFnProtectedV2
+            } else if is_royalty_v1_fn_withdraw {
                 RoyaltyConstFnV1
             } else {
                 RoyaltyConstFnV2

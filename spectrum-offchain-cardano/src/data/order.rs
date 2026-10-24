@@ -28,6 +28,8 @@ use crate::data::royalty_withdraw_request::{
     OnChainRoyaltyWithdraw, RoyaltyWithdrawContext, RoyaltyWithdrawOrderValidation,
 };
 use crate::data::PoolId;
+use crate::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles;
+use crate::deployment::royalty_profiles::RoyaltyPoolProfiles;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -62,6 +64,8 @@ pub enum OrderType {
     StableFn,
     RoyaltyConstFnV1,
     RoyaltyConstFnV2,
+    RoyaltyConstFnProtectedV1,
+    RoyaltyConstFnProtectedV2,
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
@@ -185,6 +189,7 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2DAOV1Request as u8 }>>
+        + Has<RoyaltyPoolProfiles>
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>
         + Has<RoyaltyWithdrawOrderValidation>
@@ -249,6 +254,7 @@ where
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>

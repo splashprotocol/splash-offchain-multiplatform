@@ -16,6 +16,8 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 
+pub mod royalty_profiles;
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptType {

@@ -41,7 +41,8 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{
     DaoActionResult, DepositOutput, OperationResultBlueprint, RedeemOutput, RoyaltyWithdrawOutput,
 };
-use crate::data::order::{Base, PoolNft, Quote};
+use crate::data::order::{Base, OrderType, PoolNft, Quote};
+use crate::deployment::royalty_profiles::RoyaltyPoolKind;
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolValidation, Rx, Ry,
@@ -49,6 +50,7 @@ use crate::data::pool::{
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::royalty_withdraw_request::{OnChainRoyaltyWithdraw, RoyaltyWithdrawContext};
 use crate::data::PoolId;
+use crate::deployment::royalty_profiles::{RoyaltyPoolExecutionProfiles, RoyaltyPoolProfiles};
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
     ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2,
@@ -304,7 +306,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1LedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self {
@@ -474,7 +477,8 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
-        + Has<PoolValidation>,
+        + Has<PoolValidation>
+        + Has<RoyaltyPoolProfiles>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicPool::try_from_ledger(repr, ctx)
@@ -501,7 +505,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     type Result = DepositOutput;
 
@@ -512,7 +517,35 @@ where
     ) -> Result<(Self, OperationResultBlueprint<DepositOutput>), ApplyOrderError<ClassicalOnChainDeposit>>
     {
         let order = deposit.order;
-        let validator = deposit.get_validator(&ctx);
+        let validator = match &self {
+            ConstFnPool::Royalty(pool) => {
+                let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
+                let bundle = profiles
+                    .resolve(pool.kind)
+                    .expect("royalty pool execution profile must be configured");
+                let expected_type = match pool.kind {
+                    RoyaltyPoolKind::LegacyV1 | RoyaltyPoolKind::LegacyV1LedgerFixed => {
+                        OrderType::RoyaltyConstFnV1
+                    }
+                    RoyaltyPoolKind::LegacyV2 => OrderType::RoyaltyConstFnV2,
+                    RoyaltyPoolKind::ProtectedV1 => OrderType::RoyaltyConstFnProtectedV1,
+                    RoyaltyPoolKind::ProtectedV2 => OrderType::RoyaltyConstFnProtectedV2,
+                };
+                let shared_legacy_order = matches!(
+                    (pool.kind, order.order_type),
+                    (RoyaltyPoolKind::ProtectedV1, OrderType::RoyaltyConstFnV1)
+                        | (RoyaltyPoolKind::ProtectedV2, OrderType::RoyaltyConstFnV2)
+                );
+                if order.order_type != expected_type && !shared_legacy_order {
+                    return Err(ApplyOrderError::incompatible(deposit));
+                }
+                if shared_legacy_order && deposit.get_validator(&ctx).hash != bundle.deposit.hash {
+                    return Err(ApplyOrderError::incompatible(deposit));
+                }
+                bundle.deposit.clone()
+            }
+            _ => deposit.get_validator(&ctx),
+        };
         let net_x = if order.token_x.is_native() {
             order
                 .token_x_amount
@@ -600,7 +633,8 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
+        + Has<RoyaltyPoolExecutionProfiles>,
 {
     type Result = RedeemOutput;
 
@@ -610,7 +644,35 @@ where
         ctx: Ctx,
     ) -> Result<(Self, OperationResultBlueprint<RedeemOutput>), ApplyOrderError<ClassicalOnChainRedeem>> {
         let order = redeem.order;
-        let validator = redeem.get_validator(&ctx);
+        let validator = match &self {
+            ConstFnPool::Royalty(pool) => {
+                let profiles = ctx.select::<RoyaltyPoolExecutionProfiles>();
+                let bundle = profiles
+                    .resolve(pool.kind)
+                    .expect("royalty pool execution profile must be configured");
+                let expected_type = match pool.kind {
+                    RoyaltyPoolKind::LegacyV1 | RoyaltyPoolKind::LegacyV1LedgerFixed => {
+                        OrderType::RoyaltyConstFnV1
+                    }
+                    RoyaltyPoolKind::LegacyV2 => OrderType::RoyaltyConstFnV2,
+                    RoyaltyPoolKind::ProtectedV1 => OrderType::RoyaltyConstFnProtectedV1,
+                    RoyaltyPoolKind::ProtectedV2 => OrderType::RoyaltyConstFnProtectedV2,
+                };
+                let shared_legacy_order = matches!(
+                    (pool.kind, order.order_type),
+                    (RoyaltyPoolKind::ProtectedV1, OrderType::RoyaltyConstFnV1)
+                        | (RoyaltyPoolKind::ProtectedV2, OrderType::RoyaltyConstFnV2)
+                );
+                if order.order_type != expected_type && !shared_legacy_order {
+                    return Err(ApplyOrderError::incompatible(redeem));
+                }
+                if shared_legacy_order && redeem.get_validator(&ctx).hash != bundle.redeem.hash {
+                    return Err(ApplyOrderError::incompatible(redeem));
+                }
+                bundle.redeem.clone()
+            }
+            _ => redeem.get_validator(&ctx),
+        };
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
                 let reserves = match self {
@@ -668,12 +730,7 @@ where
 
 impl<Ctx> ApplyOrder<OnChainRoyaltyWithdraw, Ctx> for ConstFnPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawLedgerFixed as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2RoyaltyWithdrawRequest as u8 }>>
-        + Has<RoyaltyWithdrawContext>,
+    Ctx: Has<RoyaltyPoolExecutionProfiles> + Has<RoyaltyWithdrawContext>,
 {
     type Result = RoyaltyWithdrawOutput;
 
@@ -696,12 +753,7 @@ where
 
 impl<Ctx> ApplyOrder<OnChainDAOActionRequest, Ctx> for ConstFnPool
 where
-    Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2DAOV1Request as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
+    Ctx: Has<RoyaltyPoolExecutionProfiles>
         + Has<DAOContext>
         + Has<NetworkId>,
 {
@@ -983,6 +1035,14 @@ mod tests {
     impl Has<PoolValidation> for Ctx {
         fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
             self.bounds
+        }
+    }
+
+    impl Has<crate::deployment::royalty_profiles::RoyaltyPoolProfiles> for Ctx {
+        fn select<U: IsEqual<crate::deployment::royalty_profiles::RoyaltyPoolProfiles>>(
+            &self,
+        ) -> crate::deployment::royalty_profiles::RoyaltyPoolProfiles {
+            panic!("invalid legacy pool fixture must not resolve a royalty profile")
         }
     }
 

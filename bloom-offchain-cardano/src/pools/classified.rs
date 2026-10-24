@@ -16,6 +16,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::deployment::royalty_profiles::RoyaltyPoolProfiles;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1LedgerFixed,
@@ -278,6 +279,7 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1LedgerFixed as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
         + Has<PoolValidation>
+        + Has<RoyaltyPoolProfiles>
         + Has<GraduatedSplashPoolStore>
         + Has<GraduatedPoolFeeConfig>,
 {

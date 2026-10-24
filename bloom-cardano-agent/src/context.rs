@@ -19,6 +19,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     RoyaltyPoolV2DAOV1Request, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem,
     RoyaltyPoolV2RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
+use spectrum_offchain_cardano::deployment::royalty_profiles::RoyaltyPoolExecutionProfiles;
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 use type_equalities::IsEqual;
 
@@ -47,7 +48,7 @@ impl Has<ExecutionConfig<ExUnits>> for MakerContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExecutionContext {
     pub time: Time,
     pub deployment: ProtocolDeployment,
@@ -58,6 +59,13 @@ pub struct ExecutionContext {
     pub operator_cred: OperatorCred,
     pub dao_ctx: DAOContext,
     pub royalty_context: RoyaltyWithdrawContext,
+    pub royalty_profiles: RoyaltyPoolExecutionProfiles,
+}
+
+impl Has<RoyaltyPoolExecutionProfiles> for ExecutionContext {
+    fn select<U: IsEqual<RoyaltyPoolExecutionProfiles>>(&self) -> RoyaltyPoolExecutionProfiles {
+        self.royalty_profiles.clone()
+    }
 }
 
 impl Has<NetworkId> for ExecutionContext {

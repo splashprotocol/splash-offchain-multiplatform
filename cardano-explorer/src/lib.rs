@@ -147,7 +147,8 @@ impl Blockfrost {
                 .await
                 .ok()
                 .and_then(|opt_value| opt_value.cbor)
-                .and_then(|script| PlutusV2Script::from_cbor_bytes(script.as_ref()).ok())
+                .and_then(|script| hex::decode(script).ok())
+                .map(PlutusV2Script::new)
                 .map(Script::new_plutus_v2)
         }
 
