@@ -176,19 +176,37 @@ async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, hdr: &MultiEr
 pub(crate) fn unpack_valid_transactions_multi_era(
     block: MultiEraBlock,
 ) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64, BlockHeaderHash)> {
+    unpack_transactions_multi_era(block, false)
+}
+
+/// Unpack the transactions of a block.
+///
+/// With `keep_invalid == false` the phase-2 invalid transactions (the indices
+/// in `invalid_transactions`) are dropped, and each kept tx has `is_valid:
+/// true`. With `keep_invalid == true` every transaction of the block is kept,
+/// in block order, and `is_valid` tells which ones the chain applied as
+/// phase-2 invalid. The chain applies an invalid tx by its collateral only:
+/// its collateral inputs are spent, its collateral return (if any) is the
+/// output at index `len(outputs)`, its other inputs stay unspent and its other
+/// outputs do not exist. A consumer that keeps invalid txs must apply them so.
+pub fn unpack_transactions_multi_era(
+    block: MultiEraBlock,
+    keep_invalid: bool,
+) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64, BlockHeaderHash)> {
     match block {
-        MultiEraBlock::Babbage(blk) => unpack_valid_transactions_babbage(blk)
+        MultiEraBlock::Babbage(blk) => unpack_transactions_babbage(blk, keep_invalid)
             .map(|(tx, slot, block_number, block_hash)| (Either::Left(tx), slot, block_number, block_hash))
             .collect(),
-        MultiEraBlock::Conway(blk) => unpack_valid_transactions_conway(blk)
+        MultiEraBlock::Conway(blk) => unpack_transactions_conway(blk, keep_invalid)
             .map(|(tx, slot, block_number, block_hash)| (Either::Right(tx), slot, block_number, block_hash))
             .collect(),
         _ => vec![],
     }
 }
 
-pub(crate) fn unpack_valid_transactions_babbage(
+fn unpack_transactions_babbage(
     block: BabbageBlock,
+    keep_invalid: bool,
 ) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64, u64, BlockHeaderHash)> {
     let block_hash = hash_block_header_canonical(&block);
     let BabbageBlock {
@@ -204,14 +222,18 @@ pub(crate) fn unpack_valid_transactions_babbage(
         .into_iter()
         .zip(transaction_witness_sets)
         .enumerate()
-        .filter(move |(ix, _)| !invalid_indices.contains(&(*ix as u16)))
         .map(move |(ix, (tb, tw))| {
-            let tx_ix = &(ix as u16);
+            let tx_ix = ix as u16;
+            let is_valid = !invalid_indices.contains(&tx_ix);
+            (tx_ix, is_valid, tb, tw)
+        })
+        .filter(move |(_, is_valid, _, _)| keep_invalid || *is_valid)
+        .map(move |(tx_ix, is_valid, tb, tw)| {
             let tx = BabbageTransaction {
                 body: tb,
                 witness_set: tw,
-                is_valid: true,
-                auxiliary_data: auxiliary_data_set.remove(tx_ix),
+                is_valid,
+                auxiliary_data: auxiliary_data_set.remove(&tx_ix),
                 encodings: None,
             };
             (
@@ -223,8 +245,9 @@ pub(crate) fn unpack_valid_transactions_babbage(
         })
 }
 
-pub(crate) fn unpack_valid_transactions_conway(
+fn unpack_transactions_conway(
     block: Block,
+    keep_invalid: bool,
 ) -> impl DoubleEndedIterator<Item = (Transaction, u64, u64, BlockHeaderHash)> {
     let block_hash = hash_block_header_canonical(&block);
     let Block {
@@ -240,14 +263,18 @@ pub(crate) fn unpack_valid_transactions_conway(
         .into_iter()
         .zip(transaction_witness_sets)
         .enumerate()
-        .filter(move |(ix, _)| !invalid_indices.contains(&(*ix as u16)))
         .map(move |(ix, (tb, tw))| {
-            let tx_ix = &(ix as u16);
+            let tx_ix = ix as u16;
+            let is_valid = !invalid_indices.contains(&tx_ix);
+            (tx_ix, is_valid, tb, tw)
+        })
+        .filter(move |(_, is_valid, _, _)| keep_invalid || *is_valid)
+        .map(move |(tx_ix, is_valid, tb, tw)| {
             let tx = Transaction {
                 body: tb,
                 witness_set: tw,
-                is_valid: true,
-                auxiliary_data: auxiliary_data_set.remove(tx_ix),
+                is_valid,
+                auxiliary_data: auxiliary_data_set.remove(&tx_ix),
                 encodings: None,
             };
             (
@@ -322,5 +349,76 @@ where
             rollback_in_progress.alter(false);
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cml_chain::block::{Block, Header, HeaderBody, OperationalCert, ProtocolVersion};
+    use cml_chain::crypto::{KESSignature, VRFCert, Vkey};
+    use cml_chain::transaction::{TransactionBody, TransactionWitnessSet};
+    use cml_core::ordered_hash_map::OrderedHashMap;
+    use cml_crypto::{BlockBodyHash, Ed25519Signature, KESVkey, RawBytesEncoding, VRFVkey};
+    use cml_multi_era::MultiEraBlock;
+
+    use super::unpack_transactions_multi_era;
+
+    /// A Conway block with three txs; the middle one (index 1) is phase-2
+    /// invalid. Each tx is told apart by its fee.
+    fn block_with_invalid_middle_tx() -> MultiEraBlock {
+        let header_body = HeaderBody::new(
+            14148288,
+            1000,
+            None,
+            Vkey::from_raw_bytes(&[1u8; 32]).unwrap(),
+            VRFVkey::from_raw_bytes(&[2u8; 32]).unwrap(),
+            VRFCert::new(vec![3u8; 64], vec![4u8; 80]).unwrap(),
+            0,
+            BlockBodyHash::from_raw_bytes(&[5u8; 32]).unwrap(),
+            OperationalCert::new(
+                KESVkey::from_raw_bytes(&[6u8; 32]).unwrap(),
+                0,
+                0,
+                Ed25519Signature::from_raw_bytes(&[7u8; 64]).unwrap(),
+            ),
+            ProtocolVersion::new(10, 0),
+        );
+        let header = Header::new(header_body, KESSignature::new(vec![8u8; 448]).unwrap());
+        let bodies: Vec<TransactionBody> = [100u64, 200, 300]
+            .into_iter()
+            .map(|fee| TransactionBody::new(vec![].into(), vec![], fee))
+            .collect();
+        let witnesses = vec![TransactionWitnessSet::new(); 3];
+        MultiEraBlock::Conway(Block::new(
+            header,
+            bodies,
+            witnesses,
+            OrderedHashMap::new(),
+            vec![1],
+        ))
+    }
+
+    fn fees_and_validity(keep_invalid: bool) -> Vec<(u64, bool)> {
+        unpack_transactions_multi_era(block_with_invalid_middle_tx(), keep_invalid)
+            .into_iter()
+            .map(|(tx, slot, block_number, _)| {
+                assert_eq!((slot, block_number), (1000, 14148288));
+                let tx = tx.right().expect("a Conway tx");
+                (tx.body.fee, tx.is_valid)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_valid_only_unpack_drops_the_invalid_tx() {
+        assert_eq!(fees_and_validity(false), vec![(100, true), (300, true)]);
+    }
+
+    #[test]
+    fn the_full_unpack_keeps_the_invalid_tx_in_block_order_with_its_flag() {
+        assert_eq!(
+            fees_and_validity(true),
+            vec![(100, true), (200, false), (300, true)]
+        );
     }
 }

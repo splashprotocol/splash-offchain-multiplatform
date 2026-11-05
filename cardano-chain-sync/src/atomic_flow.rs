@@ -1,7 +1,7 @@
 use crate::cache::{LedgerCache, LinkedBlock};
 use crate::client::Point;
 use crate::data::ChainUpgrade;
-use crate::event_source::unpack_valid_transactions_multi_era;
+use crate::event_source::unpack_transactions_multi_era;
 use async_std::prelude::Stream;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
@@ -91,10 +91,39 @@ pub fn atomic_block_flow<Upstream, Cache>(
     (flow, recv)
 }
 
+/// The same as [`atomic_block_flow`], but each block carries its phase-2
+/// invalid transactions too, in block order, with `is_valid: false`. Both
+/// directions carry them: a rollback must unapply the collateral of an invalid
+/// tx, not its normal inputs. See
+/// [`crate::event_source::unpack_transactions_multi_era`] for how the chain
+/// applies an invalid tx.
+pub fn atomic_block_flow_with_invalid_txs<Upstream, Cache>(
+    upstream: Upstream,
+    cache: Arc<Mutex<Cache>>,
+) -> (
+    AtomicFlow<
+        Upstream,
+        UnboundedSender<(
+            BlockEvents<Either<BabbageTransaction, Transaction>>,
+            TransactionHandle,
+        )>,
+        Cache,
+    >,
+    UnboundedReceiver<(
+        BlockEvents<Either<BabbageTransaction, Transaction>>,
+        TransactionHandle,
+    )>,
+) {
+    let (snd, recv) = mpsc::unbounded();
+    let flow = AtomicFlow::new(upstream, snd, cache).keeping_invalid_txs();
+    (flow, recv)
+}
+
 pub struct AtomicFlow<Upstream, Downstream, Cache> {
     upstream: Upstream,
     downstream: Downstream,
     cache: Arc<Mutex<Cache>>,
+    keep_invalid: bool,
 }
 
 impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
@@ -103,6 +132,15 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
             upstream,
             downstream,
             cache,
+            keep_invalid: false,
+        }
+    }
+
+    /// Carry the phase-2 invalid txs of each block with `is_valid: false`.
+    pub fn keeping_invalid_txs(self) -> Self {
+        Self {
+            keep_invalid: true,
+            ..self
         }
     }
 
@@ -121,6 +159,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
             upstream,
             mut downstream,
             cache,
+            keep_invalid,
         } = self;
         let mut upstream = upstream.fuse();
         loop {
@@ -133,7 +172,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                         hash_block_header_canonical_multi_era(&hdr).to_hex()
                     );
                     let applied_txs = BlockEvents::RollForward {
-                        events: unpack_valid_transactions_multi_era(blk)
+                        events: unpack_transactions_multi_era(blk, keep_invalid)
                             .into_iter()
                             .map(|(tx, _, _, _)| tx)
                             .collect(),
@@ -162,7 +201,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                     let block_num = block.header().block_number();
                                     let block_slot = block.header().slot();
                                     let unapplied_txs = BlockEvents::RollBackward {
-                                        events: unpack_valid_transactions_multi_era(block)
+                                        events: unpack_transactions_multi_era(block, keep_invalid)
                                             .into_iter()
                                             .map(|(tx, _, _, _)| tx)
                                             .rev()
