@@ -1,4 +1,5 @@
 use std::collections::{HashSet, VecDeque};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
@@ -7,6 +8,7 @@ use async_stream::stream;
 use cml_core::serialization::Deserialize;
 use cml_crypto::blake2b256;
 use futures::Stream;
+use log::{info, warn};
 use pallas_codec::minicbor::Decoder;
 use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
@@ -77,10 +79,10 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
             loop {
                 let mut guard = self.tx_monitor.lock().await;
                 let MonitorState { client, dedup } = &mut *guard;
-                // Forgets sent since the last snapshot apply before the next
-                // one, so a re-admitted orphan is yielded on its first re-list.
-                dedup.sync_forgets();
-                if let Ok(_) = client.acquire().await {
+                // Forgets sent before AND during the wait for the snapshot
+                // apply to it, so a re-admitted orphan is yielded on its
+                // first re-list, not one snapshot late.
+                if dedup.around_acquire(client.acquire()).await.is_ok() {
                     loop {
                         if let Ok(Some(raw_tx)) = client.query_next_tx().await {
                             let bytes = &*raw_tx.1;
@@ -122,6 +124,11 @@ pub fn tx_id_of_raw(bytes: &[u8]) -> TxId {
     }
 }
 
+/// Lower-case hex of a tx id, for the log.
+fn hex(id: &TxId) -> String {
+    id.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn body_span(bytes: &[u8]) -> Option<&[u8]> {
     let mut decoder = Decoder::new(bytes);
     // A definite or an indefinite array; its first element is the body.
@@ -135,26 +142,36 @@ fn body_span(bytes: &[u8]) -> Option<&[u8]> {
 /// `the-forget-never-blocks-the-ledger-gate`: a cloneable handle that tells
 /// the monitor to forget a tx id. `forget` only sends on an unbounded
 /// channel: it never awaits and never takes the monitor mutex. The monitor
-/// applies the forgets before its next snapshot.
+/// applies the forgets before and right after the `acquire` of its next
+/// snapshot, so the next snapshot is the one that yields the tx again.
 #[derive(Clone)]
 pub struct ForgetHandle(mpsc::UnboundedSender<TxId>);
 
 impl ForgetHandle {
-    /// Send `id` to the monitor and return. A closed monitor drops it.
+    /// Send `id` to the monitor and return. When the monitor is gone the
+    /// forget is dropped, and the log says so.
     pub fn forget(&self, id: TxId) {
-        let _ = self.0.send(id);
+        match self.0.send(id) {
+            Ok(()) => info!("[MEMPOOL_FORGET] queued tx={}", hex(&id)),
+            Err(_) => warn!("[MEMPOOL_FORGET] dropped tx={} — the monitor is gone", hex(&id)),
+        }
     }
 }
 
 /// The per-snapshot dedup of the mempool monitor: the filter of tx ids
 /// already yielded and the receiver of the forgets.
 ///
-/// `stream_updates` calls [`Self::sync_forgets`] before each `acquire` and
-/// [`Self::admit`] for each tx the snapshot lists.
+/// `stream_updates` calls [`Self::around_acquire`] for each `acquire` (it
+/// drains the forgets before and right after the wait) and [`Self::admit`]
+/// for each tx the snapshot lists.
 pub struct SnapshotDedup {
     filter: TxFilter,
     forget_rx: mpsc::UnboundedReceiver<TxId>,
     forget_tx: mpsc::UnboundedSender<TxId>,
+    /// The ids forgotten for the current snapshot whose re-yield is not
+    /// logged yet. Reset by [`Self::around_acquire`], so a forgotten tx the
+    /// snapshot does not list leaves no trace behind.
+    forgotten: HashSet<TxId>,
 }
 
 impl SnapshotDedup {
@@ -164,6 +181,7 @@ impl SnapshotDedup {
             filter: TxFilter::new(cap),
             forget_rx,
             forget_tx,
+            forgotten: HashSet::new(),
         }
     }
 
@@ -172,11 +190,27 @@ impl SnapshotDedup {
         ForgetHandle(self.forget_tx.clone())
     }
 
+    /// The dedup side of one snapshot: apply the forgets sent so far, run
+    /// `acquire` (the wait for the next snapshot), then apply the forgets
+    /// that arrived during the wait, so they count for THIS snapshot and
+    /// not the next one. Both drains are synchronous; the only await is
+    /// `acquire` itself.
+    pub async fn around_acquire<F: Future>(&mut self, acquire: F) -> F::Output {
+        self.forgotten.clear();
+        self.sync_forgets();
+        let acquired = acquire.await;
+        self.sync_forgets();
+        acquired
+    }
+
     /// Apply every forget sent so far. Returns how many were applied.
     pub fn sync_forgets(&mut self) -> usize {
         let mut applied = 0;
         while let Ok(id) = self.forget_rx.try_recv() {
-            self.filter.forget(&id);
+            if self.filter.forget(&id) {
+                self.forgotten.insert(id);
+            }
+            info!("[MEMPOOL_FORGET] applied tx={}", hex(&id));
             applied += 1;
         }
         applied
@@ -185,7 +219,12 @@ impl SnapshotDedup {
     /// Register the raw tx. `true` when it is not yet known, so the snapshot
     /// yields it; `false` for a re-list.
     pub fn admit(&mut self, raw_tx: &[u8]) -> bool {
-        !self.filter.register(tx_id_of_raw(raw_tx))
+        let id = tx_id_of_raw(raw_tx);
+        let yielded = !self.filter.register(id);
+        if yielded && self.forgotten.remove(&id) {
+            info!("[MEMPOOL_FORGET] re-yielded tx={}", hex(&id));
+        }
+        yielded
     }
 }
 
@@ -217,11 +256,14 @@ impl TxFilter {
         false
     }
 
-    /// Remove `tx` from the filter and the eviction queue.
-    fn forget(&mut self, tx: &TxId) {
-        if self.known_txs.remove(tx) {
+    /// Remove `tx` from the filter and the eviction queue. `true` when the
+    /// filter knew it.
+    fn forget(&mut self, tx: &TxId) -> bool {
+        let known = self.known_txs.remove(tx);
+        if known {
             self.eviction_queue.retain(|known| known != tx);
         }
+        known
     }
 }
 
@@ -310,9 +352,10 @@ mod tests {
         vec![0x84, 0xa1, 0x02, 0x18, n, 0xa0, 0xf5, 0xf6]
     }
 
-    /// One scripted snapshot, as `stream_updates` runs it: the forgets sent
-    /// so far are applied before `acquire`, then every listed tx is
-    /// registered. Returns the positions of the txs the snapshot yields.
+    /// One scripted snapshot without an `acquire` wait: the forgets sent so
+    /// far are applied, then every listed tx is registered. Returns the
+    /// positions of the txs the snapshot yields. The `acquire` side is
+    /// `around_acquire`, exercised by its own tests.
     fn snapshot(dedup: &mut SnapshotDedup, txs: &[&[u8]]) -> Vec<usize> {
         dedup.sync_forgets();
         txs.iter()
@@ -370,6 +413,29 @@ mod tests {
         assert_eq!(snapshot(&mut dedup, &[&t, &other]), Vec::<usize>::new(), "and once only");
     }
 
+    /// F4: a forget that arrives while `acquire` waits for the next snapshot
+    /// applies to THAT snapshot, not one later. The real per-snapshot order
+    /// is `sync_forgets -> acquire -> sync_forgets -> admit*`.
+    #[tokio::test]
+    async fn a_forget_during_acquire_is_applied_to_that_snapshot() {
+        let mut dedup = SnapshotDedup::new(FILTER_CAP);
+        let forget = dedup.forget_handle();
+        let t = raw_tx(5);
+        let id = tx_id_of_raw(&t);
+        assert_eq!(snapshot(&mut dedup, &[&t]), vec![0], "first sight yields");
+
+        // The orphan transition happens during the wait for the snapshot.
+        let acquired = dedup
+            .around_acquire(async {
+                forget.forget(id);
+                Ok::<(), ()>(())
+            })
+            .await;
+        assert!(acquired.is_ok());
+        assert!(dedup.admit(&t), "the acquired snapshot yields the orphan");
+        assert!(!dedup.admit(&t), "and once only");
+    }
+
     #[test]
     fn a_forget_of_an_unknown_id_changes_nothing() {
         let mut dedup = SnapshotDedup::new(FILTER_CAP);
@@ -422,6 +488,95 @@ mod tests {
         drop(draining);
 
         assert_eq!(snapshot(&mut state.lock().await.dedup, &[&t]), vec![0], "the forget applied");
+    }
+
+    // ---------------------------------------------------------------------
+    // L1: the forget path speaks in the log
+    // ---------------------------------------------------------------------
+
+    struct Capture(std::sync::Mutex<Vec<(log::Level, String)>>);
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            self.0.lock().unwrap().push((record.level(), record.args().to_string()));
+        }
+        fn flush(&self) {}
+    }
+
+    static CAPTURE: Capture = Capture(std::sync::Mutex::new(Vec::new()));
+
+    /// Install the capturing logger (once per process; tests share it, so
+    /// every assertion filters on its own tx id).
+    fn capture_log() {
+        let _ = log::set_logger(&CAPTURE);
+        log::set_max_level(log::LevelFilter::Info);
+    }
+
+    fn lines_about(id: &TxId) -> Vec<(log::Level, String)> {
+        let needle = hex(id);
+        CAPTURE
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, line)| line.contains(&needle))
+            .cloned()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_forget_path_logs_queued_applied_and_re_yielded() {
+        capture_log();
+        let mut dedup = SnapshotDedup::new(FILTER_CAP);
+        let forget = dedup.forget_handle();
+        let t = raw_tx(6);
+        let id = tx_id_of_raw(&t);
+        let h = hex(&id);
+        assert_eq!(snapshot(&mut dedup, &[&t]), vec![0]);
+        assert!(lines_about(&id).is_empty(), "a plain admit is silent");
+
+        forget.forget(id);
+        assert_eq!(
+            lines_about(&id),
+            vec![(log::Level::Info, format!("[MEMPOOL_FORGET] queued tx={h}"))]
+        );
+
+        dedup.around_acquire(std::future::ready(())).await;
+        assert_eq!(
+            lines_about(&id).last().cloned(),
+            Some((log::Level::Info, format!("[MEMPOOL_FORGET] applied tx={h}")))
+        );
+
+        assert!(dedup.admit(&t));
+        assert_eq!(
+            lines_about(&id).last().cloned(),
+            Some((log::Level::Info, format!("[MEMPOOL_FORGET] re-yielded tx={h}")))
+        );
+        assert_eq!(lines_about(&id).len(), 3);
+
+        // A later re-list is suppressed and says nothing more.
+        assert!(!dedup.admit(&t));
+        assert_eq!(lines_about(&id).len(), 3, "re-yielded is logged once");
+    }
+
+    #[test]
+    fn a_forget_after_the_monitor_is_gone_is_warned_not_swallowed() {
+        capture_log();
+        let dedup = SnapshotDedup::new(FILTER_CAP);
+        let forget = dedup.forget_handle();
+        drop(dedup);
+        let id = tx_id_of_raw(&raw_tx(8));
+        forget.forget(id);
+        assert_eq!(
+            lines_about(&id),
+            vec![(
+                log::Level::Warn,
+                format!("[MEMPOOL_FORGET] dropped tx={} — the monitor is gone", hex(&id))
+            )]
+        );
     }
 
     #[test]

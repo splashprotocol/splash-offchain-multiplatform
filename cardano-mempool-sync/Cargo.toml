@@ -16,5 +16,6 @@ pallas-codec = { git = "https://github.com/GusevTimofey/pallas.git", rev = "a949
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "92fa3944388c51880a77209feda35e16e0289247" }
 futures = "0.3.28"
+log = "0.4"
 tokio = { version = "1", features = ["full"] }
 thiserror = "1.0.47"
